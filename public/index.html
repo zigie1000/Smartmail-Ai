@@ -2,76 +2,181 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SmartEmail | AI Email Assistant + CRM</title>
-  <script defer src="/scripts.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEmail | AI Email Assistant</title>
+  <link rel="icon" href="/favicon.png" type="image/png" />
   <style>
     body {
       font-family: 'Segoe UI', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      color: #333;
     }
-    .card {
-      @apply bg-white shadow-md rounded-2xl p-6;
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      font-size: 28px;
+    }
+    .tier {
+      font-weight: bold;
+      color: green;
+      text-align: center;
+      margin-top: -12px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      margin-top: 16px;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+    }
+    select, button {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button.generate {
+      background-color: #007bff;
+      color: white;
+    }
+    .output-box {
+      background: #f9f9f9;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 24px;
+      white-space: pre-wrap;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+    .actions button {
+      background-color: #eee;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    .disabled {
+      opacity: 0.5;
+      pointer-events: none;
     }
   </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body>
+  <div class="container">
+    <h1>SmartEmail</h1>
+    <p class="tier" id="tierDisplay">Checking license...</p>
 
-  <div class="max-w-6xl mx-auto p-6 space-y-6">
-    <!-- Header -->
-    <div class="text-center">
-      <h1 class="text-4xl font-bold text-blue-600 mb-2">📨 SmartEmail</h1>
-      <p class="text-sm text-gray-600">AI-powered email summarizer and CRM with license-based access</p>
+    <input type="email" id="email" placeholder="Enter your email address" style="width:100%; padding: 12px; font-size:16px; border-radius:8px; border: 1px solid #ccc; margin-top: 16px;" />
+
+    <textarea id="inputEmail" placeholder="Paste your email here to generate a reply..."></textarea>
+
+    <div class="controls">
+      <select id="action">
+        <option value="generate">Generate</option>
+        <option value="enhance">Enhance</option>
+      </select>
+      <button class="generate" onclick="handleGenerate()">Go</button>
     </div>
 
-    <!-- License Status -->
-    <div id="licenseStatus" class="text-center text-sm text-gray-500">Checking license...</div>
+    <div class="output-box" id="output" style="display:none;"></div>
 
-    <!-- Email Entry Prompt -->
-    <div id="emailPrompt" class="card hidden">
-      <h2 class="text-lg font-semibold mb-2">Enter Your Email to Continue</h2>
-      <input id="emailInput" type="email" placeholder="you@example.com" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-3" />
-      <button onclick="saveEmail()" class="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600">Check Access</button>
-    </div>
-
-    <!-- Main App -->
-    <div id="mainApp" class="space-y-6 hidden">
-      <!-- Email Fetch Panel -->
-      <div class="card">
-        <h2 class="text-xl font-semibold mb-2">📥 Connect to Your Email (IMAP)</h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-          <input id="imapEmail" type="email" placeholder="Email" class="px-4 py-2 border border-gray-300 rounded-lg" />
-          <input id="imapPassword" type="password" placeholder="Password" class="px-4 py-2 border border-gray-300 rounded-lg" />
-          <input id="imapServer" type="text" placeholder="IMAP Server" class="px-4 py-2 border border-gray-300 rounded-lg" />
-        </div>
-        <button onclick="fetchEmails()" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Fetch and Summarize Emails</button>
-      </div>
-
-      <!-- Summarized Results -->
-      <div class="card">
-        <h2 class="text-xl font-semibold mb-3">🧠 Summarized Emails</h2>
-        <div id="emailResults" class="space-y-3 max-h-[350px] overflow-y-auto text-sm"></div>
-      </div>
-
-      <!-- CRM Leads View -->
-      <div class="card">
-        <h2 class="text-xl font-semibold mb-3">📇 CRM Leads</h2>
-        <button onclick="loadLeads()" class="mb-4 bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700">Load Leads</button>
-        <div id="leadList" class="space-y-2 max-h-[250px] overflow-y-auto"></div>
-      </div>
-
-      <!-- Tier Info Panel -->
-      <div id="tierPanel" class="card bg-blue-50">
-        <h2 class="text-lg font-semibold text-blue-600">Your Tier</h2>
-        <div class="text-sm text-gray-700 mt-1">Features available based on your license tier.</div>
-        <ul class="list-disc ml-5 mt-2 text-sm text-gray-600">
-          <li><strong>Free:</strong> Up to 5 emails summarized, no CRM export</li>
-          <li><strong>Pro:</strong> Unlimited email summaries, CRM leads</li>
-          <li><strong>Premium:</strong> Priority AI + CRM integrations</li>
-        </ul>
-      </div>
+    <div class="actions" id="exportActions" style="display:none;">
+      <button onclick="copyOutput()">Copy</button>
+      <button onclick="exportText()">Text</button>
+      <button onclick="exportWord()">Word</button>
+      <button onclick="exportPDF()">PDF</button>
     </div>
   </div>
 
+  <script>
+    const tierDisplay = document.getElementById('tierDisplay');
+    const outputBox = document.getElementById('output');
+    const exportActions = document.getElementById('exportActions');
+
+    async function checkLicense(email) {
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, content: 'license-check' })
+      });
+      const data = await res.json();
+      return data.tier || 'free';
+    }
+
+    async function handleGenerate() {
+      const email = document.getElementById('email').value;
+      const content = document.getElementById('inputEmail').value;
+      const action = document.getElementById('action').value;
+
+      if (!email || !content) return alert('Please enter your email and content');
+
+      const tier = await checkLicense(email);
+      tierDisplay.textContent = `Tier: ${tier}`;
+
+      if (tier === 'free') return alert('Upgrade required for this feature.');
+
+      const prefix = action === 'enhance' ? 'Improve this email reply:
+' : 'Reply professionally to this email:
+';
+
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, content })
+      });
+
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+
+      outputBox.style.display = 'block';
+      exportActions.style.display = 'flex';
+      outputBox.textContent = data.reply;
+    }
+
+    function copyOutput() {
+      navigator.clipboard.writeText(outputBox.textContent);
+    }
+    function exportText() {
+      const blob = new Blob([outputBox.textContent], { type: 'text/plain' });
+      download(blob, 'reply.txt');
+    }
+    function exportWord() {
+      const blob = new Blob([`<html><body>${outputBox.textContent.replace(/\n/g, '<br>')}</body></html>`], { type: 'application/msword' });
+      download(blob, 'reply.doc');
+    }
+    function exportPDF() {
+      const win = window.open('', '_blank');
+      win.document.write(`<pre>${outputBox.textContent}</pre>`);
+      win.print();
+    }
+    function download(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
 </body>
 </html>
