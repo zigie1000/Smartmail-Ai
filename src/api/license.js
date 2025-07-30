@@ -1,20 +1,37 @@
-const express = require('express');
-const router = express.Router();
-const { supabase } = require('../lib/supabase');
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
 
-router.post('/', async (req, res) => {
-  const { email } = req.body;
-  const { data, error } = await supabase
-    .from('licenses')
-    .select('*')
-    .eq('email', email)
-    .single();
+dotenv.config();
 
-  if (error || !data) {
-    return res.status(404).json({ status: 'not_found' });
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+// GET /api/license?email=example@example.com
+export async function getLicense(req, res) {
+  const email = req.query.email;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Missing email parameter' });
   }
 
-  return res.json({ status: 'ok', tier: data.tier });
-});
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('tier, product')
+    .eq('email', email)
+    .maybeSingle();
 
-module.exports = router;
+  if (error) {
+    return res.status(500).json({ error: 'Error checking license' });
+  }
+
+  if (!data) {
+    return res.status(404).json({ tier: 'free', reason: 'License not found' });
+  }
+
+  return res.json({
+    tier: data.tier,
+    product: data.product || 'SmartEmail',
+  });
+}
