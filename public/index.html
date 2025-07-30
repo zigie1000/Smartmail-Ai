@@ -31,28 +31,29 @@
       text-align: center;
       margin-top: -12px;
     }
-    textarea {
+    input, textarea {
       width: 100%;
-      min-height: 180px;
-      margin-top: 16px;
       padding: 12px;
       font-size: 16px;
       border: 1px solid #ccc;
       border-radius: 8px;
+      margin-top: 16px;
     }
     .controls {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       align-items: center;
-      margin-top: 16px;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
     }
-    select, button {
+    button, select {
       padding: 10px 16px;
       border-radius: 8px;
       border: none;
       font-size: 16px;
     }
-    button.generate {
+    button.generate, button.enhance {
       background-color: #007bff;
       color: white;
     }
@@ -75,9 +76,15 @@
       border: 1px solid #ccc;
       font-size: 14px;
     }
-    .disabled {
-      opacity: 0.5;
-      pointer-events: none;
+    .log-window {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #666;
+      background: #fafafa;
+      padding: 12px;
+      border-left: 4px solid #007bff;
+      border-radius: 8px;
+      white-space: pre-wrap;
     }
   </style>
 </head>
@@ -86,16 +93,17 @@
     <h1>SmartEmail</h1>
     <p class="tier" id="tierDisplay">Checking license...</p>
 
-    <input type="email" id="email" placeholder="Enter your email address" style="width:100%; padding: 12px; font-size:16px; border-radius:8px; border: 1px solid #ccc; margin-top: 16px;" />
-
-    <textarea id="inputEmail" placeholder="Paste your email here to generate a reply..."></textarea>
+    <input type="email" id="email" placeholder="Enter your email address" />
+    <textarea id="inputEmail" placeholder="Paste your email here..."></textarea>
 
     <div class="controls">
-      <select id="action">
-        <option value="generate">Generate</option>
-        <option value="enhance">Enhance</option>
+      <button class="generate" onclick="handleGenerate('generate')">Generate</button>
+      <button class="enhance" onclick="handleGenerate('enhance')">Enhance</button>
+      <select id="extraFeature">
+        <option value="">Other Features</option>
+        <option value="summarize">Summarize</option>
+        <option value="translate">Translate</option>
       </select>
-      <button class="generate" onclick="handleGenerate()">Go</button>
     </div>
 
     <div class="output-box" id="output" style="display:none;"></div>
@@ -106,12 +114,15 @@
       <button onclick="exportWord()">Word</button>
       <button onclick="exportPDF()">PDF</button>
     </div>
+
+    <div class="log-window" id="logWindow" style="display:none;"></div>
   </div>
 
   <script>
     const tierDisplay = document.getElementById('tierDisplay');
     const outputBox = document.getElementById('output');
     const exportActions = document.getElementById('exportActions');
+    const logWindow = document.getElementById('logWindow');
 
     async function checkLicense(email) {
       const res = await fetch('/generate', {
@@ -123,10 +134,9 @@
       return data.tier || 'free';
     }
 
-    async function handleGenerate() {
+    async function handleGenerate(action) {
       const email = document.getElementById('email').value.trim();
       const content = document.getElementById('inputEmail').value.trim();
-      const action = document.getElementById('action').value;
 
       if (!email || !content) {
         alert('Please enter your email and content');
@@ -135,11 +145,16 @@
 
       const tier = await checkLicense(email);
       tierDisplay.textContent = `Tier: ${tier}`;
+      logWindow.style.display = 'block';
+      logWindow.textContent = `Checking license... Tier: ${tier}`;
 
       if (tier === 'free') {
+        logWindow.textContent += '\nAccess denied. Upgrade required for this feature.';
         alert('Upgrade required for this feature.');
         return;
       }
+
+      logWindow.textContent += `\nSending request to server with action: ${action}`;
 
       const res = await fetch('/generate', {
         method: 'POST',
@@ -148,14 +163,17 @@
       });
 
       const data = await res.json();
+
       if (data.error) {
         alert(data.error);
+        logWindow.textContent += `\nError: ${data.error}`;
         return;
       }
 
       outputBox.style.display = 'block';
       exportActions.style.display = 'flex';
       outputBox.textContent = data.reply;
+      logWindow.textContent += '\nReply received and displayed successfully.';
     }
 
     function copyOutput() {
