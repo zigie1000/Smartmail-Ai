@@ -1,4 +1,3 @@
-// server/oauth.js
 import express from 'express';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
@@ -7,27 +6,28 @@ dotenv.config();
 
 const router = express.Router();
 
+// Google OAuth2 setup
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// Scopes: read-only access to Gmail
+// Scopes for Gmail access
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
-// Step 1: Redirect user to Google's OAuth 2.0 server
+// 1️⃣ Route: /auth/google → Initiates login
 router.get('/auth/google', (req, res) => {
-  const url = oauth2Client.generateAuthUrl({
+  const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
+    prompt: 'consent',
     scope: SCOPES,
-    prompt: 'consent'
   });
-  res.redirect(url);
+  res.redirect(authUrl);
 });
 
-// Step 2: Handle OAuth2 callback
-router.get('/oauth2callback', async (req, res) => {
+// 2️⃣ Route: /auth/google/callback → Handles Google's response
+router.get('/auth/google/callback', async (req, res) => {
   const { code } = req.query;
 
   if (!code) return res.status(400).send('Missing authorization code');
@@ -36,16 +36,15 @@ router.get('/oauth2callback', async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // You now have tokens.access_token and tokens.refresh_token
-    // Store securely in DB or session (not plain localStorage in production)
-    return res.json({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_in: tokens.expiry_date
+    // Optionally: store access_token/refresh_token in DB or Supabase
+    // For now, return it for testing
+    res.json({
+      message: '✅ Gmail OAuth successful',
+      tokens,
     });
   } catch (err) {
-    console.error('OAuth Error:', err);
-    res.status(500).send('OAuth callback failed');
+    console.error('OAuth Callback Error:', err);
+    res.status(500).json({ error: 'Failed to exchange token' });
   }
 });
 
