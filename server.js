@@ -1,3 +1,5 @@
+// server/server.js
+
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
@@ -11,13 +13,13 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// Supabase setup (secure)
+// Supabase setup with secure SERVICE_KEY
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// License checker
+// License check
 async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
@@ -42,6 +44,11 @@ app.post('/generate', async (req, res) => {
   }
 
   const license = await checkLicense(email);
+
+  if (content === 'license-check') {
+    return res.json({ tier: license.tier });
+  }
+
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
@@ -65,7 +72,7 @@ app.post('/generate', async (req, res) => {
     const result = await response.json();
     const reply = result.choices?.[0]?.message?.content || '';
 
-    // Save to leads table
+    // Store lead
     await supabase.from('leads').insert([
       {
         email,
@@ -83,5 +90,5 @@ app.post('/generate', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ SmartEmail backend running on port ${PORT}`);
 });
