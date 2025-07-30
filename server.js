@@ -15,7 +15,6 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const USE_GOOGLE_AUTH = process.env.USE_GOOGLE_AUTH === 'true';
 
-// Supabase setup with secure SERVICE_KEY
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -32,12 +31,21 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
-// Route: Root
+// ---------------- AI PROMPT LOGIC ----------------
+
+function generateAIPrompt(content, action = 'generate') {
+  if (action === 'enhance') {
+    return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
+  }
+  return `Reply professionally to this email:\n\n"${content}"`;
+}
+
+// ---------------- ROUTES ----------------
+
 app.get('/', (req, res) => {
   res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
 });
 
-// Route: Status
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
@@ -46,7 +54,6 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Route: Start OAuth
 app.get('/auth/google', (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
   const url = oauth2Client.generateAuthUrl({
@@ -56,7 +63,6 @@ app.get('/auth/google', (req, res) => {
   res.redirect(url);
 });
 
-// Route: OAuth Callback
 app.get('/auth/google/callback', async (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
   const { code } = req.query;
@@ -72,7 +78,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ---------------- LICENSE CHECK ----------------
+// ---------------- LICENSE ----------------
 
 async function checkLicense(email) {
   const { data, error } = await supabase
@@ -89,9 +95,10 @@ async function checkLicense(email) {
   };
 }
 
-// Route: POST /generate (licensed)
+// ---------------- MAIN ROUTES ----------------
+
 app.post('/generate', async (req, res) => {
-  const { email, content } = req.body;
+  const { email, content, action } = req.body;
 
   if (!email || !content) {
     return res.status(400).json({ error: 'Missing email or content' });
@@ -107,7 +114,7 @@ app.post('/generate', async (req, res) => {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
 
-  const prompt = `Reply professionally to this email:\n\n"${content}"`;
+  const prompt = generateAIPrompt(content, action);
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -142,21 +149,20 @@ app.post('/generate', async (req, res) => {
   }
 });
 
-// Route: POST /api/respond (for pasted content, no login or license check)
 app.post('/api/respond', async (req, res) => {
-  const { email } = req.body;
+  const { email, action } = req.body;
 
   if (!email || typeof email !== 'string') {
     return res.status(400).json({ error: 'Missing or invalid email content' });
   }
 
-  try {
-    const prompt = `You are SmartEmail AI. Analyze and reply to the following email:\n\n${email}`;
+  const prompt = generateAIPrompt(email, action);
 
+  try {
     const aiResponse = await fetch("https://api.openai.com/v1/completions", {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -184,7 +190,8 @@ app.post('/api/respond', async (req, res) => {
   }
 });
 
-// Start server
+// ---------------- START ----------------
+
 app.listen(PORT, () => {
   console.log(`✅ SmartEmail backend running on port ${PORT}`);
 });
