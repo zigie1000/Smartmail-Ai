@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: SmartEmail
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python src/main.py
