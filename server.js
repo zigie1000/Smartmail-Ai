@@ -5,6 +5,8 @@ import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
+import oauthRoutes from './server/oauth.js';
+app.use('/', oauthRoutes);
 
 dotenv.config();
 const app = express();
