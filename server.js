@@ -37,6 +37,15 @@ app.get('/', (req, res) => {
   res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
 });
 
+// Route: Status
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    googleLogin: USE_GOOGLE_AUTH,
+    mode: 'SmartEmail',
+  });
+});
+
 // Route: Start OAuth
 app.get('/auth/google', (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
@@ -80,7 +89,7 @@ async function checkLicense(email) {
   };
 }
 
-// Route: POST /generate
+// Route: POST /generate (licensed)
 app.post('/generate', async (req, res) => {
   const { email, content } = req.body;
 
@@ -130,6 +139,48 @@ app.post('/generate', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+// Route: POST /api/respond (for pasted content, no login or license check)
+app.post('/api/respond', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid email content' });
+  }
+
+  try {
+    const prompt = `You are SmartEmail AI. Analyze and reply to the following email:\n\n${email}`;
+
+    const aiResponse = await fetch("https://api.openai.com/v1/completions", {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'text-davinci-003',
+        prompt,
+        temperature: 0.6,
+        max_tokens: 250
+      })
+    });
+
+    const data = await aiResponse.json();
+
+    if (!data || !data.choices || !data.choices[0]) {
+      throw new Error('Invalid OpenAI response');
+    }
+
+    res.json({
+      success: true,
+      response: data.choices[0].text.trim()
+    });
+
+  } catch (err) {
+    console.error('AI respond error:', err);
+    res.status(500).json({ error: 'AI processing failed' });
   }
 });
 
