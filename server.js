@@ -6,14 +6,17 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
+import Stripe from 'stripe';
 
 dotenv.config();
-const app = express();
-app.use(cors());
-app.use(express.json());
 
+const app = express();
 const PORT = process.env.PORT || 3000;
 const USE_GOOGLE_AUTH = process.env.USE_GOOGLE_AUTH === 'true';
+
+app.use(cors());
+app.use(express.json());
+app.use('/webhook', express.raw({ type: 'application/json' }));
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -38,54 +41,6 @@ function generateAIPrompt(content, action = 'generate') {
     return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
   }
   return `Reply professionally to this email:\n\n"${content}"`;
-}
-
-// ---------------- LICENSE LOGIC ----------------
-
-async function checkLicense(email) {
-  const { data, error } = await supabase
-    .from('licenses')
-    .select('smartemail_tier, smartemail_expires')
-    .eq('email', email)
-    .maybeSingle();
-
-  if (error) {
-    console.error('Supabase error:', error);
-    return { tier: 'free', reason: 'db error' };
-  }
-
-  if (!data) {
-    const { error: insertError } = await supabase
-      .from('licenses')
-      .insert([{ email, smartemail_tier: 'free' }]);
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      return { tier: 'free', reason: 'insert failed' };
-    }
-    return { tier: 'free', reason: 'created default row' };
-  }
-
-  return {
-    tier: data.smartemail_tier || 'free',
-    expires: data.smartemail_expires || null,
-  };
-}
-
-async function upgradeSmartEmailLicense(email, tier, expiryDate) {
-  const { error } = await supabase
-    .from('licenses')
-    .update({
-      smartemail_tier: tier,
-      smartemail_expires: expiryDate,
-      smartemail_purchased_at: new Date().toISOString(),
-    })
-    .eq('email', email);
-
-  if (error) {
-    console.error('License upgrade error:', error);
-    return { success: false, error };
-  }
-  return { success: true };
 }
 
 // ---------------- ROUTES ----------------
@@ -126,7 +81,24 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ---------------- MAIN ROUTE ----------------
+// ---------------- LICENSE ----------------
+
+async function checkLicense(email) {
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error || !data) return { tier: 'free', reason: 'not found' };
+
+  return {
+    tier: data.smartemail_tier || 'free',
+    expires: data.smartemail_expires || null,
+  };
+}
+
+// ---------------- MAIN ROUTES ----------------
 
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
@@ -221,7 +193,67 @@ app.post('/api/respond', async (req, res) => {
   }
 });
 
-// ---------------- START SERVER ----------------
+// ---------------- STRIPE WEBHOOK (SmartEmail only) ----------------
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+const tier_map = {
+  'prod_SMARTEMAIL_BASIC': { tier: 'pro', durationDays: 30 },
+  'prod_SMARTEMAIL_PREMIUM': { tier: 'premium', durationDays: 90 }
+};
+
+app.post('/webhook', async (req, res) => {
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers['stripe-signature'],
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.sendStatus(400);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+
+    const email = session.customer_details.email;
+    const productId = session.metadata?.product_id;
+
+    const match = tier_map[productId];
+    if (!match) {
+      console.warn(`⚠️ Unknown SmartEmail product ID: ${productId}`);
+      return res.sendStatus(200);
+    }
+
+    const { tier, durationDays } = match;
+    const newExpiry = new Date();
+    newExpiry.setDate(newExpiry.getDate() + durationDays);
+
+    const { error } = await supabase
+      .from('licenses')
+      .upsert(
+        {
+          email,
+          smartemail_tier: tier,
+          smartemail_expires: newExpiry.toISOString(),
+        },
+        { onConflict: ['email'] }
+      );
+
+    if (error) {
+      console.error('❌ Error upgrading SmartEmail license:', error);
+      return res.sendStatus(500);
+    }
+
+    console.log(`✅ SmartEmail license upgraded: ${email} → ${tier}`);
+  }
+
+  res.sendStatus(200);
+});
+
+// ---------------- START ----------------
 
 app.listen(PORT, () => {
   console.log(`✅ SmartEmail backend running on port ${PORT}`);
