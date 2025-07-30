@@ -6,12 +6,13 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import oauthRoutes from './server/oauth.js';
-app.use('/', oauthRoutes);
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.use('/', oauthRoutes);
 
 const PORT = process.env.PORT || 3000;
 
