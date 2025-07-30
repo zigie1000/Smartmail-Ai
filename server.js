@@ -1,48 +1,84 @@
-require('dotenv').config();
-const express = require('express');
-const fetch = require('node-fetch');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+import express from 'express';
+import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
 
+dotenv.config();
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
-function checkTier(tier) {
-  return (req, res, next) => {
-    const userTier = req.headers['x-tier'];
-    if (!userTier || ['free', 'pro', 'premium'].indexOf(userTier) === -1) {
-      return res.status(403).json({ error: 'Invalid or missing tier' });
-    }
-    if (['pro', 'premium'].indexOf(userTier) < ['pro', 'premium'].indexOf(tier)) {
-      return res.status(403).json({ error: 'Insufficient tier access' });
-    }
-    next();
+const PORT = process.env.PORT || 3000;
+
+// Supabase setup
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+// License checker
+async function checkLicense(email) {
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('tier, product')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error || !data) return { tier: 'free', reason: 'not found' };
+
+  return {
+    tier: data.tier,
+    product: data.product || 'SmartEmail',
   };
 }
 
-app.post('/api/summarize', async (req, res) => {
-  const { email } = req.body;
+// POST /generate
+app.post('/generate', async (req, res) => {
+  const { email, content } = req.body;
+
+  if (!email || !content) {
+    return res.status(400).json({ error: 'Missing email or content' });
+  }
+
+  const license = await checkLicense(email);
+  if (license.tier === 'free') {
+    return res.status(403).json({ error: 'Upgrade required for this feature.' });
+  }
+
+  const prompt = `Reply professionally to this email:\n\n"${content}"`;
+
   try {
-    const summary = `Summary: ${email.substring(0, 100)}...`;
-    res.json({ summary });
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+      }),
+    });
+
+    const result = await response.json();
+    const reply = result.choices?.[0]?.message?.content || '';
+
+    // Save to leads table
+    await supabase.from('leads').insert([
+      {
+        email,
+        original_message: content,
+        generated_reply: reply,
+        product: 'SmartEmail',
+      },
+    ]);
+
+    res.json({ reply, tier: license.tier });
   } catch (err) {
-    res.status(500).json({ error: 'Summarization failed' });
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
   }
 });
 
-app.post('/api/reply', checkTier('pro'), async (req, res) => {
-  const { email } = req.body;
-  try {
-    const reply = `Reply suggestion based on: ${email.substring(0, 100)}...`;
-    res.json({ reply });
-  } catch (err) {
-    res.status(500).json({ error: 'Reply suggestion failed' });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
