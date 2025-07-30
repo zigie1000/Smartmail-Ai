@@ -124,29 +124,34 @@
     }
 
     async function handleGenerate() {
-      const email = document.getElementById('email').value;
-      const content = document.getElementById('inputEmail').value;
+      const email = document.getElementById('email').value.trim();
+      const content = document.getElementById('inputEmail').value.trim();
       const action = document.getElementById('action').value;
 
-      if (!email || !content) return alert('Please enter your email and content');
+      if (!email || !content) {
+        alert('Please enter your email and content');
+        return;
+      }
 
       const tier = await checkLicense(email);
       tierDisplay.textContent = `Tier: ${tier}`;
 
-      if (tier === 'free') return alert('Upgrade required for this feature.');
-
-      const prefix = action === 'enhance' ? 'Improve this email reply:
-' : 'Reply professionally to this email:
-';
+      if (tier === 'free') {
+        alert('Upgrade required for this feature.');
+        return;
+      }
 
       const res = await fetch('/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, content })
+        body: JSON.stringify({ email, content, action })
       });
 
       const data = await res.json();
-      if (data.error) return alert(data.error);
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
 
       outputBox.style.display = 'block';
       exportActions.style.display = 'flex';
@@ -156,19 +161,23 @@
     function copyOutput() {
       navigator.clipboard.writeText(outputBox.textContent);
     }
+
     function exportText() {
       const blob = new Blob([outputBox.textContent], { type: 'text/plain' });
       download(blob, 'reply.txt');
     }
+
     function exportWord() {
       const blob = new Blob([`<html><body>${outputBox.textContent.replace(/\n/g, '<br>')}</body></html>`], { type: 'application/msword' });
       download(blob, 'reply.doc');
     }
+
     function exportPDF() {
       const win = window.open('', '_blank');
       win.document.write(`<pre>${outputBox.textContent}</pre>`);
       win.print();
     }
+
     function download(blob, filename) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
