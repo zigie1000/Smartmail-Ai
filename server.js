@@ -11,8 +11,11 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// Supabase setup
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+// Supabase setup (secure)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 // License checker
 async function checkLicense(email) {
