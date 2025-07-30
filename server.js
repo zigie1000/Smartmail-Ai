@@ -1,20 +1,19 @@
-// server/server.js
+// server.js
 
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import oauthRoutes from './server/oauth.js';
+import { google } from 'googleapis';
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/', oauthRoutes);
-
 const PORT = process.env.PORT || 3000;
+const USE_GOOGLE_AUTH = process.env.USE_GOOGLE_AUTH === 'true';
 
 // Supabase setup with secure SERVICE_KEY
 const supabase = createClient(
@@ -22,7 +21,50 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// License check
+// ---------------- GOOGLE OAUTH ----------------
+
+let oauth2Client;
+if (USE_GOOGLE_AUTH) {
+  oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
+
+// Route: Root
+app.get('/', (req, res) => {
+  res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
+});
+
+// Route: Start OAuth
+app.get('/auth/google', (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['profile', 'email'],
+  });
+  res.redirect(url);
+});
+
+// Route: OAuth Callback
+app.get('/auth/google/callback', async (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  const { code } = req.query;
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+    res.json({ user: userInfo.data });
+  } catch (err) {
+    console.error('OAuth error:', err);
+    res.status(500).send('Google authentication failed.');
+  }
+});
+
+// ---------------- LICENSE CHECK ----------------
+
 async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
@@ -38,7 +80,7 @@ async function checkLicense(email) {
   };
 }
 
-// POST /generate
+// Route: POST /generate
 app.post('/generate', async (req, res) => {
   const { email, content } = req.body;
 
@@ -75,7 +117,6 @@ app.post('/generate', async (req, res) => {
     const result = await response.json();
     const reply = result.choices?.[0]?.message?.content || '';
 
-    // Store lead
     await supabase.from('leads').insert([
       {
         email,
@@ -92,6 +133,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
+// Start server
 app.listen(PORT, () => {
   console.log(`✅ SmartEmail backend running on port ${PORT}`);
 });
