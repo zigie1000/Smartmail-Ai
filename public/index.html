@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SmartEmail</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <h1>SmartEmail App</h1>
+  <textarea id="email" placeholder="Paste your email here"></textarea><br>
+  <button onclick="summarize()">Summarize</button>
+  <button onclick="suggestReply()">Suggest Reply</button>
+  <p id="output"></p>
+  <script>
+    async function summarize() {
+      const email = document.getElementById('email').value;
+      const res = await fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tier': 'free' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      document.getElementById('output').innerText = data.summary || data.error;
+    }
+
+    async function suggestReply() {
+      const email = document.getElementById('email').value;
+      const res = await fetch('/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tier': 'pro' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      document.getElementById('output').innerText = data.reply || data.error;
+    }
+  </script>
+</body>
+</html>
