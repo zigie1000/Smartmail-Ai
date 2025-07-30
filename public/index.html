@@ -1,38 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>SmartEmail</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <title>SmartEmail | AI-Powered Email Responder</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>SmartEmail App</h1>
-  <textarea id="email" placeholder="Paste your email here"></textarea><br>
-  <button onclick="summarize()">Summarize</button>
-  <button onclick="suggestReply()">Suggest Reply</button>
-  <p id="output"></p>
+  <div class="container">
+    <h1>SmartEmail</h1>
+    <input type="email" id="userEmail" placeholder="Enter your email" />
+    <textarea id="emailContent" placeholder="Paste email content here..."></textarea>
+    <button id="generateBtn">Generate Reply</button>
+    <div id="replyContainer" class="hidden">
+      <h2>AI-Generated Reply</h2>
+      <pre id="replyOutput"></pre>
+    </div>
+    <div id="errorMessage"></div>
+  </div>
   <script>
-    async function summarize() {
-      const email = document.getElementById('email').value;
-      const res = await fetch('/api/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tier': 'free' },
-        body: JSON.stringify({ email })
-      });
-      const data = await res.json();
-      document.getElementById('output').innerText = data.summary || data.error;
-    }
+    document.getElementById("generateBtn").addEventListener("click", async () => {
+      const email = document.getElementById("userEmail").value.trim();
+      const content = document.getElementById("emailContent").value.trim();
+      const output = document.getElementById("replyOutput");
+      const error = document.getElementById("errorMessage");
 
-    async function suggestReply() {
-      const email = document.getElementById('email').value;
-      const res = await fetch('/api/reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tier': 'pro' },
-        body: JSON.stringify({ email })
+      output.textContent = '';
+      error.textContent = '';
+
+      const res = await fetch("/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, content }),
       });
+
       const data = await res.json();
-      document.getElementById('output').innerText = data.reply || data.error;
-    }
+
+      if (res.ok) {
+        document.getElementById("replyContainer").classList.remove("hidden");
+        output.textContent = data.reply;
+      } else {
+        error.textContent = data.error || "Something went wrong.";
+      }
+    });
   </script>
 </body>
 </html>
