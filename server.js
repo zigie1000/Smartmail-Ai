@@ -4,8 +4,6 @@ import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 
@@ -22,12 +20,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ------------------ PATH SETUP FOR FRONTEND ------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, 'public')));
+// ---------------- GOOGLE OAUTH ----------------
 
-// ------------------ GOOGLE OAUTH ------------------
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
   oauth2Client = new google.auth.OAuth2(
@@ -37,7 +31,8 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
-// ------------------ AI PROMPT ------------------
+// ---------------- AI PROMPT LOGIC ----------------
+
 function generateAIPrompt(content, action = 'generate') {
   if (action === 'enhance') {
     return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
@@ -45,9 +40,58 @@ function generateAIPrompt(content, action = 'generate') {
   return `Reply professionally to this email:\n\n"${content}"`;
 }
 
-// ------------------ MAIN PAGE ------------------
+// ---------------- LICENSE LOGIC ----------------
+
+async function checkLicense(email) {
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Supabase error:', error);
+    return { tier: 'free', reason: 'db error' };
+  }
+
+  if (!data) {
+    const { error: insertError } = await supabase
+      .from('licenses')
+      .insert([{ email, smartemail_tier: 'free' }]);
+    if (insertError) {
+      console.error('Insert error:', insertError);
+      return { tier: 'free', reason: 'insert failed' };
+    }
+    return { tier: 'free', reason: 'created default row' };
+  }
+
+  return {
+    tier: data.smartemail_tier || 'free',
+    expires: data.smartemail_expires || null,
+  };
+}
+
+async function upgradeSmartEmailLicense(email, tier, expiryDate) {
+  const { error } = await supabase
+    .from('licenses')
+    .update({
+      smartemail_tier: tier,
+      smartemail_expires: expiryDate,
+      smartemail_purchased_at: new Date().toISOString(),
+    })
+    .eq('email', email);
+
+  if (error) {
+    console.error('License upgrade error:', error);
+    return { success: false, error };
+  }
+  return { success: true };
+}
+
+// ---------------- ROUTES ----------------
+
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
 });
 
 app.get('/api/status', (req, res) => {
@@ -82,23 +126,8 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ------------------ LICENSE ------------------
-async function checkLicense(email) {
-  const { data, error } = await supabase
-    .from('licenses')
-    .select('tier, product')
-    .eq('email', email)
-    .maybeSingle();
+// ---------------- MAIN ROUTE ----------------
 
-  if (error || !data) return { tier: 'free', reason: 'not found' };
-
-  return {
-    tier: data.tier,
-    product: data.product || 'SmartEmail',
-  };
-}
-
-// ------------------ AI GENERATION ------------------
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
 
@@ -151,7 +180,6 @@ app.post('/generate', async (req, res) => {
   }
 });
 
-// ------------------ SECONDARY RESPONSE ROUTE ------------------
 app.post('/api/respond', async (req, res) => {
   const { email, action } = req.body;
 
@@ -193,7 +221,8 @@ app.post('/api/respond', async (req, res) => {
   }
 });
 
-// ------------------ START SERVER ------------------
+// ---------------- START SERVER ----------------
+
 app.listen(PORT, () => {
   console.log(`✅ SmartEmail backend running on port ${PORT}`);
 });
