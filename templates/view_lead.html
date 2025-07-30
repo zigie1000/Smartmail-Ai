@@ -1,1 +1,14 @@
 <!-- HTML template for viewing a single lead -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lead Details</title>
+</head>
+<body>
+  <h2>Lead Detail</h2>
+  <p><strong>Email:</strong> {{ lead.email }}</p>
+  <p><strong>Original Message:</strong> {{ lead.original_message }}</p>
+  <p><strong>Generated Reply:</strong> {{ lead.generated_reply }}</p>
+</body>
+</html>
