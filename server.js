@@ -4,6 +4,8 @@ import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 
@@ -20,8 +22,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ---------------- GOOGLE OAUTH ----------------
+// ------------------ PATH SETUP FOR FRONTEND ------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, 'public')));
 
+// ------------------ GOOGLE OAUTH ------------------
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
   oauth2Client = new google.auth.OAuth2(
@@ -31,8 +37,7 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
-// ---------------- AI PROMPT LOGIC ----------------
-
+// ------------------ AI PROMPT ------------------
 function generateAIPrompt(content, action = 'generate') {
   if (action === 'enhance') {
     return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
@@ -40,10 +45,9 @@ function generateAIPrompt(content, action = 'generate') {
   return `Reply professionally to this email:\n\n"${content}"`;
 }
 
-// ---------------- ROUTES ----------------
-
+// ------------------ MAIN PAGE ------------------
 app.get('/', (req, res) => {
-  res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/api/status', (req, res) => {
@@ -78,8 +82,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ---------------- LICENSE ----------------
-
+// ------------------ LICENSE ------------------
 async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
@@ -95,8 +98,7 @@ async function checkLicense(email) {
   };
 }
 
-// ---------------- MAIN ROUTES ----------------
-
+// ------------------ AI GENERATION ------------------
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
 
@@ -149,6 +151,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
+// ------------------ SECONDARY RESPONSE ROUTE ------------------
 app.post('/api/respond', async (req, res) => {
   const { email, action } = req.body;
 
@@ -190,8 +193,7 @@ app.post('/api/respond', async (req, res) => {
   }
 });
 
-// ---------------- START ----------------
-
+// ------------------ START SERVER ------------------
 app.listen(PORT, () => {
   console.log(`✅ SmartEmail backend running on port ${PORT}`);
 });
