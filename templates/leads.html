@@ -1,1 +1,24 @@
 <!-- HTML template for leads page -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Generated Leads</title>
+</head>
+<body>
+  <h2>Recent Replies</h2>
+  {% if leads %}
+    <ul>
+      {% for lead in leads %}
+        <li>
+          <strong>Original:</strong> {{ lead.original_message }}<br>
+          <strong>Reply:</strong> {{ lead.generated_reply }}<br>
+          <em>{{ lead.created_at }}</em>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No leads found.</p>
+  {% endif %}
+</body>
+</html>
