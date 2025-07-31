@@ -508,41 +508,34 @@ function log(msg) {
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
 async function generate() {
-  const type = document.getElementById("type").value;
-  const status = document.getElementById("status").value;
-  const location = document.getElementById("location").value.trim();
-  if (!type || !status || !location) {
-    alert("Please fill in at least type, status, and location.");
+  const email = localStorage.getItem("userEmail") || "";
+  const email_content = document.getElementById("email_content").value.trim();
+
+  if (!email || !email_content) {
+    alert("Please enter your email and email content.");
     return;
   }
-  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
 
   const payload = {
-    type,
-    status,
-    location,
-    bedrooms: document.getElementById("bedrooms").value,
-    bathrooms: document.getElementById("bathrooms").value,
-    ensuites: document.getElementById("ensuites").value,
-    garages: document.getElementById("garages").value,
-    interior: document.getElementById("interior").value,
-    lot: document.getElementById("lot").value,
-    notes: document.getElementById("notes").value.trim(),
-    agent: document.getElementById("agent").value.trim()
+    email: email,
+    content: email_content,
+    action: "generate"
   };
 
-  const res = await fetch("/prompt-ai", {
+  const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+
   const data = await res.json();
-  const output = data.result || "Something went wrong.";
+  const output = data.reply || "Something went wrong.";
   document.getElementById("result").innerHTML = output;
   document.getElementById("char-count").textContent = `Character count: ${output.length}`;
   document.getElementById("output-container").style.display = 'block';
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-  log("✅ Listing generated.");
+  log("✅ SmartEmail generated.");
+}
 }
 
 function applyEnhancement() {
