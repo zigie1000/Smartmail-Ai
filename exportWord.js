@@ -1,6 +1,11 @@
 function exportWord() {
-  const content = outputBox.textContent;
+  const content = outputBox.textContent; // Use .value if outputBox is a <textarea>
   const email = document.getElementById('email').value.trim();
+
+  if (!content.trim()) {
+    alert('No content to export.');
+    return;
+  }
 
   fetch('/export-docx', {
     method: 'POST',
@@ -18,6 +23,7 @@ function exportWord() {
       a.download = 'SmartEmail_Response.docx';
       a.click();
       window.URL.revokeObjectURL(url);
+
       logWindow.style.display = 'block';
       logWindow.textContent += '\nDownloaded .docx file';
     })
