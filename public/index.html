@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SmartEmail | AI Email Assistant</title>
+  <link rel="icon" href="/favicon.png" type="image/png" />
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      font-size: 28px;
+    }
+    .tier {
+      font-weight: bold;
+      color: green;
+      text-align: center;
+      margin-top: -12px;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+    .controls {
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    button, select {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button.generate {
+      background-color: #007bff;
+      color: white;
+    }
+    .output-box {
+      background: #f9f9f9;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 24px;
+      white-space: pre-wrap;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .actions button {
+      background-color: #eee;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    .enhance-block {
+      display: none;
+      margin-top: 16px;
+    }
+    .enhance-button {
+      background-color: #007bff;
+      color: white;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    .log-window {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #666;
+      background: #fafafa;
+      padding: 12px;
+      border-left: 4px solid #007bff;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SmartEmail</h1>
+    <p class="tier" id="tierDisplay">Checking license...</p>
+
+    <input type="email" id="email" placeholder="Enter your email address" />
+    <textarea id="inputEmail" placeholder="Paste your email here..."></textarea>
+
+    <div class="controls">
+      <button class="generate" onclick="handleGenerate('generate')">Generate</button>
+      <select id="extraFeature">
+        <option value="">Other Features</option>
+        <option value="summarize">Summarize</option>
+        <option value="translate">Translate</option>
+      </select>
+    </div>
+
+    <div class="output-box" id="output" style="display:none;"></div>
+
+    <div class="actions" id="exportActions" style="display:none;">
+      <button onclick="copyOutput()">Copy</button>
+      <button onclick="exportText()">Text</button>
+      <button onclick="exportWord()">Word</button>
+      <button onclick="exportPDF()">PDF</button>
+    </div>
+
+    <div class="enhance-block" id="enhanceBlock">
+      <button class="enhance-button" onclick="handleGenerate('enhance')">Enhance</button>
+    </div>
+
+    <div class="log-window" id="logWindow" style="display:none;"></div>
+  </div>
+
+  <script>
+    const tierDisplay = document.getElementById('tierDisplay');
+    const outputBox = document.getElementById('output');
+    const exportActions = document.getElementById('exportActions');
+    const enhanceBlock = document.getElementById('enhanceBlock');
+    const logWindow = document.getElementById('logWindow');
+
+    async function checkLicense(email) {
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, content: 'license-check' })
+      });
+      const data = await res.json();
+      return data.tier || 'free';
+    }
+
+    async function handleGenerate(action) {
+      const email = document.getElementById('email').value.trim();
+      const content = document.getElementById('inputEmail').value.trim();
+
+      if (!email || !content) {
+        alert('Please enter your email and content');
+        return;
+      }
+
+      const tier = await checkLicense(email);
+      tierDisplay.textContent = `Tier: ${tier}`;
+      logWindow.style.display = 'block';
+      logWindow.textContent = `Checking license... Tier: ${tier}`;
+
+      if (tier === 'free') {
+        logWindow.textContent += '\nAccess denied. Upgrade required for this feature.';
+        alert('Upgrade required for this feature.');
+        return;
+      }
+
+      logWindow.textContent += `\nSending request to server with action: ${action}`;
+
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, content, action })
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        alert(data.error);
+        logWindow.textContent += `\nError: ${data.error}`;
+        return;
+      }
+
+      outputBox.style.display = 'block';
+      exportActions.style.display = 'flex';
+      enhanceBlock.style.display = 'block';
+      outputBox.textContent = data.reply;
+      logWindow.textContent += '\nReply received and displayed successfully.';
+    }
+
+    function copyOutput() {
+      navigator.clipboard.writeText(outputBox.textContent).then(() => {
+        alert("Copied to clipboard!");
+      });
+    }
+
+    function exportText() {
+      const blob = new Blob([outputBox.textContent], { type: 'text/plain' });
+      download(blob, 'reply.txt');
+    }
+
+    function exportWord() {
+      const blob = new Blob([`<html><body>${outputBox.textContent.replace(/\n/g, '<br>')}</body></html>`], { type: 'application/msword' });
+      download(blob, 'reply.doc');
+    }
+
+    function exportPDF() {
+      const win = window.open('', '_blank');
+      win.document.write(`<pre>${outputBox.textContent}</pre>`);
+      win.print();
+    }
+
+    function download(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
