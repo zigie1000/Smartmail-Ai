@@ -7,6 +7,8 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -14,9 +16,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const USE_GOOGLE_AUTH = process.env.USE_GOOGLE_AUTH === 'true';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ---------------- MIDDLEWARE ----------------
+
 app.use(cors());
 app.use(express.json());
 app.use('/webhook', express.raw({ type: 'application/json' }));
+app.use(express.static(path.join(__dirname, 'public'))); // ✅ Serve frontend files
+
+// ---------------- SUPABASE INIT ----------------
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -46,7 +56,7 @@ function generateAIPrompt(content, action = 'generate') {
 // ---------------- ROUTES ----------------
 
 app.get('/', (req, res) => {
-  res.send(`✅ SmartEmail backend is live. Google login is ${USE_GOOGLE_AUTH ? 'enabled' : 'disabled'}.`);
+  res.sendFile(path.join(__dirname, 'public', 'index.html')); // ✅ Serve frontend
 });
 
 app.get('/api/status', (req, res) => {
@@ -81,7 +91,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ---------------- LICENSE ----------------
+// ---------------- LICENSE CHECK ----------------
 
 async function checkLicense(email) {
   const { data, error } = await supabase
@@ -98,7 +108,7 @@ async function checkLicense(email) {
   };
 }
 
-// ---------------- MAIN ROUTES ----------------
+// ---------------- AI HANDLERS ----------------
 
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
@@ -193,7 +203,7 @@ app.post('/api/respond', async (req, res) => {
   }
 });
 
-// ---------------- STRIPE WEBHOOK (SmartEmail only) ----------------
+// ---------------- STRIPE WEBHOOK ----------------
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
