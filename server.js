@@ -1,4 +1,4 @@
-// server.js (Updated for SmartEmail - Full Compatibility with Enhanced Tier Logic)
+// server.js (SmartEmail Restored Full Functionality)
 
 import express from 'express';
 import fetch from 'node-fetch';
@@ -29,6 +29,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Optional Google auth client
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
   oauth2Client = new google.auth.OAuth2(
@@ -38,23 +39,26 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
+// Generate OpenAI prompt
 function generateAIPrompt(content, action = 'generate') {
-  if (action === 'enhance') {
-    return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
+  switch (action) {
+    case 'enhance':
+      return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
+    case 'summarize':
+      return `Summarize the following email clearly:\n\n"${content}"`;
+    case 'translate':
+      return `Translate this email into professional English:\n\n"${content}"`;
+    default:
+      return `Reply professionally to this email:\n\n"${content}"`;
   }
-  if (action === 'summarize') {
-    return `Summarize the following email clearly:\n\n"${content}"`;
-  }
-  if (action === 'translate') {
-    return `Translate this email into professional English:\n\n"${content}"`;
-  }
-  return `Reply professionally to this email:\n\n"${content}"`;
 }
 
+// Home route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Status check
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
@@ -63,6 +67,32 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Google OAuth
+app.get('/auth/google', (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['profile', 'email'],
+  });
+  res.redirect(url);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  const { code } = req.query;
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+    res.json({ user: userInfo.data });
+  } catch (err) {
+    console.error('OAuth error:', err);
+    res.status(500).send('Google authentication failed.');
+  }
+});
+
+// Check license via Supabase
 async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
@@ -77,6 +107,7 @@ async function checkLicense(email) {
   };
 }
 
+// Generate response
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
 
@@ -90,8 +121,8 @@ app.post('/generate', async (req, res) => {
     return res.json({ tier: license.tier });
   }
 
-  if (license.tier === 'free' && action === 'enhance') {
-    return res.status(403).json({ error: 'Upgrade required for enhance feature.' });
+  if (license.tier === 'free') {
+    return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
 
   const prompt = generateAIPrompt(content, action);
@@ -119,7 +150,6 @@ app.post('/generate', async (req, res) => {
         original_message: content,
         generated_reply: reply,
         product: 'SmartEmail',
-        action_type: action || 'generate'
       },
     ]);
 
@@ -130,6 +160,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
+// Stripe Webhook
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const tier_map = {
   'prod_SMARTEMAIL_BASIC': { tier: 'pro', durationDays: 30 },
