@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEmail | AI Email Assistant</title>
+  <link rel="icon" href="/favicon.png" type="image/png" />
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 40px 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      background: white;
+      border-radius: 14px;
+      padding: 30px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+    }
+    .tier {
+      font-weight: bold;
+      color: green;
+      text-align: center;
+      margin-top: -12px;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+    .controls, .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    button, select {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    .generate, .enhance {
+      background-color: #007bff;
+      color: white;
+    }
+    .output-box {
+      background: #f9f9f9;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 24px;
+      white-space: pre-wrap;
+    }
+    .log-window {
+      font-size: 14px;
+      color: #555;
+      background: #fafafa;
+      padding: 12px;
+      border-left: 4px solid #007bff;
+      border-radius: 8px;
+      margin-top: 24px;
+      white-space: pre-wrap;
+    }
+    #enhanceGroup {
+      display: none;
+      margin-top: 20px;
+    }
+    .enhance-input {
+      width: 100%;
+      padding: 10px;
+      font-size: 15px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SmartEmail</h1>
+    <p class="tier" id="tierDisplay">Checking license...</p>
+    <input type="email" id="email" placeholder="Enter your email address" />
+    <textarea id="inputEmail" placeholder="Paste your email here..."></textarea>
+
+    <div class="controls">
+      <button class="generate" onclick="handleGenerate('generate')">Generate</button>
+      <select id="extraFeature">
+        <option value="">Other Features</option>
+        <option value="summarize">Summarize</option>
+        <option value="translate">Translate</option>
+      </select>
+    </div>
+
+    <div class="output-box" id="output" style="display:none;"></div>
+
+    <div class="actions" id="exportActions" style="display:none;">
+      <button onclick="copyOutput()">Copy</button>
+      <button onclick="exportText()">Text</button>
+      <button onclick="exportWord()">Word</button>
+      <button onclick="exportPDF()">PDF</button>
+    </div>
+
+    <div id="enhanceGroup">
+      <input class="enhance-input" id="enhanceInput" placeholder="Refine or change tone, etc..." />
+      <button class="enhance" onclick="handleEnhance()">Enhance</button>
+    </div>
+
+    <div class="log-window" id="logWindow" style="display:none;"></div>
+  </div>
+</body>
+</html>
