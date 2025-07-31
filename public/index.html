@@ -2,121 +2,159 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartEmail | AI Email Assistant</title>
-  <link rel="icon" href="/favicon.png" type="image/png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SmartEmail</title>
   <style>
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f4f4f4;
       margin: 0;
-      padding: 40px 20px;
+      padding: 30px 20px;
       color: #333;
     }
     .container {
-      max-width: 800px;
-      margin: 40px auto;
-      background: white;
-      border-radius: 14px;
+      max-width: 700px;
+      margin: auto;
+      background: #fff;
       padding: 30px;
+      border-radius: 10px;
       box-shadow: 0 0 12px rgba(0,0,0,0.1);
     }
-    h1 {
-      text-align: center;
-    }
-    .tier {
-      font-weight: bold;
-      color: green;
-      text-align: center;
-      margin-top: -12px;
-    }
-    input, textarea {
+    textarea, input {
       width: 100%;
       padding: 12px;
+      margin-top: 12px;
+      margin-bottom: 18px;
       font-size: 16px;
       border: 1px solid #ccc;
-      border-radius: 8px;
-      margin-top: 16px;
-    }
-    .controls, .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 20px;
-    }
-    button, select {
-      padding: 10px 16px;
-      border-radius: 8px;
-      border: none;
-      font-size: 16px;
-    }
-    .generate, .enhance {
-      background-color: #007bff;
-      color: white;
-    }
-    .output-box {
-      background: #f9f9f9;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 16px;
-      margin-top: 24px;
-      white-space: pre-wrap;
-    }
-    .log-window {
-      font-size: 14px;
-      color: #555;
-      background: #fafafa;
-      padding: 12px;
-      border-left: 4px solid #007bff;
-      border-radius: 8px;
-      margin-top: 24px;
-      white-space: pre-wrap;
-    }
-    #enhanceGroup {
-      display: none;
-      margin-top: 20px;
-    }
-    .enhance-input {
-      width: 100%;
-      padding: 10px;
-      font-size: 15px;
       border-radius: 6px;
-      border: 1px solid #ccc;
-      margin-bottom: 8px;
+    }
+    button {
+      padding: 10px 20px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+      font-size: 15px;
+      border: none;
+      border-radius: 5px;
+      background: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .output {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background: #f9f9f9;
+      padding: 20px;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+    }
+    .badge {
+      display: inline-block;
+      background: #28a745;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+    .actions {
+      margin-top: 20px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>SmartEmail</h1>
-    <p class="tier" id="tierDisplay">Checking license...</p>
-    <input type="email" id="email" placeholder="Enter your email address" />
-    <textarea id="inputEmail" placeholder="Paste your email here..."></textarea>
+    <h2>SmartEmail Generator <span id="tier-badge" class="badge">Checking...</span></h2>
 
-    <div class="controls">
-      <button class="generate" onclick="handleGenerate('generate')">Generate</button>
-      <select id="extraFeature">
-        <option value="">Other Features</option>
-        <option value="summarize">Summarize</option>
-        <option value="translate">Translate</option>
-      </select>
+    <input type="email" id="email-input" placeholder="Enter your email..." />
+    <textarea id="input-text" placeholder="Paste your email or content here..." rows="6"></textarea>
+
+    <div class="actions">
+      <button id="generate-btn">Generate</button>
+      <button id="enhance-btn" disabled>Enhance</button>
+      <button id="export-txt" disabled>Export TXT</button>
+      <button id="export-doc" disabled>Export DOC</button>
     </div>
 
-    <div class="output-box" id="output" style="display:none;"></div>
-
-    <div class="actions" id="exportActions" style="display:none;">
-      <button onclick="copyOutput()">Copy</button>
-      <button onclick="exportText()">Text</button>
-      <button onclick="exportWord()">Word</button>
-      <button onclick="exportPDF()">PDF</button>
-    </div>
-
-    <div id="enhanceGroup">
-      <input class="enhance-input" id="enhanceInput" placeholder="Refine or change tone, etc..." />
-      <button class="enhance" onclick="handleEnhance()">Enhance</button>
-    </div>
-
-    <div class="log-window" id="logWindow" style="display:none;"></div>
+    <div id="output" class="output" style="display:none;"></div>
   </div>
+
+  <script>
+    let userTier = 'free';
+    let currentReply = '';
+
+    async function checkTier(email) {
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email, content: 'license-check' })
+      });
+      const data = await res.json();
+      userTier = data.tier || 'free';
+      document.getElementById('tier-badge').textContent = userTier.toUpperCase();
+      document.getElementById('tier-badge').style.background = userTier === 'premium' ? '#6f42c1' : userTier === 'pro' ? '#007bff' : '#ccc';
+    }
+
+    function updateButtons(state) {
+      const enable = (userTier === 'pro' || userTier === 'premium') && !!state;
+      document.getElementById('enhance-btn').disabled = !enable;
+      document.getElementById('export-txt').disabled = !state;
+      document.getElementById('export-doc').disabled = !state;
+    }
+
+    document.getElementById('generate-btn').onclick = async () => {
+      const email = document.getElementById('email-input').value.trim();
+      const content = document.getElementById('input-text').value.trim();
+      if (!email || !content) return alert('Please enter both email and content.');
+      await checkTier(email);
+
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email, content, action: 'generate' })
+      });
+
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      currentReply = data.reply;
+      document.getElementById('output').textContent = currentReply;
+      document.getElementById('output').style.display = 'block';
+      updateButtons(true);
+    };
+
+    document.getElementById('enhance-btn').onclick = async () => {
+      const email = document.getElementById('email-input').value.trim();
+      if (!currentReply) return;
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email, content: currentReply, action: 'enhance' })
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      currentReply = data.reply;
+      document.getElementById('output').textContent = currentReply;
+    };
+
+    document.getElementById('export-txt').onclick = () => {
+      const blob = new Blob([currentReply], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'smartemail.txt';
+      a.click();
+    };
+
+    document.getElementById('export-doc').onclick = () => {
+      const blob = new Blob(['\ufeff' + currentReply], { type: 'application/msword' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'smartemail.doc';
+      a.click();
+    };
+  </script>
 </body>
 </html>
