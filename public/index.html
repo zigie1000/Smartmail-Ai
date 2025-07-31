@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SmartEmail | AI Email Assistant</title>
   <link rel="icon" href="/favicon.png" type="image/png" />
   <style>
@@ -53,7 +53,7 @@
       border: none;
       font-size: 16px;
     }
-    button.generate {
+    button.generate, button.enhance {
       background-color: #007bff;
       color: white;
     }
@@ -70,25 +70,11 @@
       gap: 12px;
       justify-content: flex-end;
       margin-top: 8px;
-      flex-wrap: wrap;
     }
     .actions button {
       background-color: #eee;
       border: 1px solid #ccc;
       font-size: 14px;
-    }
-    .enhance-block {
-      display: none;
-      margin-top: 16px;
-    }
-    .enhance-button {
-      background-color: #007bff;
-      color: white;
-      width: 100%;
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
     }
     .log-window {
       margin-top: 20px;
@@ -99,6 +85,18 @@
       border-left: 4px solid #007bff;
       border-radius: 8px;
       white-space: pre-wrap;
+    }
+    #enhanceGroup {
+      display: none;
+      margin-top: 20px;
+    }
+    .enhance-input {
+      width: 100%;
+      padding: 10px;
+      font-size: 15px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      margin-bottom: 8px;
     }
   </style>
 </head>
@@ -128,8 +126,9 @@
       <button onclick="exportPDF()">PDF</button>
     </div>
 
-    <div class="enhance-block" id="enhanceBlock">
-      <button class="enhance-button" onclick="handleGenerate('enhance')">Enhance</button>
+    <div id="enhanceGroup">
+      <input class="enhance-input" id="enhanceInput" placeholder="Refine or change tone, etc..." />
+      <button class="enhance" onclick="handleEnhance()">Enhance</button>
     </div>
 
     <div class="log-window" id="logWindow" style="display:none;"></div>
@@ -139,8 +138,8 @@
     const tierDisplay = document.getElementById('tierDisplay');
     const outputBox = document.getElementById('output');
     const exportActions = document.getElementById('exportActions');
-    const enhanceBlock = document.getElementById('enhanceBlock');
     const logWindow = document.getElementById('logWindow');
+    const enhanceGroup = document.getElementById('enhanceGroup');
 
     async function checkLicense(email) {
       const res = await fetch('/generate', {
@@ -190,14 +189,44 @@
 
       outputBox.style.display = 'block';
       exportActions.style.display = 'flex';
-      enhanceBlock.style.display = 'block';
       outputBox.textContent = data.reply;
+      enhanceGroup.style.display = 'block';
       logWindow.textContent += '\nReply received and displayed successfully.';
+    }
+
+    function handleEnhance() {
+      const email = document.getElementById('email').value.trim();
+      const content = document.getElementById('enhanceInput').value.trim();
+
+      if (!email || !content) {
+        alert('Enter your email and enhancement input');
+        return;
+      }
+
+      logWindow.style.display = 'block';
+      logWindow.textContent += '\nEnhancement in progress...';
+
+      fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, content, action: 'enhance' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            alert(data.error);
+            logWindow.textContent += `\nError: ${data.error}`;
+            return;
+          }
+          outputBox.textContent = data.reply;
+          logWindow.textContent += '\nEnhancement reply received.';
+        });
     }
 
     function copyOutput() {
       navigator.clipboard.writeText(outputBox.textContent).then(() => {
-        alert("Copied to clipboard!");
+        logWindow.style.display = 'block';
+        logWindow.textContent += '\nCopied to clipboard!';
       });
     }
 
