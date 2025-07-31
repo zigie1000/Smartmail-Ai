@@ -1,4 +1,4 @@
-// server.js (SmartEmail Full Compatible Version)
+// server.js (SmartEmail Restored Full Functionality)
 
 import express from 'express';
 import fetch from 'node-fetch';
@@ -29,6 +29,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Optional Google auth client
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
   oauth2Client = new google.auth.OAuth2(
@@ -38,23 +39,26 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
+// Generate OpenAI prompt
 function generateAIPrompt(content, action = 'generate') {
-  if (action === 'enhance') {
-    return `Enhance the professionalism, clarity, and tone of the following email:\n\n"\${content}"`;
+  switch (action) {
+    case 'enhance':
+      return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
+    case 'summarize':
+      return `Summarize the following email clearly:\n\n"${content}"`;
+    case 'translate':
+      return `Translate this email into professional English:\n\n"${content}"`;
+    default:
+      return `Reply professionally to this email:\n\n"${content}"`;
   }
-  if (action === 'summarize') {
-    return `Summarize the following email clearly:\n\n"\${content}"`;
-  }
-  if (action === 'translate') {
-    return `Translate this email into professional English:\n\n"\${content}"`;
-  }
-  return `Reply professionally to this email:\n\n"\${content}"`;
 }
 
+// Home route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Status check
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
@@ -63,6 +67,7 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Google OAuth
 app.get('/auth/google', (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
   const url = oauth2Client.generateAuthUrl({
@@ -87,6 +92,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+// Check license via Supabase
 async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
@@ -101,6 +107,7 @@ async function checkLicense(email) {
   };
 }
 
+// Generate response
 app.post('/generate', async (req, res) => {
   const { email, content, action } = req.body;
 
@@ -124,7 +131,7 @@ app.post('/generate', async (req, res) => {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer \${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -153,6 +160,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
+// Stripe Webhook
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const tier_map = {
   'prod_SMARTEMAIL_BASIC': { tier: 'pro', durationDays: 30 },
@@ -179,7 +187,7 @@ app.post('/webhook', async (req, res) => {
     const match = tier_map[productId];
 
     if (!match) {
-      console.warn(`Unknown SmartEmail product ID: \${productId}`);
+      console.warn(`Unknown SmartEmail product ID: ${productId}`);
       return res.sendStatus(200);
     }
 
@@ -203,12 +211,12 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(500);
     }
 
-    console.log(`SmartEmail license upgraded: \${email} → \${tier}`);
+    console.log(`SmartEmail license upgraded: ${email} → ${tier}`);
   }
 
   res.sendStatus(200);
 });
 
 app.listen(PORT, () => {
-  console.log(`SmartEmail backend running on port \${PORT}`);
+  console.log(`SmartEmail backend running on port ${PORT}`);
 });
