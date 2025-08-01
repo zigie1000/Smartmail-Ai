@@ -512,22 +512,22 @@ function log(msg) {
 
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
+  
 async function generate() {
   const email = document.getElementById('email').value.trim();
-const emailType = document.getElementById('email_type').value;
-const tone = document.getElementById('tone').value;
-const language = document.getElementById('language').value;
-const audience = document.getElementById('target_audience').value.trim();
-const agent = document.getElementById('agent').value.trim(); // ✅ Add this line
-const content = document.getElementById('email_content').value.trim();
+  const emailType = document.getElementById('email-type').value;
+  const tone = document.getElementById('tone').value;
+  const language = document.getElementById('language').value;
+  const audience = document.getElementById('target_audience').value.trim(); // ✅
+  const agent = document.getElementById('agent')?.value.trim(); // Optional ✅
+  const content = document.getElementById('email_content').value.trim();
 
-
-  if (!emailType || !tone || !language || !audience || !content) {
+  if (!email || !emailType || !tone || !audience || !content) {
     alert("Please complete all required fields.");
     return;
   }
 
-  log("🧠 Generating email: " + emailType + " – " + tone + " – " + language);
+  log(`🔁 Generating email: ${emailType} + ${tone} + ${language}`);
 
   const payload = {
     email,
@@ -535,32 +535,22 @@ const content = document.getElementById('email_content').value.trim();
     tone,
     language,
     audience,
-    content,
-    agent
+    agent,
+    content
   };
 
   const res = await fetch("/generate-email", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    type: emailType,
-    tone,
-    language,
-    audience,
-    sender,
-    content,
-    licenseKey: localStorage.getItem("licenseKey"),
-    email: localStorage.getItem("userEmail")
-  }),
-});
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
   const data = await res.json();
-  const output = data.result || "Something went wrong.";
+  const output = data?.email || "Something went wrong.";
+
   document.getElementById("result").innerHTML = output;
-  document.getElementById("char-count").textContent = `Character count: ${output.length}`;
-  document.getElementById("output-container").style.display = 'block';
+  document.getElementById("result-container").style.display = "block";
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-  log("✅ Email generated.");
 }
 }
 
