@@ -512,12 +512,14 @@ function log(msg) {
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
 async function generate() {
-  const emailType = document.getElementById("email_type").value;
-  const tone = document.getElementById("tone").value;
-  const language = document.getElementById("language").value;
-  const audience = document.getElementById("target_audience").value.trim();
-  const content = document.getElementById("email_content").value.trim();
-  const agent = document.getElementById("agent").value.trim();
+  const email = document.getElementById('email').value.trim();
+const emailType = document.getElementById('email_type').value;
+const tone = document.getElementById('tone').value;
+const language = document.getElementById('language').value;
+const audience = document.getElementById('target_audience').value.trim();
+const agent = document.getElementById('agent').value.trim(); // ✅ Add this line
+const content = document.getElementById('email_content').value.trim();
+
 
   if (!emailType || !tone || !language || !audience || !content) {
     alert("Please complete all required fields.");
