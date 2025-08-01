@@ -175,7 +175,7 @@ ${agent ? `Sign off using this sender block:\n${agent}` : ''}
     });
 
     const result = await response.json();
-    const reply = result.choices?.[0]?.message?.content || '';
+    const reply = (result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content) || '';
 
     await supabase.from('leads').insert([
       {
