@@ -507,41 +507,14 @@ function log(msg) {
 
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
-
 async function generate() {
-  const email = localStorage.getItem("userEmail") || "";
-  const content = document.getElementById("email_content").value.trim();
-  const action = "generate";
-
-  if (!email || !content) {
-    alert("Please enter your email (via prompt) and content.");
+  const type = document.getElementById("type").value;
+  const status = document.getElementById("status").value;
+  const location = document.getElementById("location").value.trim();
+  if (!type || !status || !location) {
+    alert("Please fill in at least type, status, and location.");
     return;
   }
-
-  log(`📨 Sending request: ${action} from ${email}`);
-
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, content, action })
-  });
-
-  const data = await res.json();
-
-  if (res.status !== 200) {
-    alert(`❌ Error: ${data.error}`);
-    return;
-  }
-
-  const output = data.reply || "Something went wrong.";
-  document.getElementById("result").innerText = output;
-  document.getElementById("char-count").innerText = `Character count: ${output.length}`;
-  document.getElementById("output-container").style.display = 'block';
-  document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-
-  log("✅ Email generated.");
-}
-
   log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
 
   const payload = {
@@ -572,38 +545,33 @@ async function generate() {
   log("✅ Listing generated.");
 }
 
-
 function applyEnhancement() {
   const enhancement = document.getElementById("enhance").value.trim();
-  const email = localStorage.getItem("userEmail") || "";
-  const content = document.getElementById("result").textContent;
+  if (!enhancement) return alert("Please enter an enhancement.");
+  const original = document.getElementById("result").textContent;
 
-  if (!enhancement || !email || !content) {
-    alert("Missing required fields.");
-    return;
-  }
+  const payload = {
+    enhancement,
+    original
+  };
 
-  log("📝 Enhancing with: " + enhancement);
+  log("📝 Applying enhancement: " + enhancement);
 
-  fetch("/generate", {
+  fetch("/prompt-ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      content: enhancement,
-      action: "enhance"
-    })
+    body: JSON.stringify(payload)
   })
-    .then(res => res.json())
-    .then(data => {
-      const updated = data.reply || content;
-      document.getElementById("result").textContent = updated;
-      document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
-      document.getElementById("enhance").value = "";
-      log("✅ Enhancement complete.");
-    });
+  .then(res => res.json())
+  .then(data => {
+    const updated = data.result || original;
+    document.getElementById("result").textContent = updated;
+    document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
+    document.getElementById("enhance").value = "";
+    document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+    log("✅ Enhancement applied.");
+  });
 }
-
 function copyToClipboard() {
   const text = document.getElementById("result").textContent;
   navigator.clipboard.writeText(text).then(() => alert("✅ Copied to clipboard!"));
