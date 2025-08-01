@@ -43,7 +43,7 @@ if (USE_GOOGLE_AUTH) {
 function generateAIPrompt(content, action = 'generate', agent = '') {
   let context = '';
   if (agent.trim() !== '') {
-    context = `The sender is a real estate agent or agency. Sender details: ${agent}\n\n`;
+    context = `The individual or business sending the email. Sender details: ${agent}\n\n`;
   }
 
   switch (action) {
