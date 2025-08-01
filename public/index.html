@@ -366,7 +366,7 @@ function hideEmailPrompt() { document.getElementById('modalBg').style.display = 
 function showLicenseEntry() { document.getElementById('licenseInput').value = ""; document.getElementById('licenseModalBg').style.display = 'block'; }
 function hideLicenseEntry() { document.getElementById('licenseModalBg').style.display = 'none'; }
 document.getElementById("continueBtn").onclick = async function () {
-  const email = document.getElementById("emailInput").value.trim();
+  const email = localStorage.getItem("userEmail") || "";
   if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
     alert("Please enter a valid email.");
     return;
