@@ -518,8 +518,7 @@ async function generate() {
   const emailType = document.getElementById('email-type').value;
   const tone = document.getElementById('tone').value;
   const language = document.getElementById('language').value;
-  const audience = document.getElementById('target_audience').value.trim(); // ✅
-  const agent = document.getElementById('agent')?.value.trim(); // Optional ✅
+  const audience = document.getElementById('target_audience').value.trim();
   const content = document.getElementById('email_content').value.trim();
 
   if (!email || !emailType || !tone || !audience || !content) {
@@ -535,7 +534,6 @@ async function generate() {
     tone,
     language,
     audience,
-    agent,
     content
   };
 
@@ -547,7 +545,6 @@ async function generate() {
 
   const data = await res.json();
   const output = data?.email || "Something went wrong.";
-
   document.getElementById("result").innerHTML = output;
   document.getElementById("result-container").style.display = "block";
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
