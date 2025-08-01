@@ -546,7 +546,7 @@ async function generate() {
     agent: document.getElementById("agent").value.trim()
   };
 
-  const res = await fetch("/prompt-ai", {
+  const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
