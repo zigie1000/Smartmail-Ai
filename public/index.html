@@ -352,12 +352,9 @@ async function detectAndSyncLicense(showPromptIfFree=true) {
       log("❌ Error checking license by email: " + e.message);
     }
   }
-  
   setTier("free");
   updateFeatureAccess();
   log("👤 No valid license/email found, set to free.");
-  if (showPromptIfFree) showEmailPrompt();
-
   if (showPromptIfFree) showEmailPrompt();
 }
 function showEmailPrompt() { document.getElementById('modalBg').style.display = 'block'; }
@@ -517,42 +514,138 @@ async function generate() {
   const action = "generate";
 
   if (!email || !content) {
-    alert("Please enter your email and email content.");
+    alert("Please enter your email (via prompt) and content.");
     return;
   }
 
-  const payload = {
-    email,
-    content,
-    action
-  };
+  log(`📨 Sending request: ${action} from ${email}`);
 
-  log("📨 Sending to /generate for: " + email);
+  const res = await fetch("/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, content, action })
+  });
 
-  try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (res.status !== 200) {
-      alert("❌ Error: " + data.error);
-      return;
-    }
-    const output = data.reply || "No response.";
-    document.getElementById("result").innerText = output;
-    document.getElementById("char-count").innerText = `Character count: ${output.length}`;
-    document.getElementById("output-container").style.display = "block";
-    document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-    log("✅ Response received.");
-  } catch (err) {
-    alert("❌ Network error: " + err.message);
-    log("❌ Error: " + err.message);
+  const data = await res.json();
+
+  if (res.status !== 200) {
+    alert(`❌ Error: ${data.error}`);
+    return;
   }
+
+  const output = data.reply || "Something went wrong.";
+  document.getElementById("result").innerText = output;
+  document.getElementById("char-count").innerText = `Character count: ${output.length}`;
+  document.getElementById("output-container").style.display = 'block';
+  document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+
+  log("✅ Email generated.");
 }
 
-    doc.save(getTimestampFilename("Smartlist_Listing", "pdf"));
+  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
+
+  const payload = {
+    type,
+    status,
+    location,
+    bedrooms: document.getElementById("bedrooms").value,
+    bathrooms: document.getElementById("bathrooms").value,
+    ensuites: document.getElementById("ensuites").value,
+    garages: document.getElementById("garages").value,
+    interior: document.getElementById("interior").value,
+    lot: document.getElementById("lot").value,
+    notes: document.getElementById("notes").value.trim(),
+    agent: document.getElementById("agent").value.trim()
+  };
+
+  const res = await fetch("/prompt-ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  const output = data.result || "Something went wrong.";
+  document.getElementById("result").innerHTML = output;
+  document.getElementById("char-count").textContent = `Character count: ${output.length}`;
+  document.getElementById("output-container").style.display = 'block';
+  document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+  log("✅ Listing generated.");
+}
+
+
+function applyEnhancement() {
+  const enhancement = document.getElementById("enhance").value.trim();
+  const email = localStorage.getItem("userEmail") || "";
+  const content = document.getElementById("result").textContent;
+
+  if (!enhancement || !email || !content) {
+    alert("Missing required fields.");
+    return;
+  }
+
+  log("📝 Enhancing with: " + enhancement);
+
+  fetch("/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      content: enhancement,
+      action: "enhance"
+    })
+  })
+    .then(res => res.json())
+    .then(data => {
+      const updated = data.reply || content;
+      document.getElementById("result").textContent = updated;
+      document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
+      document.getElementById("enhance").value = "";
+      log("✅ Enhancement complete.");
+    });
+}
+
+function copyToClipboard() {
+  const text = document.getElementById("result").textContent;
+  navigator.clipboard.writeText(text).then(() => alert("✅ Copied to clipboard!"));
+  log("📋 Copied to clipboard.");
+}
+function exportToText() {
+  const text = document.getElementById("result").textContent;
+  const cleaned = text.replace(/Logo:.*(\n)?/, '');
+  const blob = new Blob([cleaned], { type: "application/octet-stream" });
+  triggerDownload(blob, getTimestampFilename("Smartlist_Listing", "txt"));
+  log("⬇️ Exported to TXT.");
+}
+
+// --- Client-side PDF Export (old jsPDF method, always works) ---
+function exportToPDF_Instant() {
+  // Uncomment next 3 lines if you want to block for free users
+  // if (window.userTier === "free") {
+  //   alert("❌ Export requires Pro or Premium tier.");
+  //   return;
+  // }
+  const { jsPDF } = window.jspdf;
+  const raw = document.getElementById("result").textContent;
+  // Remove accents/normalize if needed:
+  const stripped = raw.normalize("NFKD").replace(/[\u0300-\u036f]/g, '').replace(/[^\x00-\x7F]/g, '');
+  const doc = new jsPDF();
+
+  let y = 20;
+  if (window.logoImageBase64) {
+    doc.addImage(window.logoImageBase64, 'PNG', 15, 10, 40, 20);
+    y = 35;
+  }
+  const lines = doc.splitTextToSize(stripped, 180);
+  doc.text(lines, 15, y);
+  y += lines.length * 10;
+
+  if (window.propertyImagesBase64 && window.propertyImagesBase64.length) {
+    for (const img of window.propertyImagesBase64) {
+      doc.addImage(img, 'JPEG', 15, y, 60, 45);
+      y += 50;
+    }
+  }
+  doc.save(getTimestampFilename("Smartlist_Listing", "pdf"));
   log("⬇️ Exported to PDF (instant, client-side).");
 }
 
