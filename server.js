@@ -123,7 +123,7 @@ app.post('/generate', async (req, res) => {
     agent,
     action
   } = req.body;
-
+const license = await checkLicense(email);
 // ✅ Step 1: check for license-check early
 if (req.body?.content === 'license-check' && req.body?.email) {
   const license = await checkLicense(req.body.email);
