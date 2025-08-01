@@ -40,19 +40,23 @@ if (USE_GOOGLE_AUTH) {
 }
 
 // Generate OpenAI prompt
-function generateAIPrompt(content, action = 'generate') {
+function generateAIPrompt(content, action = 'generate', agent = '') {
+  let context = '';
+  if (agent.trim() !== '') {
+    context = `The sender is a real estate agent or agency. Sender details: ${agent}\n\n`;
+  }
+
   switch (action) {
     case 'enhance':
-      return `Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
+      return `${context}Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
     case 'summarize':
-      return `Summarize the following email clearly:\n\n"${content}"`;
+      return `${context}Summarize the following email clearly:\n\n"${content}"`;
     case 'translate':
-      return `Translate this email into professional English:\n\n"${content}"`;
+      return `${context}Translate this email into professional English:\n\n"${content}"`;
     default:
-      return `Reply professionally to this email:\n\n"${content}"`;
+      return `${context}Reply professionally to this email:\n\n"${content}"`;
   }
 }
-
 // Home route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
