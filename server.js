@@ -120,15 +120,27 @@ app.post('/generate', async (req, res) => {
     action
   } = req.body;
 
-  if (!email || !emailType || !tone || !language || !audience || !content) {
-    return res.status(400).json({ error: 'Missing required fields.' });
-  }
+// ✅ Step 1: check for license-check early
+if (req.body?.content === 'license-check' && req.body?.email) {
+  const license = await checkLicense(req.body.email);
+  return res.json({ tier: license.tier || 'free' });
+}
 
-  const license = await checkLicense(email);
+// ✅ Step 2: enforce full payload for real generation
+const {
+  email,
+  emailType,
+  tone,
+  language,
+  audience,
+  content,
+  agent,
+  action
+} = req.body;
 
-  if (content === 'license-check') {
-    return res.json({ tier: license.tier });
-  }
+if (!email || !emailType || !tone || !language || !audience || !content) {
+  return res.status(400).json({ error: 'Missing required fields.' });
+}
 
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
