@@ -529,6 +529,7 @@ const content = document.getElementById('email_content').value.trim();
   log("🧠 Generating email: " + emailType + " – " + tone + " – " + language);
 
   const payload = {
+    email,
     emailType,
     tone,
     language,
