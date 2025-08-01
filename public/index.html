@@ -327,7 +327,7 @@ async function detectAndSyncLicense(showPromptIfFree=true) {
       } else {
         localStorage.removeItem("licenseKey");
         log("❌ License key not recognized or expired. Cleared localStorage.");
-        triedEmail = true;
+        triedEmail = false; // Ensure fallback 
       }
     } catch (e) {
       hideModal();
