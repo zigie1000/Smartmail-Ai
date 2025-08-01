@@ -508,27 +508,27 @@ function log(msg) {
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
 async function generate() {
-  const type = document.getElementById("type").value;
-  const status = document.getElementById("status").value;
-  const location = document.getElementById("location").value.trim();
-  if (!type || !status || !location) {
-    alert("Please fill in at least type, status, and location.");
+  const emailType = document.getElementById("email_type").value;
+  const tone = document.getElementById("tone").value;
+  const language = document.getElementById("language").value;
+  const audience = document.getElementById("target_audience").value.trim();
+  const content = document.getElementById("email_content").value.trim();
+  const agent = document.getElementById("agent").value.trim();
+
+  if (!emailType || !tone || !language || !audience || !content) {
+    alert("Please complete all required fields.");
     return;
   }
-  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
+
+  log("🧠 Generating email: " + emailType + " – " + tone + " – " + language);
 
   const payload = {
-    type,
-    status,
-    location,
-    bedrooms: document.getElementById("bedrooms").value,
-    bathrooms: document.getElementById("bathrooms").value,
-    ensuites: document.getElementById("ensuites").value,
-    garages: document.getElementById("garages").value,
-    interior: document.getElementById("interior").value,
-    lot: document.getElementById("lot").value,
-    notes: document.getElementById("notes").value.trim(),
-    agent: document.getElementById("agent").value.trim()
+    emailType,
+    tone,
+    language,
+    audience,
+    content,
+    agent
   };
 
   const res = await fetch("/prompt-ai", {
@@ -536,13 +536,15 @@ async function generate() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+
   const data = await res.json();
   const output = data.result || "Something went wrong.";
   document.getElementById("result").innerHTML = output;
   document.getElementById("char-count").textContent = `Character count: ${output.length}`;
   document.getElementById("output-container").style.display = 'block';
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-  log("✅ Listing generated.");
+  log("✅ Email generated.");
+}
 }
 
 function applyEnhancement() {
