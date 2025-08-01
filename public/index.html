@@ -539,11 +539,20 @@ const content = document.getElementById('email_content').value.trim();
     agent
   };
 
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  const res = await fetch("/generate-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    type: emailType,
+    tone,
+    language,
+    audience,
+    sender,
+    content,
+    licenseKey: localStorage.getItem("licenseKey"),
+    email: localStorage.getItem("userEmail")
+  }),
+});
 
   const data = await res.json();
   const output = data.result || "Something went wrong.";
