@@ -141,7 +141,7 @@ if (req.body?.content === 'license-check' && req.body?.email) {
 
 // ✅ Step 2: enforce full payload for real generation
 
-if (!email || !emailType || !tone || !language || !audience || !content) {
+if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
   return res.status(400).json({ error: 'Missing required fields.' });
 }
 
