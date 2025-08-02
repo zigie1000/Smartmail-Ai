@@ -129,8 +129,8 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   return res.status(400).json({ error: 'Missing required fields.' });
 }
 
-  if (license.tier === 'free') {
-    return res.status(403).json({ error: 'Upgrade required for this feature.' });
+  // ✅ Free tier users are allowed to generate
+log(`Tier: ${license.tier} — generation allowed for all users`);
   }
 const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
 
