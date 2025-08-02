@@ -142,6 +142,7 @@ Base Email Content:
 ***
 ${finalContent}
 ***
+${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 `.trim();
 
 
