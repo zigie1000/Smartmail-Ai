@@ -149,18 +149,18 @@ if (!email || !emailType || !tone || !language || !audience || !content) {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
 
- const prompt = `
+const prompt = `
 You are an expert AI email copywriter.
 
-Write a "${tone}" "${emailType}" email in "${language}".
+Write a "${finalEmailType}" email in "${language}".
 Target Audience: ${audience}
-Sender: ${agent}
+Sender: ${finalAgent}
 
 Base Email Content:
 ***
-${content}
+${finalContent}
 ***
-
+`
 
 ${agent ? `Sign off using this sender block:\n${agent}` : ''}
 `.trim();
