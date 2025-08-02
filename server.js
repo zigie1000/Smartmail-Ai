@@ -165,15 +165,18 @@ ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
     const result = await response.json();
     const reply = (result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content) || '';
 
-    await supabase.from('leads').insert([
-  {
-    email: finalEmail,
-    original_message: finalContent,
-    generated_reply: reply,
-    product: 'SmartEmail',
-  },
-]);
-
+    try {
+  await supabase.from('leads').insert([
+    {
+      email: finalEmail,
+      original_message: finalContent,
+      generated_reply: reply,
+      product: 'SmartEmail',
+    },
+  ]);
+} catch (logErr) {
+  console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
+}
     res.json({ reply, tier: license.tier });
   } catch (err) {
     console.error(err);
