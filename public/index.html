@@ -204,85 +204,16 @@
       <button onclick="saveLicense()">Submit</button>
       <button onclick="hideLicenseEntry()" style="background:#aaa;">Cancel</button>
     </div>
-  </div><!-- Main Form -->
+<!-- ✅ SmartEmail Form Fields Start -->
 <div class="form-row">
-
-  
-  <label for="type">Listing Type</label>
-  <select id="type">
-    <option value="">Select Type</option>
-    <option value="Apartment">Apartment</option>
-    <option value="House">House</option>
-    <option value="Townhouse">Townhouse</option>
-    <option value="Penthouse">Penthouse</option>
-    <option value="Studio">Studio</option>
-  </select>
-</div>
-<div class="form-row">
-  <!--
-  <label for="status">Status</label>
-  <select id="status">
-    <option value="">Select Status</option>
-    <option value="For Sale">For Sale</option>
-    <option value="For Rent">For Rent</option>
-  </select>
-  -->
-<label for="status">Use Case</label>
-  
-</div>
-
-  <div class="form-row">
-  <label for="tone">Tone</label>
-  <select id="tone">
-    <option value="">Select Tone</option>
-    <option value="Friendly">Friendly</option>
-    <option value="Professional">Professional</option>
-    <option value="Urgent">Urgent</option>
-    <option value="Conversational">Conversational</option>
-  </select>
-    
-</div>
-<div class="form-row">
-  <label for="location">Location</label>
-  <input id="location" placeholder="e.g. Sea Point, Cape Town" type="text"/>
-</div>
-<div class="form-row">
-  <!--
-  <label for="bedrooms">Bedrooms</label>
-  <input id="bedrooms" min="0" placeholder="e.g. 3" type="number"/>
-</div>
-<div class="form-row">
-  <label for="bathrooms">Bathrooms</label>
-  <input id="bathrooms" min="0" placeholder="e.g. 2" type="number"/>
-</div>
-<div class="form-row">
-  <label for="ensuites">Ensuite Bathrooms</label>
-  <input id="ensuites" min="0" placeholder="e.g. 1" type="number"/>
-</div>
-<div class="form-row">
-  <label for="garages">Garages</label>
-  <input id="garages" min="0" placeholder="e.g. 2" type="number"/>
-</div>
-<div class="form-row">
-  <label for="interior">Living Space Area (m²)</label>
-  <input id="interior" min="0" placeholder="e.g. 120" type="number"/>
-</div>
-<div class="form-row">
-  <label for="lot">Lot Size / Erf Size (m²)</label>
-  <input id="lot" min="0" placeholder="e.g. 500" type="number"/>
-</div>
-  -->
-
-<!-- SmartEmail Fields Start -->
-<div class="form-row">
-  <label for="tone">Email Tone</label>
-  <select id="tone">
-    <option value="">Select Tone</option>
-    <option value="Friendly">Friendly</option>
-    <option value="Professional">Professional</option>
-    <option value="Urgent">Urgent</option>
-    <option value="Empathetic">Empathetic</option>
-    <option value="Direct">Direct</option>
+  <label for="audience">Target Audience</label>
+  <select id="audience">
+    <option value="">Select Audience</option>
+    <option value="Customers">Customers</option>
+    <option value="Leads">Leads</option>
+    <option value="Partners">Partners</option>
+    <option value="Employees">Employees</option>
+    <option value="Vendors">Vendors</option>
   </select>
 </div>
 
@@ -297,32 +228,68 @@
     <option value="Apology">Apology</option>
   </select>
 </div>
-<!-- SmartEmail Fields End -->
 
-  
 <div class="form-row">
-  <label for="additionalFeatures">Email Content</label>
-<textarea id="additionalFeatures" placeholder="Paste or type your email content here"></textarea>
-  id="additionalFeatures"
-  placeholder="Max 40 characters (upgrade for more)"
-></textarea>
+  <label for="tone">Tone</label>
+  <select id="tone">
+    <option value="">Select Tone</option>
+    <option value="Friendly">Friendly</option>
+    <option value="Professional">Professional</option>
+    <option value="Urgent">Urgent</option>
+    <option value="Empathetic">Empathetic</option>
+    <option value="Direct">Direct</option>
+  </select>
 </div>
+
 <div class="form-row">
-  <label for="agentDetails">Email Signature</label>
-<textarea id="agentDetails" placeholder="e.g. John Doe\nMarketing Manager\njohn@example.com"></textarea>
+  <label for="language">Language</label>
+  <select id="language">
+    <option value="English" selected>English</option>
+    <option value="Italian">Italian</option>
+    <option value="Spanish">Spanish</option>
+    <option value="French">French</option>
+    <option value="German">German</option>
+  </select>
 </div>
+
 <div class="form-row">
-  <label for="logoFile">Upload Logo Image (Max 2MB)</label>
-  <input accept="image/*" id="logoFile" type="file"/>
+  <label for="email">Your Email Address</label>
+  <input id="email" type="email" placeholder="you@example.com" />
+</div>
+
+<div class="form-row">
+  <label for="email_content">Email Content</label>
+  <textarea id="email_content" placeholder="Paste or type your email content here..."></textarea>
+</div>
+
+<div class="form-row">
+  <label for="sender_details">Email Signature</label>
+  <textarea id="sender_details" placeholder="e.g. Jane Doe\nSales Director\njane@example.com"></textarea>
+</div>
+
+<div class="form-row">
+  <label for="action">Desired Outcome</label>
+  <input id="action" type="text" placeholder="e.g. Book a call, Visit our site" />
+</div>
+
+<div class="form-row">
+  <label for="logoFile">Upload Logo (Max 2MB)</label>
+  <input type="file" id="logoFile" accept="image/*" />
 </div>
 <div id="logo-preview"></div>
+
 <div class="form-row">
-  <label for="images">Upload Property Images (Max 3, 2MB each)</label>
-  <input accept="image/*" id="images" multiple type="file"/>
+  <label for="images">Upload Additional Images (Max 3, 2MB each)</label>
+  <input type="file" id="images" accept="image/*" multiple />
 </div>
 <div id="image-preview"></div>
+
 <div class="form-row">
-  <button onclick="generate()" style="background:#1976d2;color:white;font-size:18px;padding:16px 32px;border-radius:9px;font-weight:bold;width:100%;">Generate Listing</button>
+  <button onclick="generate()" style="background:#1976d2;color:white;font-size:18px;padding:16px 32px;border-radius:9px;font-weight:bold;width:100%;">
+    Generate Email
+  </button>
+</div>
+<!-- ✅ SmartEmail Form Fields End -->
   
   <div id="output-container">
     <h3>Generated Listing:</h3>
