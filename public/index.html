@@ -595,32 +595,53 @@ async function generate() {
 }
 
 
-function applyEnhancement() {
-  const enhancement = document.getElementById("enhance").value.trim();
-  if (!enhancement) return alert("Please enter an enhancement.");
-  const original = document.getElementById("result").textContent;
+fasync function applyEnhancement() {
+  const enhance_request = document.getElementById("enhance").value.trim();
+  const enhance_content = document.getElementById("result").textContent.trim();
+  const email = document.getElementById("email").value.trim();
+
+  if (!enhance_request) {
+    alert("Please enter an enhancement request.");
+    return;
+  }
+
+  if (!enhance_content || !email) {
+    alert("Missing original content or email address.");
+    return;
+  }
+
+  log("📝 Applying enhancement: " + enhance_request);
 
   const payload = {
-    enhancement,
-    original
+    email,
+    enhance_request,
+    enhance_content
   };
 
-  log("📝 Applying enhancement: " + enhancement);
+  try {
+    const res = await fetch("/enhance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  })
-  .then(res => res.json())
-  .then(data => {
-    const updated = data.result || original;
+    const data = await res.json();
+
+    if (data.error) {
+      alert("❌ " + data.error);
+      log("❌ Enhance failed: " + data.error);
+      return;
+    }
+
+    const updated = data.result || enhance_content;
     document.getElementById("result").textContent = updated;
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     log("✅ Enhancement applied.");
-  });
+  } catch (err) {
+    alert("An error occurred during enhancement.");
+    console.error(err);
 }
 function copyToClipboard() {
   const text = document.getElementById("result").textContent;
