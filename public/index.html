@@ -632,6 +632,7 @@ fasync function applyEnhancement() {
       log("❌ Enhance failed: " + data.error);
       return;
     }
+  };
 
     const updated = data.result || enhance_content;
     document.getElementById("result").textContent = updated;
