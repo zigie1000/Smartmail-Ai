@@ -556,37 +556,43 @@ async function generate() {
 
   log("📧 Generating email for: " + email + " | Purpose: " + purpose);
 
-  const payload = {
-    email_type: purpose,                    // ✅ server expects email_type
-    target_audience: audience,             // ✅ server expects target_audience
-    tone,
-    language,
-    email,
-    email_content,
-    sender_details,
-    action
-  };
+  try {
+    const payload = {
+      email_type: purpose,                // ✅ match server.js
+      target_audience: audience,
+      tone,
+      language,
+      email,
+      email_content,
+      sender_details,
+      action
+    };
 
-  const res = await fetch("/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (!res.ok) {
-    log(`❌ Generation failed: ${data.error || 'Unknown error'}`);
-    alert(data.error || 'Something went wrong.');
-    return;
+    if (!res.ok) {
+      log(`❌ Generation failed: ${data.error || 'Unknown error'}`);
+      alert(data.error || 'Something went wrong.');
+      return;
+    }
+
+    const output = data.result || "Something went wrong.";
+    document.getElementById("result").innerHTML = output;
+    document.getElementById("char-count").textContent = `Character count: ${output.length}`;
+    document.getElementById("output-container").style.display = 'block';
+    document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+    log("✅ Email generated.");
+  } catch (e) {
+    log("❌ Exception during generation: " + e.message);
+    alert("An error occurred during generation. Please check the debug log.");
   }
-
-  const output = data.result || "Something went wrong.";
-  document.getElementById("result").innerHTML = output;
-  document.getElementById("char-count").textContent = `Character count: ${output.length}`;
-  document.getElementById("output-container").style.display = 'block';
-  document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-  log("✅ Email generated.");
+}
 }
 }
 
