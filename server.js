@@ -7,6 +7,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
+import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -185,7 +186,8 @@ ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 });
 
 // Stripe Webhook
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+/*const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const tier_map = {
   'prod_SMARTEMAIL_BASIC': { tier: 'pro', durationDays: 30 },
   'prod_SMARTEMAIL_PREMIUM': { tier: 'premium', durationDays: 90 }
@@ -239,7 +241,7 @@ app.post('/webhook', async (req, res) => {
   }
 
   res.sendStatus(200);
-});
+});*/
 
 app.listen(PORT, () => {
   console.log(`SmartEmail backend running on port ${PORT}`);
