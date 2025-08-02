@@ -134,19 +134,29 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   }
 
 const prompt = `
-You are an expert AI email copywriter.
+You are a senior email marketing strategist and expert copywriter.
 
-Write a "${finalEmailType}" email in "${finalLanguage}".
-Tone: ${finalTone}
-Target Audience: ${finalAudience}
-Intended Outcome: ${finalAction}
-Sender: ${finalAgent}
+Your task is to write a compelling and professionally structured email that fulfills the following creative brief:
 
-Base Email Content:
-***
+📧 **Email Type**: ${finalEmailType}  
+🗣️ **Tone and Style**: ${finalTone}  
+🎯 **Target Audience**: ${finalAudience}  
+✅ **Primary Goal or Call-to-Action**: ${finalAction}  
+🌐 **Language**: ${finalLanguage}
+
+✍️ **Base Message**:  
+"""
 ${finalContent}
-***
-${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
+"""
+
+${finalAgent ? `📇 **Sender Information**:\n${finalAgent}` : ''}
+
+📌 **Instructions**:
+- Structure the email with a subject line, greeting, body, and closing.
+- Make the copy persuasive, clear, and aligned with the tone provided.
+- Ensure the email reads naturally in ${finalLanguage} and is appropriate for the specified audience.
+- Keep the content concise yet impactful, suitable for professional communication.
+- End with a strong call-to-action and appropriate sign-off.
 `.trim();
 
   try {
