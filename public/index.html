@@ -537,28 +537,33 @@ function log(msg) {
 
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
+  
 async function generate() {
-  const type = document.getElementById("type").value;
-  const status = document.getElementById("status").value;
-  const location = document.getElementById("location").value.trim();
-  if (!type || !status || !location) {
-    alert("Please fill in at least type, status, and location.");
+  const audience = document.getElementById("audience").value.trim();
+  const purpose = document.getElementById("purpose").value.trim();
+  const tone = document.getElementById("tone").value.trim();
+  const language = document.getElementById("language").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const email_content = document.getElementById("email_content").value.trim();
+  const sender_details = document.getElementById("sender_details").value.trim();
+  const action = document.getElementById("action").value.trim();
+
+  if (!audience || !purpose || !tone || !language || !email || !email_content) {
+    alert("Please complete all required fields including your email and content.");
     return;
   }
-  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
+
+  log("📧 Generating email for: " + email + " | Purpose: " + purpose);
 
   const payload = {
-    type,
-    status,
-    location,
-    bedrooms: document.getElementById("bedrooms").value,
-    bathrooms: document.getElementById("bathrooms").value,
-    ensuites: document.getElementById("ensuites").value,
-    garages: document.getElementById("garages").value,
-    interior: document.getElementById("interior").value,
-    lot: document.getElementById("lot").value,
-    notes: document.getElementById("notes").value.trim(),
-    agent: document.getElementById("agent").value.trim()
+    audience: document.getElementById("audience").value.trim(),
+    purpose: document.getElementById("purpose").value.trim(),
+    tone: document.getElementById("tone").value.trim(),
+    language: document.getElementById("language").value.trim(),
+    email: document.getElementById("email").value.trim(),
+    email_content: document.getElementById("email_content").value.trim(),
+    sender_details: document.getElementById("sender_details").value.trim(),
+    action: document.getElementById("action").value.trim()
   };
 
   const res = await fetch("/generate", {
@@ -566,13 +571,14 @@ async function generate() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+
   const data = await res.json();
   const output = data.result || "Something went wrong.";
   document.getElementById("result").innerHTML = output;
   document.getElementById("char-count").textContent = `Character count: ${output.length}`;
   document.getElementById("output-container").style.display = 'block';
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-  log("✅ Listing generated.");
+  log("✅ Email generated.");
 }
 
 function applyEnhancement() {
