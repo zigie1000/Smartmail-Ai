@@ -167,7 +167,7 @@ ${finalAgent ? `📇 **Sender Information**:\n${finalAgent}` : ''}
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4',
+        model: "gpt-4-1106-preview",
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 300,
       }),
