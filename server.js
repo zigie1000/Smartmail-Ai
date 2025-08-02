@@ -164,8 +164,12 @@ ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
     });
 
     const result = await response.json();
-    const reply = (result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content) || '';
+    const reply = (result.choices?.[0]?.message?.content || '').trim();
 
+if (!reply) {
+  console.error("❌ OpenAI returned an empty reply. Response:", JSON.stringify(result, null, 2));
+  return res.status(500).json({ error: 'AI failed to generate a response.' });
+}
     try {
   await supabase.from('leads').insert([
     {
