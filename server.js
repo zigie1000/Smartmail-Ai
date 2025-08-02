@@ -145,17 +145,6 @@ ${finalContent}
 ***
 ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 `.trim();
-  
-Base Email Content:
-***
-${finalContent}
-***
-${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
-`.trim();
-
-
-${agent ? `Sign off using this sender block:\n${agent}` : ''}
-`.trim();
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
