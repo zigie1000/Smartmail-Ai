@@ -556,18 +556,18 @@ async function generate() {
 
   log("📧 Generating email for: " + email + " | Purpose: " + purpose);
 
-  try {
-    const payload = {
-      email_type: purpose,                // ✅ match server.js
-      target_audience: audience,
-      tone,
-      language,
-      email,
-      email_content,
-      sender_details,
-      action
-    };
+  const payload = {
+    email_type: purpose,
+    target_audience: audience,
+    tone,
+    language,
+    email,
+    email_content,
+    sender_details,
+    action
+  };
 
+  try {
     const res = await fetch("/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -588,11 +588,10 @@ async function generate() {
     document.getElementById("output-container").style.display = 'block';
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     log("✅ Email generated.");
-  } catch (e) {
-    log("❌ Exception during generation: " + e.message);
-    alert("An error occurred during generation. Please check the debug log.");
+  } catch (err) {
+    log("❌ Exception during fetch: " + err.message);
+    alert("Generation failed. See debug log for details.");
   }
-}
 }
 }
 
