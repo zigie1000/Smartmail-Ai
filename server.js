@@ -123,6 +123,15 @@ app.post('/generate', async (req, res) => {
     agent,
     action
   } = req.body;
+// 🧠 SmartEmail compatibility aliasing (non-breaking)
+const finalEmailType = req.body.email_type || emailType;
+const finalContent = req.body.email_content || content;
+const finalAudience = req.body.target_audience || audience;
+const finalAgent = req.body.sender_details || agent;
+const finalLanguage = req.body.language || language;
+const finalTone = req.body.tone || tone;
+const finalAction = req.body.action || action;
+const finalEmail = req.body.email || email; // for safety  
 const license = await checkLicense(email);
 // ✅ Step 1: check for license-check early
 if (req.body?.content === 'license-check' && req.body?.email) {
