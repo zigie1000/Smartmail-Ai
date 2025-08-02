@@ -538,47 +538,40 @@ function log(msg) {
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
 async function generate() {
-  const tone = document.getElementById("tone").value;
-  const purpose = document.getElementById("purpose").value;
-  const language = document.getElementById("language").value;
-  const audience = document.getElementById("audience").value;
-  const additionalFeatures = document.getElementById("additionalFeatures").value.trim();
-  const agentDetails = document.getElementById("agentDetails").value.trim();
-
-  if (!tone || !purpose || !language || !audience) {
-    alert("Please fill in all fields: tone, purpose, language, and audience.");
+  const type = document.getElementById("type").value;
+  const status = document.getElementById("status").value;
+  const location = document.getElementById("location").value.trim();
+  if (!type || !status || !location) {
+    alert("Please fill in at least type, status, and location.");
     return;
   }
-
-  console.log("🟢 Generating SmartEmail...");
+  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
 
   const payload = {
-    tone,
-    purpose,
-    language,
-    audience,
-    additionalFeatures,
-    agentDetails,
+    type,
+    status,
+    location,
+    bedrooms: document.getElementById("bedrooms").value,
+    bathrooms: document.getElementById("bathrooms").value,
+    ensuites: document.getElementById("ensuites").value,
+    garages: document.getElementById("garages").value,
+    interior: document.getElementById("interior").value,
+    lot: document.getElementById("lot").value,
+    notes: document.getElementById("notes").value.trim(),
+    agent: document.getElementById("agent").value.trim()
   };
 
   const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
-
   const data = await res.json();
-  if (!res.ok || !data.result) {
-    console.error("❌ Something went wrong.");
-    document.getElementById("output-container").textContent = "Something went wrong.";
-    return;
-  }
-
-  const output = data.result;
-  document.getElementById("output-container").textContent = output + `\n\nCharacter count: ${output.length}`;
-  document.getElementById("output-container").style.display = "block";
+  const output = data.result || "Something went wrong.";
+  document.getElementById("result").innerHTML = output;
+  document.getElementById("char-count").textContent = `Character count: ${output.length}`;
+  document.getElementById("output-container").style.display = 'block';
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-}
   log("✅ Listing generated.");
 }
 
@@ -889,50 +882,6 @@ function getTimestampFilename(base, extension) {
     })
     .catch(err => console.error('Failed to load product URLs:', err));
 </script>
-<<script>
-document.addEventListener("DOMContentLoaded", function () {
-  const tone = document.getElementById("tone");
-  const purpose = document.getElementById("purpose");
-  const language = document.getElementById("language");
-  const audience = document.getElementById("audience");
-  const additionalFeatures = document.getElementById("additionalFeatures");
-
-  if (tone) {
-    tone.addEventListener("change", () => {
-      console.log("Tone selected:", tone.value);
-    });
-  }
-
-  if (purpose) {
-    purpose.addEventListener("change", () => {
-      console.log("Purpose selected:", purpose.value);
-    });
-  }
-
-  if (language) {
-    language.addEventListener("change", () => {
-      console.log("Language selected:", language.value);
-    });
-  }
-
-  if (audience) {
-    audience.addEventListener("change", () => {
-      console.log("Audience selected:", audience.value);
-    });
-  }
-
-  if (additionalFeatures) {
-    additionalFeatures.addEventListener("input", () => {
-      const charLimit = 44;
-      const userTier = localStorage.getItem("smartemail_tier");
-      if (userTier === "free" || !userTier) {
-        if (additionalFeatures.value.length > charLimit) {
-          additionalFeatures.value = additionalFeatures.value.substring(0, charLimit);
-        }
-      }
-    });
-  }
-});
-</script>  
+  
 </body>
 </html>
