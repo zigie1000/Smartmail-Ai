@@ -131,7 +131,7 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
 
   // ✅ Free tier users are allowed to generate
 log(`Tier: ${license.tier} — generation allowed for all users`);
-  }
+  
 const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
 
 const prompt = `
