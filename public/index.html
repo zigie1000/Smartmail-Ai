@@ -538,40 +538,47 @@ function log(msg) {
 window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
 async function generate() {
-  const type = document.getElementById("type").value;
-  const status = document.getElementById("status").value;
-  const location = document.getElementById("location").value.trim();
-  if (!type || !status || !location) {
-    alert("Please fill in at least type, status, and location.");
+  const tone = document.getElementById("tone").value;
+  const purpose = document.getElementById("purpose").value;
+  const language = document.getElementById("language").value;
+  const audience = document.getElementById("audience").value;
+  const additionalFeatures = document.getElementById("additionalFeatures").value.trim();
+  const agentDetails = document.getElementById("agentDetails").value.trim();
+
+  if (!tone || !purpose || !language || !audience) {
+    alert("Please fill in all fields: tone, purpose, language, and audience.");
     return;
   }
-  log("🧠 Generating listing for: " + type + ", " + status + ", " + location);
+
+  console.log("🟢 Generating SmartEmail...");
 
   const payload = {
-    type,
-    status,
-    location,
-    bedrooms: document.getElementById("bedrooms").value,
-    bathrooms: document.getElementById("bathrooms").value,
-    ensuites: document.getElementById("ensuites").value,
-    garages: document.getElementById("garages").value,
-    interior: document.getElementById("interior").value,
-    lot: document.getElementById("lot").value,
-    notes: document.getElementById("notes").value.trim(),
-    agent: document.getElementById("agent").value.trim()
+    tone,
+    purpose,
+    language,
+    audience,
+    additionalFeatures,
+    agentDetails,
   };
 
   const res = await fetch("/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
+
   const data = await res.json();
-  const output = data.result || "Something went wrong.";
-  document.getElementById("result").innerHTML = output;
-  document.getElementById("char-count").textContent = `Character count: ${output.length}`;
-  document.getElementById("output-container").style.display = 'block';
+  if (!res.ok || !data.result) {
+    console.error("❌ Something went wrong.");
+    document.getElementById("output-container").textContent = "Something went wrong.";
+    return;
+  }
+
+  const output = data.result;
+  document.getElementById("output-container").textContent = output + `\n\nCharacter count: ${output.length}`;
+  document.getElementById("output-container").style.display = "block";
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+}
   log("✅ Listing generated.");
 }
 
