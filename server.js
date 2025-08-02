@@ -197,6 +197,79 @@ if (!reply) {
   }
 });
 
+// ✅ SmartEmail: Enhancement endpoint (Pro and Premium only)
+app.post('/enhance', async (req, res) => {
+  const { email, enhance_request, enhance_content } = req.body;
+
+  if (!email || !enhance_request || !enhance_content) {
+    return res.status(400).json({ error: 'Missing required fields.' });
+  }
+
+  const license = await checkLicense(email);
+
+  if (license.tier === 'free') {
+    return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
+  }
+
+  const enhancePrompt = `
+You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
+
+📩 **Original Email:**
+${enhance_content}
+
+🔧 **User Enhancement Request:**
+${enhance_request}
+
+✍️ **Instructions**
+- Rewrite or modify the original email based on the enhancement request.
+- Maintain professional tone and formatting.
+- Make the email more effective, clear, and impactful where appropriate.
+- Only change what’s necessary based on the request.
+`.trim();
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4-1106-preview',
+        messages: [{ role: 'user', content: enhancePrompt }],
+        max_tokens: 400,
+      }),
+    });
+
+    const result = await response.json();
+    const reply = (result.choices?.[0]?.message?.content || '').trim();
+
+    if (!reply) {
+      console.error('❌ Enhancement failed. AI returned empty.', JSON.stringify(result, null, 2));
+      return res.status(500).json({ error: 'AI failed to enhance content.' });
+    }
+
+    try {
+      await supabase.from('enhancements').insert([
+        {
+          email,
+          original_text: enhance_content,
+          enhancement_prompt: enhance_request,
+          enhanced_result: reply,
+          product: 'SmartEmail'
+        }
+      ]);
+    } catch (logErr) {
+      console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
+    }
+
+    res.json({ result: reply, tier: license.tier });
+  } catch (err) {
+    console.error('❌ OpenAI enhancement error:', err.message || err);
+    res.status(500).json({ error: 'Something went wrong while enhancing the content.' });
+  }
+});
+
 // Stripe Webhook
 
 /*const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
