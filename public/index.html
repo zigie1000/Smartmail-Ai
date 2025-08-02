@@ -540,30 +540,30 @@ window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
   
 async function generate() {
-  const audience = document.getElementById("audience").value.trim();
-  const purpose = document.getElementById("purpose").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const emailType = document.getElementById("purpose").value.trim();
   const tone = document.getElementById("tone").value.trim();
   const language = document.getElementById("language").value.trim();
-  const email = document.getElementById("email").value.trim();
-  const email_content = document.getElementById("email_content").value.trim();
-  const sender_details = document.getElementById("sender_details").value.trim();
+  const audience = document.getElementById("audience").value.trim();
+  const content = document.getElementById("email_content").value.trim();
+  const agent = document.getElementById("sender_details").value.trim();
   const action = document.getElementById("action").value.trim();
 
-  if (!audience || !purpose || !tone || !language || !email || !email_content) {
+  if (!email || !emailType || !tone || !language || !audience || !content) {
     alert("Please complete all required fields including your email and content.");
     return;
   }
 
-  log("📧 Generating email for: " + email + " | Purpose: " + purpose);
+  log("📧 Generating email for: " + email + " | Purpose: " + emailType);
 
   const payload = {
-    email_type: purpose,
-    target_audience: audience,
+    email,
+    emailType,
     tone,
     language,
-    email,
-    email_content,
-    sender_details,
+    audience,
+    content,
+    agent,
     action
   };
 
@@ -576,21 +576,19 @@ async function generate() {
 
     const data = await res.json();
 
-    if (!res.ok) {
-      log(`❌ Generation failed: ${data.error || 'Unknown error'}`);
-      alert(data.error || 'Something went wrong.');
+    if (data.error) {
+      alert("Error: " + data.error);
+      log("❌ " + data.error);
       return;
     }
 
-    const output = data.result || "Something went wrong.";
-    document.getElementById("result").innerHTML = output;
-    document.getElementById("char-count").textContent = `Character count: ${output.length}`;
-    document.getElementById("output-container").style.display = 'block';
+    document.getElementById("result").textContent = data.result;
+    document.getElementById("char-count").textContent = `Character count: ${data.result.length}`;
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
-    log("✅ Email generated.");
+    log("✅ Email generated successfully.");
   } catch (err) {
-    log("❌ Exception during fetch: " + err.message);
-    alert("Generation failed. See debug log for details.");
+    console.error("Fetch failed:", err);
+    log("❌ Network error or server issue.");
   }
 }
 
