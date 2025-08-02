@@ -139,20 +139,17 @@ You are a senior email marketing strategist and expert copywriter.
 
 Your task is to write a compelling and professionally structured email that fulfills the following creative brief:
 
-📧 **Email Type**: ${finalEmailType}  
-🗣️ **Tone and Style**: ${finalTone}  
-🎯 **Target Audience**: ${finalAudience}  
-✅ **Primary Goal or Call-to-Action**: ${finalAction}  
-🌐 **Language**: ${finalLanguage}
+✉️ **Email Type:** ${finalEmailType}
+🎨 **Tone and Style:** ${finalTone}
+👥 **Target Audience:** ${finalAudience}
+🎯 **Primary Goal or Call-to-Action:** ${finalAction}
+🗣️ **Language:** ${finalLanguage}
 
-✍️ **Base Message**:  
-"""
+📩 **Base Message:**
 ${finalContent}
-"""
+${agentInfo}
 
-${finalAgent ? `📇 **Sender Information**:\n${finalAgent}` : ''}
-
-📌 **Instructions**:
+📝 **Instructions**
 - Structure the email with a subject line, greeting, body, and closing.
 - Make the copy persuasive, clear, and aligned with the tone provided.
 - Ensure the email reads naturally in ${finalLanguage} and is appropriate for the specified audience.
