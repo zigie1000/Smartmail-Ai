@@ -145,6 +145,13 @@ ${finalContent}
 ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 `.trim();
 
+Base Email Content:
+***
+${finalContent}
+***
+${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
+`.trim();
+
 
 ${agent ? `Sign off using this sender block:\n${agent}` : ''}
 `.trim();
