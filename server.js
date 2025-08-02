@@ -131,6 +131,7 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
+
 const prompt = `
 You are an expert AI email copywriter.
 
@@ -144,7 +145,7 @@ ${finalContent}
 ***
 ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 `.trim();
-
+  
 Base Email Content:
 ***
 ${finalContent}
