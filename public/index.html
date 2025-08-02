@@ -557,14 +557,14 @@ async function generate() {
   log("📧 Generating email for: " + email + " | Purpose: " + purpose);
 
   const payload = {
-    audience: document.getElementById("audience").value.trim(),
-    purpose: document.getElementById("purpose").value.trim(),
-    tone: document.getElementById("tone").value.trim(),
-    language: document.getElementById("language").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    email_content: document.getElementById("email_content").value.trim(),
-    sender_details: document.getElementById("sender_details").value.trim(),
-    action: document.getElementById("action").value.trim()
+    email_type: purpose,                    // ✅ server expects email_type
+    target_audience: audience,             // ✅ server expects target_audience
+    tone,
+    language,
+    email,
+    email_content,
+    sender_details,
+    action
   };
 
   const res = await fetch("/generate", {
@@ -574,12 +574,20 @@ async function generate() {
   });
 
   const data = await res.json();
+
+  if (!res.ok) {
+    log(`❌ Generation failed: ${data.error || 'Unknown error'}`);
+    alert(data.error || 'Something went wrong.');
+    return;
+  }
+
   const output = data.result || "Something went wrong.";
   document.getElementById("result").innerHTML = output;
   document.getElementById("char-count").textContent = `Character count: ${output.length}`;
   document.getElementById("output-container").style.display = 'block';
   document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
   log("✅ Email generated.");
+}
 }
 
 function applyEnhancement() {
