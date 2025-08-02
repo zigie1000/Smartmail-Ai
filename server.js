@@ -132,6 +132,7 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
+const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
 
 const prompt = `
 You are a senior email marketing strategist and expert copywriter.
