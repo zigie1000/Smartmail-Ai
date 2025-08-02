@@ -589,7 +589,8 @@ async function generate() {
   } catch (err) {
     console.error("Fetch failed:", err);
     log("❌ Network error or server issue.");
-  
+  }
+}
 
 
 
@@ -640,6 +641,7 @@ async function applyEnhancement() {
   } catch (err) {
     alert("An error occurred during enhancement.");
     console.error(err);
+}
 }
 function copyToClipboard() {
   const text = document.getElementById("result").textContent;
