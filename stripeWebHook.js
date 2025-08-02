@@ -1,9 +1,14 @@
-const express = require('express');
-const router = express.Router();
-const { supabase } = require('./licenseManager');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const crypto = require('crypto');
+// stripeWebHook.js — SmartEmail only
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
+import crypto from 'crypto';
 
+const router = express.Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+// Stripe Webhook Endpoint
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
@@ -11,7 +16,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('❌ Stripe webhook signature error:', err.message);
+    console.error('❌ Stripe webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -35,31 +40,27 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       productMetadata = product?.metadata || {};
       planName = product?.name || 'Unnamed Plan';
 
-      console.log('📦 Stripe product ID:', stripeProductId);
-      console.log('📄 Stripe product metadata:', productMetadata);
-      console.log('🏷️ Plan Name:', planName);
-
       if (!productMetadata.tier || !productMetadata.durationDays) {
-        console.warn('⚠️ Metadata missing or incomplete. Applying fallback values.');
-        productMetadata.tier = productMetadata.tier || 'default';
+        console.warn('⚠️ Missing product metadata. Applying fallback values.');
+        productMetadata.tier = productMetadata.tier || 'free';
         productMetadata.durationDays = productMetadata.durationDays || '30';
       }
     } catch (err) {
-      console.error('❌ Failed to retrieve line items or product metadata:', err.message);
-      return res.status(500).send('Stripe product retrieval error');
+      console.error('❌ Failed to retrieve product metadata:', err.message);
+      return res.status(500).send('Product metadata error');
     }
 
-    const licenseType = productMetadata.tier;
+    const tier = productMetadata.tier;
     const durationDays = parseInt(productMetadata.durationDays, 10) || 30;
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     const licenseKey = crypto.randomBytes(16).toString('hex');
 
-    const insertPayload = {
+    const payload = {
       email,
       license_key: licenseKey,
-      license_type: licenseType,
+      license_type: tier,
       plan: planId,
       name: planName,
       status: 'active',
@@ -70,18 +71,20 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       stripe_product: stripeProductId
     };
 
-    const { error } = await supabase.from('licenses').upsert([insertPayload], { onConflict: ['email'] });
+    const { error } = await supabase.from('licenses').upsert([payload], {
+      onConflict: ['email']
+    });
 
     if (error) {
       console.error('❌ Supabase insert/upsert error:', error.message);
       return res.status(500).send('Database insert error');
     }
 
-    console.log(`✅ License inserted or updated for ${email} → ${licenseType} until ${expiresAt.toISOString()}`);
+    console.log(`✅ SmartEmail license activated: ${email} → ${tier} until ${expiresAt.toISOString()}`);
     return res.status(200).send('Success');
   }
 
   return res.status(200).send('Unhandled event type');
 });
 
-module.exports = router;
+export default router;
