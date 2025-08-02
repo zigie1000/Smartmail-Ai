@@ -229,7 +229,7 @@
   <input id="location" placeholder="e.g. Sea Point, Cape Town" type="text"/>
 </div>
 <div class="form-row">
-  */
+  <!--
   <label for="bedrooms">Bedrooms</label>
   <input id="bedrooms" min="0" placeholder="e.g. 3" type="number"/>
 </div>
@@ -253,10 +253,38 @@
   <label for="lot">Lot Size / Erf Size (m²)</label>
   <input id="lot" min="0" placeholder="e.g. 500" type="number"/>
 </div>
+  -->
+
+<!-- SmartEmail Fields Start -->
+<div class="form-row">
+  <label for="tone">Email Tone</label>
+  <select id="tone">
+    <option value="">Select Tone</option>
+    <option value="Friendly">Friendly</option>
+    <option value="Professional">Professional</option>
+    <option value="Urgent">Urgent</option>
+    <option value="Empathetic">Empathetic</option>
+    <option value="Direct">Direct</option>
+  </select>
+</div>
+
+<div class="form-row">
+  <label for="purpose">Email Purpose</label>
+  <select id="purpose">
+    <option value="">Select Purpose</option>
+    <option value="Welcome">Welcome</option>
+    <option value="Reminder">Reminder</option>
+    <option value="Promotion">Promotion</option>
+    <option value="Follow-up">Follow-up</option>
+    <option value="Apology">Apology</option>
+  </select>
+</div>
+<!-- SmartEmail Fields End -->
+
+  
 <div class="form-row">
   <label for="additionalFeatures">Additional Features / Notes</label>
 <textarea
-  /*
   id="additionalFeatures"
   placeholder="Max 40 characters (upgrade for more)"
 ></textarea>
