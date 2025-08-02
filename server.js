@@ -136,7 +136,9 @@ const prompt = `
 You are an expert AI email copywriter.
 
 Write a "${finalEmailType}" email in "${finalLanguage}".
+Tone: ${finalTone}
 Target Audience: ${finalAudience}
+Intended Outcome: ${finalAction}
 Sender: ${finalAgent}
 
 Base Email Content:
