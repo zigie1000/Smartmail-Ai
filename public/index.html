@@ -889,47 +889,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const language = document.getElementById("language");
   const audience = document.getElementById("audience");
   const additionalFeatures = document.getElementById("additionalFeatures");
-  const agentDetails = document.getElementById("agentDetails");
 
-  if (tone) {
-    tone.addEventListener("change", function () {
-      console.log("Tone selected:", tone.value);
-    });
-  }
-
-  if (purpose) {
-    purpose.addEventListener("change", function () {
-      console.log("Purpose selected:", purpose.value);
-    });
-  }
-
-  if (language) {
-    language.addEventListener("change", function () {
-      console.log("Language selected:", language.value);
-    });
-  }
-
-  if (audience) {
-    audience.addEventListener("change", function () {
-      console.log("Audience selected:", audience.value);
-    });
-  }
-
-  if (additionalFeatures) {
-    additionalFeatures.addEventListener("input", function () {
-      const charLimit = 40;
-      const userTier = localStorage.getItem("smartemail_tier");
-      if ((userTier === "free" || !userTier) && additionalFeatures.value.length > charLimit) {
-        additionalFeatures.value = additionalFeatures.value.substring(0, charLimit);
-      }
-    });
-  }
-
-  if (agentDetails) {
-    agentDetails.addEventListener("blur", function () {
-      agentDetails.value = agentDetails.value.trim();
-    });
-  }
 });
 </script>  
 </body>
