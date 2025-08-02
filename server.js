@@ -39,24 +39,7 @@ if (USE_GOOGLE_AUTH) {
   );
 }
 
-// Generate OpenAI prompt
-function generateAIPrompt(content, action = 'generate', agent = '') {
-  let context = '';
-  if (agent.trim() !== '') {
-    context = `The individual or business sending the email. Sender details: ${agent}\n\n`;
-  }
 
-  switch (action) {
-    case 'enhance':
-      return `${context}Enhance the professionalism, clarity, and tone of the following email:\n\n"${content}"`;
-    case 'summarize':
-      return `${context}Summarize the following email clearly:\n\n"${content}"`;
-    case 'translate':
-      return `${context}Translate this email into professional English:\n\n"${content}"`;
-    default:
-      return `${context}Reply professionally to this email:\n\n"${content}"`;
-  }
-}
 // Home route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -148,19 +131,19 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Upgrade required for this feature.' });
   }
-
 const prompt = `
 You are an expert AI email copywriter.
 
-Write a "${finalEmailType}" email in "${language}".
-Target Audience: ${audience}
+Write a "${finalEmailType}" email in "${finalLanguage}".
+Target Audience: ${finalAudience}
 Sender: ${finalAgent}
 
 Base Email Content:
 ***
 ${finalContent}
 ***
-`
+`.trim();
+
 
 ${agent ? `Sign off using this sender block:\n${agent}` : ''}
 `.trim();
@@ -183,13 +166,13 @@ ${agent ? `Sign off using this sender block:\n${agent}` : ''}
     const reply = (result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content) || '';
 
     await supabase.from('leads').insert([
-      {
-        email,
-        original_message: content,
-        generated_reply: reply,
-        product: 'SmartEmail',
-      },
-    ]);
+  {
+    email: finalEmail,
+    original_message: finalContent,
+    generated_reply: reply,
+    product: 'SmartEmail',
+  },
+]);
 
     res.json({ reply, tier: license.tier });
   } catch (err) {
