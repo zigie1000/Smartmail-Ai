@@ -178,7 +178,7 @@ ${finalAgent ? `\n\nSign off using this sender block:\n${finalAgent}` : ''}
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
-    res.json({ reply, tier: license.tier });
+    res.json({ result: reply, tier: license.tier });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
