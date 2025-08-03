@@ -81,86 +81,19 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 // Check license via Supabase
-// Check license via Supabase
 async function checkLicense(email) {
-  try {
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
     .eq('email', email)
     .maybeSingle();
 
-  if (error || !data) {
-    return { tier: 'free', reason: 'not found' };
-  }
-
-  const now = new Date();
-  const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-
-  if (expiry && expiry < now) {
-    await supabase
-      .from('licenses')
-      .update({ smartemail_tier: 'free' })
-      .eq('email', email);
-
-    return { tier: 'free', reason: 'expired' };
-  }
-
+  if (error || !data) return { tier: 'free', reason: 'not found' };
   return {
-    tier: data?.smartemail_tier || 'free',
-    expires: data?.smartemail_expires || null,
-    status: 'active'
-  };
-
-} catch (err) {
-  console.error("❌ Supabase checkLicense error:", {
-    email,
-    message: err.message,
-    stack: err.stack
-  });
-  return {
-    tier: 'free',
-    reason: 'error',
-    debug: err.message || 'unknown server error'
+    tier: data.smartemail_tier || 'free',
+    expires: data.smartemail_expires || null,
   };
 }
-}
-
-// New endpoint: Allow frontend to check license by email
-app.post('/check-license', async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ tier: 'free', reason: 'missing email' });
-
-  const license = await checkLicense(email);
-  return res.json(license);
-});
-
-// ✅ New GET endpoint for frontend license check
-app.get('/validate-license', async (req, res) => {
-  const { email } = req.query;
-
-  if (!email) {
-    return res.status(400).json({ status: 'error', reason: 'Missing email' });
-  }
-
-  try {
-    const license = await checkLicense(email);
-    return res.json({
-      status: 'ok',
-      tier: license.tier,
-      reason: license.reason || null,
-      expires: license.expires || null
-    });
-  } catch (err) {
-    console.error("❌ /validate-license error:", err.message || err);
-    return res.status(500).json({
-      status: 'error',
-      reason: 'server failure',
-      debug: err.message || 'unknown error'
-    });
-  }
-});
-
 
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
@@ -183,9 +116,10 @@ const finalLanguage = req.body.language || language;
 const finalTone = req.body.tone || tone;
 const finalAction = req.body.action || action;
 const finalEmail = req.body.email || email; // for safety  
-const license = await checkLicense(finalEmail);
+const license = await checkLicense(email);
 // ✅ Step 1: check for license-check early
-if (req.body?.content === 'license-check') {
+if (req.body?.content === 'license-check' && req.body?.email) {
+  const license = await checkLicense(req.body.email);
   return res.json({ tier: license.tier || 'free' });
 }
 
@@ -274,16 +208,13 @@ app.post('/enhance', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
-  try {
-    const license = await checkLicense(email);
+  const license = await checkLicense(email);
 
-    console.log('✅ Retrieved license tier:', license?.tier); // useful debug
+  if (license.tier === 'free') {
+    return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
+  }
 
-    if (!license || !license.tier || !['pro', 'premium'].includes(license.tier.toLowerCase())) {
-      return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
-    }
-
-    const enhancePrompt = `
+  const enhancePrompt = `
 You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
 
 📩 **Original Email:**
@@ -299,6 +230,7 @@ ${enhance_request}
 - Only change what’s necessary based on the request.
 `.trim();
 
+  try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -403,30 +335,14 @@ app.post('/webhook', async (req, res) => {
 app.get('/validate-license', async (req, res) => {
   const { email, licenseKey } = req.query;
 
-let tier = "free"; // default
-let status = "inactive";
-let userEmail = "";
-
-const { data, error } = await supabase
-  .from("smartemail_licenses")
-  .select("email, tier, status")
-  .or(`license_key.eq.${licenseKey},email.eq.${email}`)
-  .single();
-
-if (data && data.tier && data.tier !== "free") {
-  tier = data.tier;
-  status = "active";
-  userEmail = data.email || email;
-}
-  
   if (!email && !licenseKey) {
     return res.status(400).json({ error: 'Missing email or licenseKey' });
   }
 
   try {
     const { data, error } = await supabase
-  .from('smartemail_licenses')
-  .select('smartemail_tier, smartemail_expires, license_key, email')
+      .from('licenses')
+      .select('smartemail_tier, smartemail_expires, license_key, email')
       .or(`email.eq.${email},license_key.eq.${licenseKey}`)
       .maybeSingle();
 
@@ -434,15 +350,16 @@ if (data && data.tier && data.tier !== "free") {
       return res.json({ status: "not_found", tier: "free" });
     }
 
-const now = new Date();
-const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
-const isActive = expiry ? expiry >= now : false;
+    const now = new Date();
+    const expiry = new Date(data.smartemail_expires);
+    const isActive = expiry >= now;
 
     res.json({
-  tier: data.smartemail_tier || "free",
-  status: expiry ? (isActive ? "active" : "expired") : "unknown",
-  email: data.email || null
-});
+      status: isActive ? "active" : "expired",
+      tier: data.smartemail_tier || "free",
+      licenseKey: data.license_key || null,
+      email: data.email || null
+    });
   } catch (err) {
     console.error("❌ Error in validate-license:", err.message || err);
     res.status(500).json({ error: "Validation failed" });
