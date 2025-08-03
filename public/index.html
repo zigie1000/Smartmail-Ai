@@ -711,7 +711,10 @@ async function applyEnhancement() {
       log("❌ Enhance failed: " + data.error);
       return;
     };
-
+if (!localStorage.getItem("smartemail_tier") && data.tier) {
+  localStorage.setItem("smartemail_tier", data.tier);
+  log("🔐 Saved user tier from enhancement response: " + data.tier);
+}
     const updated = data.result || data.generatedEmail || enhance_content;
     log("🧠 Response used: " + (data.result ? 'result' : (data.generatedEmail ? 'generatedEmail' : 'enhance_content')));
     document.getElementById("result").textContent = updated;
