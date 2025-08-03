@@ -625,7 +625,10 @@ async function applyEnhancement() {
   const enhance_request = document.getElementById("enhance").value.trim();
   const enhance_content = document.getElementById("result").textContent.trim();
   const email = (document.getElementById("email")?.value || localStorage.getItem("smartemail_email") || '').trim();
-
+  
+if (!document.getElementById("email")?.value && email) {
+  document.getElementById("email").value = email;
+}
   if (!enhance_request) {
     alert("Please enter an enhancement request.");
     return;
