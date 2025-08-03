@@ -236,7 +236,7 @@ app.post('/enhance', async (req, res) => {
 
   const license = await checkLicense(email);
 
-  if (license.tier === 'free') {
+  if (!['pro', 'premium'].includes(license.tier)) {
     return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
   }
 
