@@ -311,27 +311,6 @@
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-
-async function validateLicense(email) {
-  try {
-    const res = await fetch(`/validate-license?email=${encodeURIComponent(email)}`);
-    const data = await res.json();
-
-    const tier = data.tier || "free";
-    document.getElementById("tierBadge").textContent = tier.toUpperCase();
-
-    const proOrBetter = tier === "pro" || tier === "premium";
-
-    if (document.getElementById("enhanceBtn"))
-      document.getElementById("enhanceBtn").style.display = proOrBetter ? "inline-block" : "none";
-
-    if (document.getElementById("exportBtn"))
-      document.getElementById("exportBtn").style.display = proOrBetter ? "inline-block" : "none";
-  } catch (err) {
-    console.error("License validation failed:", err);
-  }
-}
-  
 // ---- LICENSE/TIER LOGIC ----
 function showCheckingModal(msg="Checking...") {
   let modal = document.createElement('div');
@@ -355,60 +334,60 @@ function hideModal() {
   let modal = document.getElementById('checkingModal');
   if (modal) modal.remove();
 }
-async function detectAndSyncLicense(showPromptIfFree = true) {
-  const storedEmail = localStorage.getItem("userEmail");
-
-  if (storedEmail) {
-    await validateLicense(storedEmail);
-  } else if (showPromptIfFree) {
-    showPromptForEmail();
-  }
-}
-
-async function validateLicense(identifier) {
-  try {
-    showCheckingModal("Checking license...");
-
-    const isEmail = identifier.includes("@");
-    const endpoint = isEmail ? `/validate-license?email=${encodeURIComponent(identifier)}` :
-                               `/validate-license?licenseKey=${encodeURIComponent(identifier)}`;
-
-    const res = await fetch(endpoint);
-    const data = await res.json();
-
-    hideModal();
-
-    if (data && data.status === "active") {
-      localStorage.setItem("licenseKey", data.licenseKey || "");
-      localStorage.setItem("userEmail", data.email || "");
-      localStorage.setItem("tier", data.tier || "free");
-      log("✅ Loaded license from server. Tier: " + data.tier);
-      setTier(data.tier);
-      updateFeatureAccess();
-    } else {
-      localStorage.removeItem("licenseKey");
-      localStorage.removeItem("userEmail");
-      localStorage.setItem("tier", "free");
-      log("❌ License not recognized or expired. Set to free.");
-      setTier("free");
-      updateFeatureAccess();
+async function detectAndSyncLicense(showPromptIfFree=true) {
+  let licenseKey = localStorage.getItem("licenseKey");
+  let userEmail = localStorage.getItem("userEmail");
+  let triedEmail = false;
+  if (licenseKey) {
+    showCheckingModal("Checking license key...");
+    try {
+      const res = await fetch(`/validate-license?licenseKey=${encodeURIComponent(licenseKey)}`);
+      const data = await res.json();
+      hideModal();
+      if (data.tier && data.status === "active") {
+        setTier(data.tier);
+        updateFeatureAccess();
+        if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
+        if (data.email) localStorage.setItem("userEmail", data.email);
+        log("✅ Loaded license from licenseKey. Tier: " + data.tier);
+        return;
+      } else {
+        localStorage.removeItem("licenseKey");
+        log("❌ License key not recognized or expired. Cleared localStorage.");
+        triedEmail = true;
+      }
+    } catch (e) {
+      hideModal();
+      log("❌ Error validating license key: " + e.message);
     }
-
-  } catch (e) {
-  hideModal();
-  console.error("❌ License check failed due to server error:", e);
-  alert("⚠️ Server error verifying license. Using previously stored tier.");
-
-  // Only downgrade if there's no existing tier in localStorage
-  const currentTier = localStorage.getItem("tier");
-  if (!currentTier || currentTier === "free") {
-    localStorage.setItem("tier", "free");
   }
-
+  if (userEmail && !triedEmail) {
+    showCheckingModal("Checking for license linked to your email...");
+    try {
+      const res = await fetch(`/validate-license?email=${encodeURIComponent(userEmail)}`);
+      const data = await res.json();
+      hideModal();
+      if (data.tier && data.status === "active") {
+        setTier(data.tier);
+        updateFeatureAccess();
+        if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
+        if (data.email) localStorage.setItem("userEmail", data.email);
+        log("✅ Loaded license by email. Tier: " + data.tier);
+        return;
+      } else {
+        localStorage.removeItem("userEmail");
+        log("❌ Email not recognized for license. Cleared localStorage.");
+      }
+    } catch (e) {
+      hideModal();
+      log("❌ Error checking license by email: " + e.message);
+    }
+  }
+  setTier("free");
   updateFeatureAccess();
+  log("👤 No valid license/email found, set to free.");
+  if (showPromptIfFree) showEmailPrompt();
 }
-}
-  
 function showEmailPrompt() { document.getElementById('modalBg').style.display = 'block'; }
 function hideEmailPrompt() { document.getElementById('modalBg').style.display = 'none'; }
 function showLicenseEntry() { document.getElementById('licenseInput').value = ""; document.getElementById('licenseModalBg').style.display = 'block'; }
@@ -544,37 +523,6 @@ if (document.getElementById("copyBtn")) {
 }
 
   log("✅ Access updated for tier: " + t);
-
-if (document.getElementById("enhanceBtn")) {
-  document.getElementById("enhanceBtn").addEventListener("click", async () => {
-    const enhancementInput = document.getElementById("enhancementInput").value;
-    const email = localStorage.getItem("smartemail_email");
-
-    try {
-      const res = await fetch("/enhance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: enhancementInput,
-          email: email
-        })
-      });
-
-      const data = await res.json();
-
-      if (data.error) {
-        alert(data.error);
-      } else {
-        // optional: apply enhanced content into field or display
-        console.log("✅ Enhancement success", data);
-      }
-    } catch (err) {
-      console.error("Enhance request failed:", err);
-      alert("Enhancement failed due to network or server issue.");
-    }
-  });
-}
-  
 }
 function showBuyPro() {
   fetch('/config')
@@ -671,8 +619,7 @@ document.getElementById("output-container").scrollIntoView({ behavior: "smooth" 
   }
 }
 
-document.getElementById("generateBtn").addEventListener("click", generate);
-document.getElementById("enhanceBtn").addEventListener("click", applyEnhancement);
+
 
 async function applyEnhancement() {
   const enhance_request = document.getElementById("enhance").value.trim();
@@ -716,7 +663,7 @@ async function applyEnhancement() {
     log("🧠 Response used: " + (data.result ? 'result' : (data.generatedEmail ? 'generatedEmail' : 'enhance_content')));
     document.getElementById("result").textContent = updated;
     log("✅ Enhancement complete.");
-    
+    document.getElementById("enhanceBtn").addEventListener("click", applyEnhancement);
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
@@ -841,45 +788,13 @@ function triggerDownload(blob, filename) {
   URL.revokeObjectURL(url);
 }
 function clearAll() {
-  const fields = [
-    "email",
-    "emailType",
-    "tone",
-    "language",
-    "audience",
-    "content",
-    "agent",
-    "action"
-  ];
-
-  fields.forEach(id => {
-    const el = document.getElementById(id);
-    if (el && typeof el.value !== "undefined") {
-      el.value = "";
-    }
-  });
-
-  const result = document.getElementById("result");
-  if (result) result.textContent = "";
-
-  const enhanceResult = document.getElementById("enhanceResult");
-  if (enhanceResult) enhanceResult.textContent = "";
-
-  const charCount = document.getElementById("char-count");
-  if (charCount) charCount.textContent = "";
-
-  const outputContainer = document.getElementById("output-container");
-  if (outputContainer) outputContainer.style.display = "none";
-
-  const copyBtn = document.getElementById("copyBtn");
-  if (copyBtn) copyBtn.style.display = "none";
-
-  const enhanceBtn = document.getElementById("enhanceBtn");
-  if (enhanceBtn) enhanceBtn.style.display = "none";
-
-  console.log("✅ SmartEmail form cleared.");
+  const fields = [ "type", "status", "location", "bedrooms", "bathrooms", "ensuites", "garages", "interior", "lot", "notes", "enhance" ];
+  fields.forEach(id => document.getElementById(id).value = "");
+  document.getElementById("result").textContent = "";
+  document.getElementById("char-count").textContent = "";
+  document.getElementById("output-container").style.display = 'none';
+  log("🧹 Form cleared.");
 }
-
 document.getElementById("logoFile").addEventListener("change", function () {
   const preview = document.getElementById("logo-preview");
   preview.innerHTML = "";
