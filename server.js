@@ -441,7 +441,7 @@ const isActive = expiry ? expiry >= now : false;
 
     res.json({
   tier: data.smartemail_tier || "free",
-  status: isActive ? "active" : "expired",
+  status: expiry ? (isActive ? "active" : "expired") : "unknown",
   email: data.email || null
 });
   } catch (err) {
