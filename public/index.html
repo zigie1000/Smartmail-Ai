@@ -395,11 +395,12 @@ async function validateLicense(identifier) {
     }
 
   } catch (e) {
-    hideModal();
-    console.error("❌ License check failed:", e);
-    localStorage.setItem("tier", "free");
-    updateFeatureAccess();
-  }
+  hideModal();
+  console.error("❌ License check failed due to server error:", e);
+  alert("⚠️ Server error verifying license. Defaulted to Free tier. Please try again.");
+  localStorage.setItem("tier", "free");
+  updateFeatureAccess();
+}
 }
   
 function showEmailPrompt() { document.getElementById('modalBg').style.display = 'block'; }
