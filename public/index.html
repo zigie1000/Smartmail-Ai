@@ -1079,6 +1079,9 @@ function updateTierUI(tier) {
     document.getElementById("tierBadge").textContent = tier.toUpperCase();
 }    
   document.addEventListener("DOMContentLoaded", () => {
+  if (!localStorage.getItem("smartemail_tier")) {
+    promptForEmail();
+  }
     const generateBtn = document.getElementById("generateBtn");
     const enhanceBtn = document.getElementById("enhanceBtn");
     updateTierUI(userTier);
