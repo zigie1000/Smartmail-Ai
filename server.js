@@ -371,11 +371,10 @@ if (data && data.status === "active") {
     const isActive = expiry >= now;
 
     res.json({
-      status: isActive ? "active" : "expired",
-      tier: data.smartemail_tier || "free",
-      licenseKey: data.license_key || null,
-      email: data.email || null
-    });
+  tier: data.smartemail_tier || "free",
+  status: isActive ? "active" : "expired",
+  email: data.email || null
+});
   } catch (err) {
     console.error("❌ Error in validate-license:", err.message || err);
     res.status(500).json({ error: "Validation failed" });
