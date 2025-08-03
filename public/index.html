@@ -405,7 +405,31 @@ async function validateLicense(identifier) {
     localStorage.setItem("tier", "free");
   }
 
-  updateFeatureAccess();
+  function updateFeatureAccess() {
+  const tier = localStorage.getItem('tier') || 'free';
+
+  // Copy: always available
+  if (document.getElementById('copyBtn'))
+    document.getElementById('copyBtn').style.display = 'inline-block';
+
+  // Generate: always available
+  if (document.getElementById('generateBtn'))
+    document.getElementById('generateBtn').style.display = 'inline-block';
+
+  // Export buttons: Pro or Premium only
+  if (document.getElementById('exportBtn'))
+    document.getElementById('exportBtn').style.display = (tier === 'pro' || tier === 'premium') ? 'inline-block' : 'none';
+
+  if (document.getElementById('exportPdfBtn'))
+    document.getElementById('exportPdfBtn').style.display = (tier === 'pro' || tier === 'premium') ? 'inline-block' : 'none';
+
+  if (document.getElementById('exportTextBtn'))
+    document.getElementById('exportTextBtn').style.display = (tier === 'pro' || tier === 'premium') ? 'inline-block' : 'none';
+
+  // Enhance: Pro or Premium only
+  if (document.getElementById('enhanceBtn'))
+    document.getElementById('enhanceBtn').style.display = (tier === 'pro' || tier === 'premium') ? 'inline-block' : 'none';
+}
 }
 }
   
