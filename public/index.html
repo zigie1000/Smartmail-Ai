@@ -970,7 +970,7 @@ function updateTierUI(tier) {
   document.addEventListener("DOMContentLoaded", () => {
     const generateBtn = document.getElementById("generateBtn");
     const enhanceBtn = document.getElementById("enhanceBtn");
-
+    updateTierUI(userTier);
     if (generateBtn) {
       generateBtn.addEventListener("click", generate);
     }
