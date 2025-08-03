@@ -94,7 +94,7 @@ async function checkLicense(email) {
     if (error || !data) return { tier: 'free', reason: 'not found' };
 
     const now = new Date();
-    const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+    const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
 
     if (expiry && expiry < now) {
       await supabase
@@ -106,8 +106,8 @@ async function checkLicense(email) {
     }
 
     return {
-  tier: data.smartemail_tier || 'free',
-  expires: data.smartemail_expires || null,
+  tier: data?.smartemail_tier || 'free',
+  expires: data?.smartemail_expires || null,
   status: 'active'
 };
   } 
@@ -435,8 +435,7 @@ if (data && data.status === "active") {
       return res.json({ status: "not_found", tier: "free" });
     }
 
-    const now = new Date();
-    const expiry = new Date(data.smartemail_expires);
+    const now = new Date();const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
     const isActive = expiry >= now;
 
     res.json({
