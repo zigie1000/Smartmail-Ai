@@ -82,17 +82,23 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Check license via Supabase
 async function checkLicense(email) {
-  const { data, error } = await supabase
-    .from('licenses')
-    .select('smartemail_tier, smartemail_expires')
-    .eq('email', email)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('licenses')
+      .select('tier, expires')
+      .eq('email', email)
+      .maybeSingle();
 
-  if (error || !data) return { tier: 'free', reason: 'not found' };
-  return {
-    tier: data.smartemail_tier || 'free',
-    expires: data.smartemail_expires || null,
-  };
+    if (error || !data) return { tier: 'free', reason: 'not found' };
+
+    return {
+      tier: data.tier || 'free',
+      expires: data.expires || null,
+    };
+  } catch (error) {
+    console.error("❌ Supabase checkLicense error:", error);
+    return { tier: 'free', reason: 'error' };
+  }
 }
 
 // ✅ FIXED: SmartEmail-Compatible /generate route
