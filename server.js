@@ -236,9 +236,11 @@ app.post('/enhance', async (req, res) => {
 
   const license = await checkLicense(email);
 
-  if (!['pro', 'premium'].includes(license.tier)) {
-    return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
-  }
+console.log('✅ Retrieved license tier:', license?.tier); // helpful for debugging
+
+if (!license || !license.tier || !['pro', 'premium'].includes(license.tier.toLowerCase())) {
+  return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
+}
 
   const enhancePrompt = `
 You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
