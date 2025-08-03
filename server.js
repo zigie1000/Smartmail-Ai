@@ -109,9 +109,13 @@ async function checkLicense(email) {
       expires: data.smartemail_expires || null,
     };
   } catch (err) {
-    console.error("❌ Supabase checkLicense error:", err);
-    return { tier: 'free', reason: 'error' };
-  }
+  console.error("❌ Supabase checkLicense error:", err.message || err);
+  return {
+    tier: 'free',
+    reason: 'error',
+    debug: err.message || 'unknown server error'
+  };
+}
 }
 
 // New endpoint: Allow frontend to check license by email
