@@ -954,6 +954,19 @@ function getTimestampFilename(base, extension) {
     .catch(err => console.error('Failed to load product URLs:', err));
 </script>
   <script>
+
+function updateTierUI(tier) {
+  const showPro = (tier === "pro" || tier === "premium");
+
+  if (document.getElementById("exportBtn"))
+    document.getElementById("exportBtn").style.display = showPro ? "inline-block" : "none";
+
+  if (document.getElementById("enhanceBtn"))
+    document.getElementById("enhanceBtn").style.display = showPro ? "inline-block" : "none";
+
+  if (document.getElementById("tierBadge"))
+    document.getElementById("tierBadge").textContent = tier.toUpperCase();
+}    
   document.addEventListener("DOMContentLoaded", () => {
     const generateBtn = document.getElementById("generateBtn");
     const enhanceBtn = document.getElementById("enhanceBtn");
