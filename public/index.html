@@ -580,10 +580,11 @@ async function generate() {
       log("❌ " + data.error);
       return;
     }
-
-    document.getElementById("result").textContent = data.generatedEmail;
-    document.getElementById("char-count").textContent = `Character count: ${data.generatedEmail.length}`;
-    document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+document.getElementById("result").textContent = data.generatedEmail;
+document.getElementById("char-count").textContent = `Character count: ${data.generatedEmail.length}`;
+document.getElementById("output-container").style.display = "block"; // ← ADD THIS LINE
+document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
+    
     log("✅ Email generated successfully.");
     document.getElementById("generateBtn").addEventListener("click", generate);
   } catch (err) {
