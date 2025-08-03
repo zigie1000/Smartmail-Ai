@@ -84,6 +84,7 @@ app.get('/auth/google/callback', async (req, res) => {
 // Check license via Supabase
 async function checkLicense(email) {
   try {
+    console.log("🔍 Checking license for:", email); // <-- ADD THIS
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires')
@@ -109,13 +110,20 @@ async function checkLicense(email) {
   expires: data.smartemail_expires || null,
   status: 'active'
 };
-  } catch (err) {
-  console.error("❌ Supabase checkLicense error:", err.message || err);
+  } 
+  
+  catch (err) {
+  console.error("❌ Supabase checkLicense error:", {
+    email,
+    message: err.message,
+    stack: err.stack
+  });
   return {
     tier: 'free',
     reason: 'error',
     debug: err.message || 'unknown server error'
   };
+}
 }
 }
 
