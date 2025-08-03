@@ -81,6 +81,7 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 // Check license via Supabase
+// Check license via Supabase
 async function checkLicense(email) {
   try {
     const { data, error } = await supabase
