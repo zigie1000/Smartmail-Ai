@@ -585,6 +585,7 @@ async function generate() {
     document.getElementById("char-count").textContent = `Character count: ${data.generatedEmail.length}`;
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     log("✅ Email generated successfully.");
+    document.getElementById("generateBtn").addEventListener("click", generate);
   } catch (err) {
     console.error("Fetch failed:", err);
     log("❌ Network error or server issue.");
