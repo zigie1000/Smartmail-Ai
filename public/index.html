@@ -802,12 +802,35 @@ function triggerDownload(blob, filename) {
   URL.revokeObjectURL(url);
 }
 function clearAll() {
-  const fields = [ "type", "status", "location", "bedrooms", "bathrooms", "ensuites", "garages", "interior", "lot", "notes", "enhance" ];
-  fields.forEach(id => document.getElementById(id).value = "");
-  document.getElementById("result").textContent = "";
-  document.getElementById("char-count").textContent = "";
-  document.getElementById("output-container").style.display = 'none';
-  log("🧹 Form cleared.");
+  const fields = [
+    "email",
+    "emailType",
+    "tone",
+    "language",
+    "audience",
+    "content",
+    "agent",
+    "action"
+  ];
+
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  const result = document.getElementById("result");
+  if (result) result.innerHTML = "";
+
+  const enhance = document.getElementById("enhanceResult");
+  if (enhance) enhance.innerHTML = "";
+
+  const copyBtn = document.getElementById("copyBtn");
+  const enhanceBtn = document.getElementById("enhanceBtn");
+  if (copyBtn) copyBtn.style.display = "none";
+  if (enhanceBtn) enhanceBtn.style.display = "none";
+
+  console.log("✅ SmartEmail form cleared.");
+}
 }
 document.getElementById("logoFile").addEventListener("change", function () {
   const preview = document.getElementById("logo-preview");
