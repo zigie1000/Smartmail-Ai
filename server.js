@@ -125,7 +125,6 @@ async function checkLicense(email) {
   };
 }
 }
-}
 
 // New endpoint: Allow frontend to check license by email
 app.post('/check-license', async (req, res) => {
