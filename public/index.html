@@ -815,23 +815,32 @@ function clearAll() {
 
   fields.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.value = "";
+    if (el && typeof el.value !== "undefined") {
+      el.value = "";
+    }
   });
 
   const result = document.getElementById("result");
-  if (result) result.innerHTML = "";
+  if (result) result.textContent = "";
 
-  const enhance = document.getElementById("enhanceResult");
-  if (enhance) enhance.innerHTML = "";
+  const enhanceResult = document.getElementById("enhanceResult");
+  if (enhanceResult) enhanceResult.textContent = "";
+
+  const charCount = document.getElementById("char-count");
+  if (charCount) charCount.textContent = "";
+
+  const outputContainer = document.getElementById("output-container");
+  if (outputContainer) outputContainer.style.display = "none";
 
   const copyBtn = document.getElementById("copyBtn");
-  const enhanceBtn = document.getElementById("enhanceBtn");
   if (copyBtn) copyBtn.style.display = "none";
+
+  const enhanceBtn = document.getElementById("enhanceBtn");
   if (enhanceBtn) enhanceBtn.style.display = "none";
 
   console.log("✅ SmartEmail form cleared.");
 }
-}
+
 document.getElementById("logoFile").addEventListener("change", function () {
   const preview = document.getElementById("logo-preview");
   preview.innerHTML = "";
