@@ -145,8 +145,7 @@ const finalAction = req.body.action || action;
 const finalEmail = req.body.email || email; // for safety  
 const license = await checkLicense(email);
 // ✅ Step 1: check for license-check early
-if (req.body?.content === 'license-check' && req.body?.email) {
-  const license = await checkLicense(req.body.email);
+if (req.body?.content === 'license-check') {
   return res.json({ tier: license.tier || 'free' });
 }
 
