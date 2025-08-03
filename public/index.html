@@ -397,8 +397,14 @@ async function validateLicense(identifier) {
   } catch (e) {
   hideModal();
   console.error("❌ License check failed due to server error:", e);
-  alert("⚠️ Server error verifying license. Defaulted to Free tier. Please try again.");
-  localStorage.setItem("tier", "free");
+  alert("⚠️ Server error verifying license. Using previously stored tier.");
+
+  // Only downgrade if there's no existing tier in localStorage
+  const currentTier = localStorage.getItem("tier");
+  if (!currentTier || currentTier === "free") {
+    localStorage.setItem("tier", "free");
+  }
+
   updateFeatureAccess();
 }
 }
