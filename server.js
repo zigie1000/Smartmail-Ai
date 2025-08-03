@@ -435,8 +435,9 @@ if (data && data.status === "active") {
       return res.json({ status: "not_found", tier: "free" });
     }
 
-    const now = new Date();const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const isActive = expiry >= now;
+const now = new Date();
+const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
+const isActive = expiry ? expiry >= now : false;
 
     res.json({
   tier: data.smartemail_tier || "free",
