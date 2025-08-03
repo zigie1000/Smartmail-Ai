@@ -927,6 +927,19 @@ function getTimestampFilename(base, extension) {
     })
     .catch(err => console.error('Failed to load product URLs:', err));
 </script>
-  
+  <script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const generateBtn = document.getElementById("generateBtn");
+    const enhanceBtn = document.getElementById("enhanceBtn");
+
+    if (generateBtn) {
+      generateBtn.addEventListener("click", generate);
+    }
+
+    if (enhanceBtn) {
+      enhanceBtn.addEventListener("click", applyEnhancement);
+    }
+  });
+</script>
 </body>
 </html>
