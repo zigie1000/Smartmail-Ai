@@ -143,7 +143,7 @@ const finalLanguage = req.body.language || language;
 const finalTone = req.body.tone || tone;
 const finalAction = req.body.action || action;
 const finalEmail = req.body.email || email; // for safety  
-const license = await checkLicense(email);
+const license = await checkLicense(finalEmail);
 // ✅ Step 1: check for license-check early
 if (req.body?.content === 'license-check') {
   return res.json({ tier: license.tier || 'free' });
