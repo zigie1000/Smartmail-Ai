@@ -112,6 +112,16 @@ async function checkLicense(email) {
     return { tier: 'free', reason: 'error' };
   }
 }
+
+// New endpoint: Allow frontend to check license by email
+app.post('/check-license', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ tier: 'free', reason: 'missing email' });
+
+  const license = await checkLicense(email);
+  return res.json(license);
+});
+
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
   const {
