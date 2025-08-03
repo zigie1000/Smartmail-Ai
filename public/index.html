@@ -515,10 +515,11 @@ if (document.getElementById("enhanceBtn")) {
   document.getElementById("enhanceBtn").style.cursor = showPro ? "pointer" : "not-allowed";
 }
 
+// Always enable Copy for all tiers
 if (document.getElementById("copyBtn")) {
-  document.getElementById("copyBtn").disabled = !showPro;
-  document.getElementById("copyBtn").style.opacity = showPro ? "1" : "0.5";
-  document.getElementById("copyBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+  document.getElementById("copyBtn").disabled = false;
+  document.getElementById("copyBtn").style.opacity = "1";
+  document.getElementById("copyBtn").style.cursor = "pointer";
 }
 
   log("✅ Access updated for tier: " + t);
