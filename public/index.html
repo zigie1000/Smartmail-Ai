@@ -489,12 +489,37 @@ function updateFeatureAccess() {
   }
 
   // ✅ Unlock UI buttons based on tier
-  let showPro = (t === "pro" || t === "premium");
-  if (document.getElementById("exportBtn")) document.getElementById("exportBtn").style.display = showPro ? "inline-block" : "none";
-  if (document.getElementById("exportPdfBtn")) document.getElementById("exportPdfBtn").style.display = showPro ? "inline-block" : "none";
-  if (document.getElementById("exportTextBtn")) document.getElementById("exportTextBtn").style.display = showPro ? "inline-block" : "none";
-  if (document.getElementById("enhanceBtn")) document.getElementById("enhanceBtn").style.display = showPro ? "inline-block" : "none";
-  if (document.getElementById("copyBtn")) document.getElementById("copyBtn").style.display = showPro ? "inline-block" : "none";
+ let showPro = (t === "pro" || t === "premium");
+
+if (document.getElementById("exportBtn")) {
+  document.getElementById("exportBtn").disabled = !showPro;
+  document.getElementById("exportBtn").style.opacity = showPro ? "1" : "0.5";
+  document.getElementById("exportBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+}
+
+if (document.getElementById("exportPdfBtn")) {
+  document.getElementById("exportPdfBtn").disabled = !showPro;
+  document.getElementById("exportPdfBtn").style.opacity = showPro ? "1" : "0.5";
+  document.getElementById("exportPdfBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+}
+
+if (document.getElementById("exportTextBtn")) {
+  document.getElementById("exportTextBtn").disabled = !showPro;
+  document.getElementById("exportTextBtn").style.opacity = showPro ? "1" : "0.5";
+  document.getElementById("exportTextBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+}
+
+if (document.getElementById("enhanceBtn")) {
+  document.getElementById("enhanceBtn").disabled = !showPro;
+  document.getElementById("enhanceBtn").style.opacity = showPro ? "1" : "0.5";
+  document.getElementById("enhanceBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+}
+
+if (document.getElementById("copyBtn")) {
+  document.getElementById("copyBtn").disabled = !showPro;
+  document.getElementById("copyBtn").style.opacity = showPro ? "1" : "0.5";
+  document.getElementById("copyBtn").style.cursor = showPro ? "pointer" : "not-allowed";
+}
 
   log("✅ Access updated for tier: " + t);
 }
