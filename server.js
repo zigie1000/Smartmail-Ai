@@ -335,6 +335,22 @@ app.post('/webhook', async (req, res) => {
 app.get('/validate-license', async (req, res) => {
   const { email, licenseKey } = req.query;
 
+let tier = "free"; // default
+let status = "inactive";
+let userEmail = "";
+
+const { data, error } = await supabase
+  .from("smartemail_licenses")
+  .select("email, tier, status")
+  .or(`license_key.eq.${licenseKey},email.eq.${email}`)
+  .single();
+
+if (data && data.status === "active") {
+  tier = data.tier || "free";
+  status = "active";
+  userEmail = data.email || email;
+}
+  
   if (!email && !licenseKey) {
     return res.status(400).json({ error: 'Missing email or licenseKey' });
   }
