@@ -239,15 +239,16 @@ app.post('/enhance', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
-  const license = await checkLicense(email);
+  try {
+    const license = await checkLicense(email);
 
-console.log('✅ Retrieved license tier:', license?.tier); // helpful for debugging
+    console.log('✅ Retrieved license tier:', license?.tier); // useful debug
 
-if (!license || !license.tier || !['pro', 'premium'].includes(license.tier.toLowerCase())) {
-  return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
-}
+    if (!license || !license.tier || !['pro', 'premium'].includes(license.tier.toLowerCase())) {
+      return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
+    }
 
-  const enhancePrompt = `
+    const enhancePrompt = `
 You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
 
 📩 **Original Email:**
@@ -263,7 +264,6 @@ ${enhance_request}
 - Only change what’s necessary based on the request.
 `.trim();
 
-  try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
