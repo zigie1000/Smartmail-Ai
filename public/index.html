@@ -641,7 +641,6 @@ async function applyEnhancement() {
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
-    document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     log("✅ Enhancement applied.");
   } catch (err) {
     alert("An error occurred during enhancement.");
