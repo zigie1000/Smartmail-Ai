@@ -413,8 +413,8 @@ const { data, error } = await supabase
   .or(`license_key.eq.${licenseKey},email.eq.${email}`)
   .single();
 
-if (data && data.status === "active") {
-  tier = data.tier || "free";
+if (data && data.tier && data.tier !== "free") {
+  tier = data.tier;
   status = "active";
   userEmail = data.email || email;
 }
