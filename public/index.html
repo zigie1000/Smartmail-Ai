@@ -364,6 +364,44 @@ async function detectAndSyncLicense(showPromptIfFree = true) {
     showPromptForEmail();
   }
 }
+
+async function validateLicense(identifier) {
+  try {
+    showCheckingModal("Checking license...");
+
+    const isEmail = identifier.includes("@");
+    const endpoint = isEmail ? `/validate-license?email=${encodeURIComponent(identifier)}` :
+                               `/validate-license?licenseKey=${encodeURIComponent(identifier)}`;
+
+    const res = await fetch(endpoint);
+    const data = await res.json();
+
+    hideModal();
+
+    if (data && data.status === "active") {
+      localStorage.setItem("licenseKey", data.licenseKey || "");
+      localStorage.setItem("userEmail", data.email || "");
+      localStorage.setItem("tier", data.tier || "free");
+      log("✅ Loaded license from server. Tier: " + data.tier);
+      setTier(data.tier);
+      updateFeatureAccess();
+    } else {
+      localStorage.removeItem("licenseKey");
+      localStorage.removeItem("userEmail");
+      localStorage.setItem("tier", "free");
+      log("❌ License not recognized or expired. Set to free.");
+      setTier("free");
+      updateFeatureAccess();
+    }
+
+  } catch (e) {
+    hideModal();
+    console.error("❌ License check failed:", e);
+    localStorage.setItem("tier", "free");
+    updateFeatureAccess();
+  }
+}
+  
 function showEmailPrompt() { document.getElementById('modalBg').style.display = 'block'; }
 function hideEmailPrompt() { document.getElementById('modalBg').style.display = 'none'; }
 function showLicenseEntry() { document.getElementById('licenseInput').value = ""; document.getElementById('licenseModalBg').style.display = 'block'; }
