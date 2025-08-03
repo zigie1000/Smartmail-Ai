@@ -190,7 +190,7 @@ if (!reply) {
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
-    res.json({ result: reply, tier: license.tier });
+    res.json({ generatedEmail: reply, tier: license.tier });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -263,7 +263,7 @@ ${enhance_request}
       console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
     }
 
-    res.json({ result: reply, tier: license.tier });
+    res.json({ generatedEmail: reply, tier: license.tier });
   } catch (err) {
     console.error('❌ OpenAI enhancement error:', err.message || err);
     res.status(500).json({ error: 'Something went wrong while enhancing the content.' });
