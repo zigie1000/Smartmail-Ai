@@ -85,22 +85,33 @@ async function checkLicense(email) {
   try {
     const { data, error } = await supabase
       .from('licenses')
-      .select('tier, expires')
+      .select('smartemail_tier, smartemail_expires')
       .eq('email', email)
       .maybeSingle();
 
     if (error || !data) return { tier: 'free', reason: 'not found' };
 
+    const now = new Date();
+    const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+
+    if (expiry && expiry < now) {
+      await supabase
+        .from('licenses')
+        .update({ smartemail_tier: 'free' })
+        .eq('email', email);
+
+      return { tier: 'free', reason: 'expired' };
+    }
+
     return {
-      tier: data.tier || 'free',
-      expires: data.expires || null,
+      tier: data.smartemail_tier || 'free',
+      expires: data.smartemail_expires || null,
     };
-  } catch (error) {
-    console.error("❌ Supabase checkLicense error:", error);
+  } catch (err) {
+    console.error("❌ Supabase checkLicense error:", err);
     return { tier: 'free', reason: 'error' };
   }
 }
-
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
   const {
