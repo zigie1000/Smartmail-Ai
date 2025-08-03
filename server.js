@@ -110,7 +110,6 @@ async function checkLicense(email) {
   expires: data?.smartemail_expires || null,
   status: 'active'
 };
-  } 
   
   catch (err) {
   console.error("❌ Supabase checkLicense error:", {
