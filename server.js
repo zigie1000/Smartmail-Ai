@@ -425,8 +425,8 @@ if (data && data.tier && data.tier !== "free") {
 
   try {
     const { data, error } = await supabase
-      .from('licenses')
-      .select('smartemail_tier, smartemail_expires, license_key, email')
+  .from('smartemail_licenses')
+  .select('smartemail_tier, smartemail_expires, license_key, email')
       .or(`email.eq.${email},license_key.eq.${licenseKey}`)
       .maybeSingle();
 
