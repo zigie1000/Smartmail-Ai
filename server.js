@@ -135,26 +135,29 @@ console.log(`Tier: ${license.tier} — generation allowed for all users`);
 const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
 
 const prompt = `
-You are a senior email marketing strategist and expert copywriter.
+You are a senior email copywriter helping a user write a reply email.
 
-Your task is to write a compelling and professionally structured email that fulfills the following creative brief:
-
-✉️ **Email Type:** ${finalEmailType}
-🎨 **Tone and Style:** ${finalTone}
-👥 **Target Audience:** ${finalAudience}
-🎯 **Primary Goal or Call-to-Action:** ${finalAction}
-🗣️ **Language:** ${finalLanguage}
-
-📩 **Base Message:**
+The user received this message and wants to respond to it:
+"""
 ${finalContent}
-${agentInfo}
+"""
 
-📝 **Instructions**
-- Structure the email with a subject line, greeting, body, and closing.
-- Make the copy persuasive, clear, and aligned with the tone provided.
-- Ensure the email reads naturally in ${finalLanguage} and is appropriate for the specified audience.
-- Keep the content concise yet impactful, suitable for professional communication.
-- End with a strong call-to-action and appropriate sign-off.
+Write a professional reply email using the following creative brief:
+
+- **Email Type:** ${finalEmailType}
+- **Tone and Style:** ${finalTone}
+- **Target Audience:** ${finalAudience}
+- **Primary Goal / Call-to-Action:** ${finalAction}
+- **Language:** ${finalLanguage}
+
+Please follow these instructions:
+- Write in a clear and persuasive tone aligned with ${finalTone}.
+- Ensure the response is appropriate for ${finalAudience}.
+- Keep it concise, professional, and suitable for email communication.
+- Include a greeting, body, and closing.
+- End with a strong sign-off.
+
+${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
 `.trim();
 
   try {
