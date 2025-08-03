@@ -84,34 +84,35 @@ app.get('/auth/google/callback', async (req, res) => {
 // Check license via Supabase
 async function checkLicense(email) {
   try {
-    console.log("🔍 Checking license for:", email); // <-- ADD THIS
-    const { data, error } = await supabase
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { tier: 'free', reason: 'not found' };
+  }
+
+  const now = new Date();
+  const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+
+  if (expiry && expiry < now) {
+    await supabase
       .from('licenses')
-      .select('smartemail_tier, smartemail_expires')
-      .eq('email', email)
-      .maybeSingle();
+      .update({ smartemail_tier: 'free' })
+      .eq('email', email);
 
-    if (error || !data) return { tier: 'free', reason: 'not found' };
+    return { tier: 'free', reason: 'expired' };
+  }
 
-    const now = new Date();
-    const expiry = data?.smartemail_expires ? new Date(data.smartemail_expires) : null;
+  return {
+    tier: data?.smartemail_tier || 'free',
+    expires: data?.smartemail_expires || null,
+    status: 'active'
+  };
 
-    if (expiry && expiry < now) {
-      await supabase
-        .from('licenses')
-        .update({ smartemail_tier: 'free' })
-        .eq('email', email);
-
-      return { tier: 'free', reason: 'expired' };
-    }
-
-    return {
-  tier: data?.smartemail_tier || 'free',
-  expires: data?.smartemail_expires || null,
-  status: 'active'
-};
-  
-  catch (err) {
+} catch (err) {
   console.error("❌ Supabase checkLicense error:", {
     email,
     message: err.message,
