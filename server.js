@@ -128,6 +128,33 @@ app.post('/check-license', async (req, res) => {
   return res.json(license);
 });
 
+// ✅ New GET endpoint for frontend license check
+app.get('/validate-license', async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ status: 'error', reason: 'Missing email' });
+  }
+
+  try {
+    const license = await checkLicense(email);
+    return res.json({
+      status: 'ok',
+      tier: license.tier,
+      reason: license.reason || null,
+      expires: license.expires || null
+    });
+  } catch (err) {
+    console.error("❌ /validate-license error:", err.message || err);
+    return res.status(500).json({
+      status: 'error',
+      reason: 'server failure',
+      debug: err.message || 'unknown error'
+    });
+  }
+});
+
+
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
   const {
