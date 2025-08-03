@@ -544,6 +544,37 @@ if (document.getElementById("copyBtn")) {
 }
 
   log("✅ Access updated for tier: " + t);
+
+if (document.getElementById("enhanceBtn")) {
+  document.getElementById("enhanceBtn").addEventListener("click", async () => {
+    const enhancementInput = document.getElementById("enhancementInput").value;
+    const email = localStorage.getItem("smartemail_email");
+
+    try {
+      const res = await fetch("/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: enhancementInput,
+          email: email
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        alert(data.error);
+      } else {
+        // optional: apply enhanced content into field or display
+        console.log("✅ Enhancement success", data);
+      }
+    } catch (err) {
+      console.error("Enhance request failed:", err);
+      alert("Enhancement failed due to network or server issue.");
+    }
+  });
+}
+  
 }
 function showBuyPro() {
   fetch('/config')
