@@ -381,7 +381,9 @@ async function validateLicense(identifier) {
     if (data && data.status === "active") {
       localStorage.setItem("licenseKey", data.licenseKey || "");
       localStorage.setItem("userEmail", data.email || "");
-      localStorage.setItem("tier", data.tier || "free");
+      localStorage.setItem("tier", data.smartemail_tier || "free");
+log("✅ Loaded license from server. Tier: " + data.smartemail_tier);
+setTier(data.smartemail_tier);
       log("✅ Loaded license from server. Tier: " + data.tier);
       setTier(data.tier);
       updateFeatureAccess();
