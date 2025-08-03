@@ -631,7 +631,7 @@ async function applyEnhancement() {
       return;
     };
 
-    const updated = data.result || enhance_content;
+    const updated = data.result || data.generatedEmail || enhance_content;
     document.getElementById("result").textContent = updated;
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
