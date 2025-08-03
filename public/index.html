@@ -311,6 +311,27 @@
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
+
+async function validateLicense(email) {
+  try {
+    const res = await fetch(`/validate-license?email=${encodeURIComponent(email)}`);
+    const data = await res.json();
+
+    const tier = data.tier || "free";
+    document.getElementById("tierBadge").textContent = tier.toUpperCase();
+
+    const proOrBetter = tier === "pro" || tier === "premium";
+
+    if (document.getElementById("enhanceBtn"))
+      document.getElementById("enhanceBtn").style.display = proOrBetter ? "inline-block" : "none";
+
+    if (document.getElementById("exportBtn"))
+      document.getElementById("exportBtn").style.display = proOrBetter ? "inline-block" : "none";
+  } catch (err) {
+    console.error("License validation failed:", err);
+  }
+}
+  
 // ---- LICENSE/TIER LOGIC ----
 function showCheckingModal(msg="Checking...") {
   let modal = document.createElement('div');
