@@ -633,6 +633,8 @@ async function applyEnhancement() {
 
     const updated = data.result || data.generatedEmail || enhance_content;
     document.getElementById("result").textContent = updated;
+    log("✅ Enhancement complete.");
+document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
