@@ -671,7 +671,7 @@ document.getElementById("output-container").scrollIntoView({ behavior: "smooth" 
   }
 }
 
-
+document.getElementById("enhanceBtn").addEventListener("click", applyEnhancement);
 
 async function applyEnhancement() {
   const enhance_request = document.getElementById("enhance").value.trim();
@@ -715,7 +715,7 @@ async function applyEnhancement() {
     log("🧠 Response used: " + (data.result ? 'result' : (data.generatedEmail ? 'generatedEmail' : 'enhance_content')));
     document.getElementById("result").textContent = updated;
     log("✅ Enhancement complete.");
-    document.getElementById("enhanceBtn").addEventListener("click", applyEnhancement);
+    
     document.getElementById("output-container").scrollIntoView({ behavior: "smooth" });
     document.getElementById("char-count").textContent = `Character count: ${updated.length}`;
     document.getElementById("enhance").value = "";
