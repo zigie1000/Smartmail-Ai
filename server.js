@@ -105,9 +105,10 @@ async function checkLicense(email) {
     }
 
     return {
-      tier: data.smartemail_tier || 'free',
-      expires: data.smartemail_expires || null,
-    };
+  tier: data.smartemail_tier || 'free',
+  expires: data.smartemail_expires || null,
+  status: 'active'
+};
   } catch (err) {
   console.error("❌ Supabase checkLicense error:", err.message || err);
   return {
