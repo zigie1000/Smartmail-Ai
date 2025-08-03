@@ -401,23 +401,22 @@ document.getElementById("continueBtn").onclick = async function () {
   localStorage.setItem("userEmail", email);
  // --- Record free user email in Supabase
 try {
-  await fetch("/api/register-free-user", {
+  const res = await fetch("/api/register-free-user", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email })
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (data.status === "inserted") {
-      log("✅ Free email registered in Supabase: " + email);
-    } else if (data.status === "exists") {
-      log("ℹ️ Email already exists as free: " + email);
-    }
   });
+
+  const data = await res.json();
+
+  if (data.status === "inserted") {
+    log("✅ Free email registered in Supabase: " + email);
+  } else if (data.status === "exists") {
+    log("📧 Email already exists as free: " + email);
+  }
 } catch (err) {
   log("❌ Error registering free email: " + err.message);
-}
-  document.getElementById("statusMsg").innerText = "🔍 Checking license...";
+}  document.getElementById("statusMsg").innerText = "🔍 Checking license...";
   log("📬 Email entered: " + email);
   hideEmailPrompt();
   detectAndSyncLicense(false);
