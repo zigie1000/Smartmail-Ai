@@ -628,9 +628,17 @@ document.getElementById("output-container").scrollIntoView({ behavior: "smooth" 
 
 
 async function applyEnhancement() {
-  const enhance_request = document.getElementById("enhance").value.trim();
-  const enhance_content = document.getElementById("result").textContent.trim();
-  const email = (document.getElementById("email")?.value || localStorage.getItem("smartemail_email") || '').trim();
+  let emailField = document.getElementById("email");
+let email = emailField?.value?.trim();
+
+// fallback to localStorage if email input is missing
+if (!email) {
+  email = localStorage.getItem("userEmail")?.trim() || "";
+  if (email && emailField) emailField.value = email;
+}
+
+const enhance_request = document.getElementById("enhance").value.trim();
+const enhance_content = document.getElementById("result").textContent.trim();
   
 if (!document.getElementById("email")?.value && email) {
   document.getElementById("email").value = email;
