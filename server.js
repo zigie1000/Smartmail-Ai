@@ -82,20 +82,13 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Check license via Supabase
 async function checkLicense(email) {
-  console.log("🔍 [checkLicense] Checking license for email:", email); // 👈 NEW LINE
-
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
-    .or(`email.eq.${email},license_key.eq.${email}`)
+    .or(`email.eq.${email},license_key.eq.${email}`) // 🔧 This line changed
     .maybeSingle();
 
-  if (error || !data) {
-    console.warn("⚠️ No license found or error:", error); // 👈 NEW LINE
-    return { tier: 'free', reason: 'not found' };
-  }
-
-  console.log("✅ License found in Supabase:", data); // 👈 NEW LINE
+  if (error || !data) return { tier: 'free', reason: 'not found' };
   return {
     tier: data.smartemail_tier || 'free',
     expires: data.smartemail_expires || null,
@@ -139,7 +132,7 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   // ✅ Free tier users are allowed to generate
 console.log(`Tier: ${license.tier} — generation allowed for all users`);
   
-const agentInfo = finalAgent ? '\n👤 **Sender Information:**\n' + finalAgent : '';
+const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
 
 const prompt = `
 You are a senior email copywriter helping a user write a reply email.
@@ -155,7 +148,7 @@ Write a professional reply email using the following creative brief:
 - **Tone and Style:** ${finalTone}
 - **Target Audience:** ${finalAudience}
 - **Primary Goal / Call-to-Action:** ${finalAction}
-- **Language:** ${finalLanguage}${agentInfo}
+- **Language:** ${finalLanguage}
 
 Please follow these instructions:
 - Write in a clear and persuasive tone aligned with ${finalTone}.
@@ -163,6 +156,8 @@ Please follow these instructions:
 - Keep it concise, professional, and suitable for email communication.
 - Include a greeting, body, and closing.
 - End with a strong sign-off.
+
+${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
 `.trim();
 
   try {
@@ -208,13 +203,13 @@ if (!reply) {
 // ✅ SmartEmail: Enhancement endpoint (Pro and Premium only)
 app.post('/enhance', async (req, res) => {
   const { email, enhance_request, enhance_content } = req.body;
-console.log("📩 /enhance called — Email:", email);
+
   if (!email || !enhance_request || !enhance_content) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
   const license = await checkLicense(email);
-console.log("🎫 License tier resolved as:", license?.tier);
+
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
   }
