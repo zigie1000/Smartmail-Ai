@@ -82,13 +82,20 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Check license via Supabase
 async function checkLicense(email) {
+  console.log("🔍 [checkLicense] Checking license for email:", email); // 👈 NEW LINE
+
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
-    .or(`email.eq.${email},license_key.eq.${email}`) // 🔧 This line changed
+    .or(`email.eq.${email},license_key.eq.${email}`)
     .maybeSingle();
 
-  if (error || !data) return { tier: 'free', reason: 'not found' };
+  if (error || !data) {
+    console.warn("⚠️ No license found or error:", error); // 👈 NEW LINE
+    return { tier: 'free', reason: 'not found' };
+  }
+
+  console.log("✅ License found in Supabase:", data); // 👈 NEW LINE
   return {
     tier: data.smartemail_tier || 'free',
     expires: data.smartemail_expires || null,
