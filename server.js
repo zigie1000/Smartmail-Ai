@@ -85,7 +85,7 @@ async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
-    .eq('email', email)
+    .or(`email.eq.${email},license_key.eq.${email}`) // 🔧 This line changed
     .maybeSingle();
 
   if (error || !data) return { tier: 'free', reason: 'not found' };
