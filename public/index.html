@@ -464,6 +464,7 @@ function clearLicense() {
   if (!confirm("Are you sure you want to clear your license and email?")) return;
   localStorage.removeItem("licenseKey");
   localStorage.removeItem("userEmail");
+    localStorage.removeItem("smartemail_tier"); // ✅ ADDED
   window.userTier = "free";
   setTier("free");
   updateFeatureAccess();
