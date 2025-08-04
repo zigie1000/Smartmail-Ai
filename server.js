@@ -139,7 +139,7 @@ if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudi
   // ✅ Free tier users are allowed to generate
 console.log(`Tier: ${license.tier} — generation allowed for all users`);
   
-const agentInfo = finalAgent ? `\n👤 **Sender Information:**\n${finalAgent}` : '';
+const agentInfo = finalAgent ? '\n👤 **Sender Information:**\n' + finalAgent : '';
 
 const prompt = `
 You are a senior email copywriter helping a user write a reply email.
@@ -155,7 +155,7 @@ Write a professional reply email using the following creative brief:
 - **Tone and Style:** ${finalTone}
 - **Target Audience:** ${finalAudience}
 - **Primary Goal / Call-to-Action:** ${finalAction}
-- **Language:** ${finalLanguage}
+- **Language:** ${finalLanguage}${agentInfo}
 
 Please follow these instructions:
 - Write in a clear and persuasive tone aligned with ${finalTone}.
@@ -163,8 +163,7 @@ Please follow these instructions:
 - Keep it concise, professional, and suitable for email communication.
 - Include a greeting, body, and closing.
 - End with a strong sign-off.
-
-${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
+`.trim();
 `.trim();
 
   try {
