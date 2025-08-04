@@ -557,7 +557,12 @@ function showBuyPremium() {
     })
     .catch(() => alert("Failed to load Premium purchase URL."));
 }
-window.onload = function () { detectAndSyncLicense(); };
+window.onload = function () {
+  localStorage.removeItem("userEmail");
+  localStorage.removeItem("licenseKey");
+  localStorage.removeItem("smartemail_tier");
+  detectAndSyncLicense();
+};
 function recheckLicense() { detectAndSyncLicense(false); alert("🔄 License rechecked and access updated."); }
 function log(msg) {
   const logArea = document.getElementById("debugLog");
