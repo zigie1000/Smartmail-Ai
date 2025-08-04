@@ -672,12 +672,17 @@ if (!document.getElementById("email")?.value && email) {
 
   try {
     const res = await fetch("/enhance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload)
+});
+if (!res.ok) {
+  const errorText = await res.text();
+  alert("❌ Server error: " + res.status + " — " + errorText);
+  log("❌ Enhance fetch error " + res.status + ": " + errorText);
+  return;
+}
+const data = await res.json();
 
     if (data.error) {
       alert("❌ " + data.error);
