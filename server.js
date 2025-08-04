@@ -210,13 +210,13 @@ if (!reply) {
 // ✅ SmartEmail: Enhancement endpoint (Pro and Premium only)
 app.post('/enhance', async (req, res) => {
   const { email, enhance_request, enhance_content } = req.body;
-
+console.log("📩 /enhance called — Email:", email);
   if (!email || !enhance_request || !enhance_content) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
   const license = await checkLicense(email);
-
+console.log("🎫 License tier resolved as:", license?.tier);
   if (license.tier === 'free') {
     return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
   }
