@@ -164,7 +164,6 @@ Please follow these instructions:
 - Include a greeting, body, and closing.
 - End with a strong sign-off.
 `.trim();
-`.trim();
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
