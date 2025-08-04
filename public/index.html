@@ -599,11 +599,12 @@ async function generate() {
   };
 
   try {
-    const res = await fetch("https://your-server-url.com/generate", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload)
-});
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
     const data = await res.json();
 
     if (data.error) {
