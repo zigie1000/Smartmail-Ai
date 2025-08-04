@@ -344,11 +344,12 @@ async function detectAndSyncLicense(showPromptIfFree=true) {
       const res = await fetch(`/validate-license?licenseKey=${encodeURIComponent(licenseKey)}`);
       const data = await res.json();
       hideModal();
-      if (data.tier && data.status === "active") {
-        setTier(data.tier);
-        updateFeatureAccess();
-        if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
-        if (data.email) localStorage.setItem("userEmail", data.email);
+     if (data.tier && data.status === "active") {
+  localStorage.setItem("smartemail_tier", data.tier); // ✅ ADDED
+  setTier(data.tier);
+  updateFeatureAccess();
+  if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
+  if (data.email) localStorage.setItem("userEmail", data.email);
         log("✅ Loaded license from licenseKey. Tier: " + data.tier);
         return;
       } else {
