@@ -344,12 +344,11 @@ async function detectAndSyncLicense(showPromptIfFree=true) {
       const res = await fetch(`/validate-license?licenseKey=${encodeURIComponent(licenseKey)}`);
       const data = await res.json();
       hideModal();
-     if (data.tier && data.status === "active") {
-  localStorage.setItem("smartemail_tier", data.tier); // ✅ ADDED
-  setTier(data.tier);
-  updateFeatureAccess();
-  if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
-  if (data.email) localStorage.setItem("userEmail", data.email);
+      if (data.tier && data.status === "active") {
+        setTier(data.tier);
+        updateFeatureAccess();
+        if (data.licenseKey) localStorage.setItem("licenseKey", data.licenseKey);
+        if (data.email) localStorage.setItem("userEmail", data.email);
         log("✅ Loaded license from licenseKey. Tier: " + data.tier);
         return;
       } else {
@@ -464,7 +463,6 @@ function clearLicense() {
   if (!confirm("Are you sure you want to clear your license and email?")) return;
   localStorage.removeItem("licenseKey");
   localStorage.removeItem("userEmail");
-    localStorage.removeItem("smartemail_tier"); // ✅ ADDED
   window.userTier = "free";
   setTier("free");
   updateFeatureAccess();
@@ -557,9 +555,7 @@ function showBuyPremium() {
     })
     .catch(() => alert("Failed to load Premium purchase URL."));
 }
-document.addEventListener("DOMContentLoaded", () => {
-  detectAndSyncLicense();
-});
+window.onload = function () { detectAndSyncLicense(); };
 function recheckLicense() { detectAndSyncLicense(false); alert("🔄 License rechecked and access updated."); }
 function log(msg) {
   const logArea = document.getElementById("debugLog");
@@ -603,12 +599,11 @@ async function generate() {
   };
 
   try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
+    const res = await fetch("https://your-server-url.com/generate", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload)
+});
     const data = await res.json();
 
     if (data.error) {
@@ -636,11 +631,10 @@ async function applyEnhancement() {
 let email = emailField?.value?.trim();
 
 // 👇 Insert this to fetch and verify license
-let license = localStorage.getItem("smartemail_tier") || window.userTier || "free";
+let license = localStorage.getItem("smartemail_tier");
 if (license !== "pro" && license !== "premium") {
   alert("❌ Enhancement is only available for Pro and Premium users.");
   return;
-}
 }
 
 // fallback to localStorage if email input is missing
@@ -675,17 +669,12 @@ if (!document.getElementById("email")?.value && email) {
 
   try {
     const res = await fetch("/enhance", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload)
-});
-if (!res.ok) {
-  const errorText = await res.text();
-  alert("❌ Server error: " + res.status + " — " + errorText);
-  log("❌ Enhance fetch error " + res.status + ": " + errorText);
-  return;
-}
-const data = await res.json();
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
 
     if (data.error) {
       alert("❌ " + data.error);
