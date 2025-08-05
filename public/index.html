@@ -663,10 +663,10 @@ if (!document.getElementById("email")?.value && email) {
   log("📝 Applying enhancement: " + enhance_request);
 
   const payload = {
-    email,
-    enhance_request,
-    enhance_content
-  };
+  email: localStorage.getItem("userEmail")?.trim() || email,
+  enhance_request,
+  enhance_content
+};
 
   try {
     const res = await fetch("/enhance", {
