@@ -632,7 +632,7 @@ async function applyEnhancement() {
 let email = emailField?.value?.trim();
 
 // 👇 Insert this to fetch and verify license
-let license = localStorage.getItem("smartemail_tier");
+let license = (window.userTier || "").toLowerCase();
 if (license !== "pro" && license !== "premium") {
   alert("❌ Enhancement is only available for Pro and Premium users.");
   return;
