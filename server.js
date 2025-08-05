@@ -266,7 +266,7 @@ ${enhance_request}
       console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
     }
 
-    res.json({ generatedEmail: reply, tier: license.tier });
+    res.status(200).json({ output: reply });
   } catch (err) {
     console.error('❌ OpenAI enhancement error:', err.message || err);
     res.status(500).json({ error: 'Something went wrong while enhancing the content.' });
