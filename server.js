@@ -176,7 +176,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
 
     const result = await response.json();
     const reply = (result.choices?.[0]?.message?.content || '').trim();
-
+    
 if (!reply) {
   console.error("❌ OpenAI returned an empty reply. Response:", JSON.stringify(result, null, 2));
   return res.status(500).json({ error: 'AI failed to generate a response.' });
@@ -193,7 +193,12 @@ if (!reply) {
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
-    res.json({ generatedEmail: reply, tier: license.tier });
+    const userTier = license?.tier?.toLowerCase() || 'free';
+if (userTier === 'pro' || userTier === 'premium') {
+  reply += `\n\n—\nKind regards,\n${finalEmail}`;
+}
+
+res.json({ generatedEmail: reply, tier: userTier });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
