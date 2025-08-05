@@ -176,7 +176,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
 
     const result = await response.json();
     const reply = (result.choices?.[0]?.message?.content || '').trim();
-    
+
 if (!reply) {
   console.error("❌ OpenAI returned an empty reply. Response:", JSON.stringify(result, null, 2));
   return res.status(500).json({ error: 'AI failed to generate a response.' });
@@ -193,12 +193,7 @@ if (!reply) {
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
-    const userTier = license?.tier?.toLowerCase() || 'free';
-if (userTier === 'pro' || userTier === 'premium') {
-  reply += `\n\n—\nKind regards,\n${finalEmail}`;
-}
-
-res.json({ generatedEmail: reply, tier: userTier });
+    res.json({ generatedEmail: reply, tier: license.tier });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -271,11 +266,10 @@ ${enhance_request}
       console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
     }
 
-    const userTier = license?.tier?.toLowerCase() || 'free';
-
-if (userTier === 'pro' || userTier === 'premium') {
-  reply += `\n\nKind regards,\n${email}`;
-}
+    res.status(200).json({
+  generatedEmail: reply,
+  tier: license?.tier || 'free'
+});
   } catch (err) {
     console.error('❌ OpenAI enhancement error:', err.message || err);
     res.status(500).json({ error: 'Something went wrong while enhancing the content.' });
