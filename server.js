@@ -156,7 +156,7 @@ Please follow these instructions:
 - Keep it concise, professional, and suitable for email communication.
 - Include a greeting, body, and closing.
 - End with a strong sign-off.
-
+- Include the sender's details from below as the email signature.
 ${finalAgent ? `
 🧾 **Sender Details (use to sign off):**
 ${finalAgent}
