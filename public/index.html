@@ -571,17 +571,14 @@ window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
   
 async function generate() {
-  let email = localStorage.getItem("userEmail")?.trim();
-if (!email) {
-  email = document.getElementById("emailInput")?.value.trim(); // modal field
-  if (email && email.includes('@')) {
-    localStorage.setItem("userEmail", email);
-  }
-}
+  const email = localStorage.getItem("userEmail")?.trim() || document.getElementById("emailInput")?.value.trim();
+
 if (!email || !email.includes('@')) {
   alert("Please enter a valid email.");
   return;
 }
+
+localStorage.setItem("userEmail", email); // sync email from modal if not already
   const emailType = document.getElementById("purpose").value.trim();
   const tone = document.getElementById("tone").value.trim();
   const language = document.getElementById("language").value.trim();
