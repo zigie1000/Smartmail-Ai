@@ -571,15 +571,7 @@ window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
   
 async function generate() {
-const modalEmail = document.getElementById("emailInput")?.value.trim();
-const email = modalEmail && modalEmail.includes('@') ? modalEmail : localStorage.getItem("userEmail")?.trim();
-
-if (!email || !email.includes('@')) {
-  alert("Please enter a valid email.");
-  return;
-}
-
-localStorage.setItem("userEmail", email); // sync email from modal if not already
+  const email = localStorage.getItem("userEmail")?.trim() || document.getElementById("email").value.trim();
   const emailType = document.getElementById("purpose").value.trim();
   const tone = document.getElementById("tone").value.trim();
   const language = document.getElementById("language").value.trim();
@@ -1012,5 +1004,31 @@ function updateTierUI(tier) {
     }
   });
 </script>
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    const continueBtn = document.getElementById('continueBtn');
+    const emailInput = document.getElementById('email');
+
+    if (!continueBtn || !emailInput) return;
+
+    continueBtn.addEventListener('click', () => {
+      const email = emailInput.value.trim();
+
+      if (!email.includes('@')) {
+        alert('Please enter a valid email.');
+        return;
+      }
+
+      localStorage.setItem('userEmail', email);
+      document.getElementById('modalBg').style.display = 'none';
+
+      // Safely call generate only if it's defined
+      if (typeof generate === 'function') {
+        generate();
+      }
+    });
+  });
+</script>
+  
 </body>
 </html>
