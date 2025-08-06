@@ -151,12 +151,15 @@ Write a professional reply email using the following creative brief:
 - **Language:** ${finalLanguage}
 
 Please follow these instructions:
+- Write naturally, as if authored by a skilled human professional.
 - Write in a clear and persuasive tone aligned with ${finalTone}.
 - Ensure the response is appropriate for ${finalAudience}.
 - Keep it concise, professional, and suitable for email communication.
 - You may refer to the sender of the original message where relevant for clarity and continuity.
 - Include a greeting, body, and a closing phrase that matches the tone (e.g., “Kind regards”, “Best wishes”, “Warm regards”, etc.).
 - End with a strong sign-off.
+- Do not restate the user's request or email specs.
+- Only include relevant sender details below as the signature if provided.
 - Include the sender's details from below as the email signature.
 ${finalAgent ? `
 🧾 **Sender Details (use to sign off):**
