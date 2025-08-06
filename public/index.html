@@ -1012,23 +1012,18 @@ function updateTierUI(tier) {
 
     if (!continueBtn || !emailInput) return;
 
-    continueBtn.addEventListener('click', () => {
-      const email = emailInput.value.trim();
-
-      if (!email.includes('@')) {
-        alert('Please enter a valid email.');
-        return;
-      }
-
-      localStorage.setItem('userEmail', email);
-      document.getElementById('modalBg').style.display = 'none';
-
-      // Safely call generate only if it's defined
-      if (typeof generate === 'function') {
-        generate();
-      }
-    });
-  });
+    // Replace your continueBtn handler with this:
+continueBtn.addEventListener('click', () => {
+  const email = emailInput.value.trim();
+  if (!email.includes('@')) {
+    alert('Please enter a valid email.');
+    return;
+  }
+  localStorage.setItem('userEmail', email);
+  document.getElementById('email').value = email;
+  document.getElementById('modalBg').style.display = 'none';
+  if (typeof generate === 'function') generate();
+});
 </script>
   
 </body>
