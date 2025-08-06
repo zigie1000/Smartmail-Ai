@@ -234,6 +234,7 @@ ${enhance_request}
 - Maintain professional tone and formatting.
 - Make the email more effective, clear, and impactful where appropriate.
 - Only change what’s necessary based on the request.
+- Do not include titles such as "Revised Email" or "Updated Email" in the output.
 `.trim();
 
   try {
