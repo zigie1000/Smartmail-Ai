@@ -85,7 +85,7 @@ async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
-    .or(`email.eq."${email}",license_key.eq."${email}"`)
+    .or(`email.eq.${email},license_key.eq.${email}`) // 🔧 This line changed
     .maybeSingle();
 
   if (error || !data) return { tier: 'free', reason: 'not found' };
@@ -151,20 +151,13 @@ Write a professional reply email using the following creative brief:
 - **Language:** ${finalLanguage}
 
 Please follow these instructions:
-- Write naturally, as if authored by a skilled human professional.
 - Write in a clear and persuasive tone aligned with ${finalTone}.
 - Ensure the response is appropriate for ${finalAudience}.
 - Keep it concise, professional, and suitable for email communication.
-- You may refer to the sender of the original message where relevant for clarity and continuity.
-- Include a greeting, body, and a closing phrase that matches the tone (e.g., “Kind regards”, “Best wishes”, “Warm regards”, etc.).
+- Include a greeting, body, and closing.
 - End with a strong sign-off.
-- Do not restate the user's request or email specs.
-- Only include relevant sender details below as the signature if provided.
-- Include the sender's details from below as the email signature.
-${finalAgent ? `
-🧾 **Sender Details (use to sign off):**
-${finalAgent}
-` : ''}
+
+${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
 `.trim();
 
   try {
@@ -221,7 +214,7 @@ app.post('/enhance', async (req, res) => {
     return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
   }
 
- const enhancePrompt = `
+  const enhancePrompt = `
 You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
 
 📩 **Original Email:**
@@ -233,16 +226,10 @@ ${enhance_request}
 ✍️ **Instructions**
 - Rewrite or modify the original email based on the enhancement request.
 - Maintain professional tone and formatting.
-- Make improvements only where clarity, impact, or professionalism would significantly benefit the message.
+- Make the email more effective, clear, and impactful where appropriate.
 - Only change what’s necessary based on the request.
-- Do not include titles such as "Revised Email" or "Updated Email" in the output.
-- If sender signature details are included below, preserve them at the end of the email.
-
-${req.body.sender_details ? `
-🧾 **Sender Details (use to sign off):**
-${req.body.sender_details}
-` : ''}
 `.trim();
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -359,7 +346,7 @@ app.get('/validate-license', async (req, res) => {
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq."${email}",license_key.eq."${licenseKey}"`)
+      .or(`email.eq.${email},license_key.eq.${licenseKey}`)
       .maybeSingle();
 
     if (error || !data) {
