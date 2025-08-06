@@ -571,8 +571,7 @@ window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
   
 async function generate() {
-    const email = localStorage.getItem("userEmail")?.trim()
-              || document.getElementById("emailInput").value.trim();
+    const email = localStorage.getItem("userEmail")?.trim() || document.getElementById("email").value.trim();
   const emailType = document.getElementById("purpose").value.trim();
   const tone = document.getElementById("tone").value.trim();
   const language = document.getElementById("language").value.trim();
