@@ -571,7 +571,7 @@ window.logoImageBase64 = "";
 window.propertyImagesBase64 = [];
   
 async function generate() {
-  const email = localStorage.getItem("userEmail")?.trim() || document.getElementById("emailInput")?.value.trim();
+  const email = localStorage.getItem("userEmail")?.trim();
 
 if (!email || !email.includes('@')) {
   alert("Please enter a valid email.");
