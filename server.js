@@ -154,7 +154,8 @@ Please follow these instructions:
 - Write in a clear and persuasive tone aligned with ${finalTone}.
 - Ensure the response is appropriate for ${finalAudience}.
 - Keep it concise, professional, and suitable for email communication.
-- Include a greeting, body, and closing.
+- You may refer to the sender of the original message where relevant for clarity and continuity.
+- Include a greeting, body, and a closing phrase that matches the tone (e.g., “Kind regards”, “Best wishes”, “Warm regards”, etc.).
 - End with a strong sign-off.
 - Include the sender's details from below as the email signature.
 ${finalAgent ? `
