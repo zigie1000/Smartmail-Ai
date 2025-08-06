@@ -29,7 +29,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
-const DEFAULT_SIGNATURE = `John Doe\nSales Representative\nExampleCorp Ltd\nTel: 021 555 1234\nEmail: contact@example.com`;
+
 // Optional Google auth client
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
@@ -154,9 +154,7 @@ Please follow these instructions:
 - Write in a clear and persuasive tone aligned with ${finalTone}.
 - Ensure the response is appropriate for ${finalAudience}.
 - Keep it concise, professional, and suitable for email communication.
-- Include a greeting, body, and a closing phrase that matches the tone (e.g., “Kind regards”, “Best wishes”, “Warm regards”, etc.).
-- Do **not** include the responder’s name, contact details, or email signature — the system will append those separately.
-- You may refer to the sender of the original message where relevant for clarity and continuity.
+- Include a greeting, body, and closing.
 - End with a strong sign-off.
 
 ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
@@ -195,12 +193,6 @@ if (!reply) {
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
-
-const signatureBlock = finalAgent?.trim()
-  ? finalAgent.trim()
-  : DEFAULT_SIGNATURE;
-
-reply += `\n\n${signatureBlock}`;    
     res.json({ generatedEmail: reply, tier: license.tier });
   } catch (err) {
     console.error(err);
@@ -236,7 +228,6 @@ ${enhance_request}
 - Maintain professional tone and formatting.
 - Make the email more effective, clear, and impactful where appropriate.
 - Only change what’s necessary based on the request.
-- Do not include titles such as "Revised Email" or "Updated Email" in the output.
 `.trim();
 
   try {
@@ -275,13 +266,6 @@ ${enhance_request}
       console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
     }
 
-const signatureBlock = req.body?.sender_details?.trim()
-  ? req.body.sender_details.trim()
-  : DEFAULT_SIGNATURE;
-
-reply += `\n\n${signatureBlock}`;
-
-    
     res.status(200).json({
   generatedEmail: reply,
   tier: license?.tier || 'free'
