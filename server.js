@@ -233,7 +233,7 @@ ${enhance_request}
 ✍️ **Instructions**
 - Rewrite or modify the original email based on the enhancement request.
 - Maintain professional tone and formatting.
-- Make the email more effective, clear, and impactful where appropriate.
+- Make improvements only where clarity, impact, or professionalism would significantly benefit the message.
 - Only change what’s necessary based on the request.
 - Do not include titles such as "Revised Email" or "Updated Email" in the output.
 - If sender signature details are included below, preserve them at the end of the email.
