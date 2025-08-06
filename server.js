@@ -29,7 +29,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
-
+const DEFAULT_SIGNATURE = `John Doe\nSales Representative\nExampleCorp Ltd\nTel: 021 555 1234\nEmail: contact@example.com`;
 // Optional Google auth client
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
