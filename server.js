@@ -157,7 +157,10 @@ Please follow these instructions:
 - Include a greeting, body, and closing.
 - End with a strong sign-off.
 
-${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}
+${finalAgent ? `
+🧾 **Sender Details (use to sign off):**
+${finalAgent}
+` : ''}
 `.trim();
 
   try {
