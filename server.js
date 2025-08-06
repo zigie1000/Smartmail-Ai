@@ -193,6 +193,12 @@ if (!reply) {
 } catch (logErr) {
   console.warn('Non-fatal: Failed to insert lead into Supabase:', logErr.message);
 }
+
+const signatureBlock = finalAgent?.trim()
+  ? finalAgent.trim()
+  : DEFAULT_SIGNATURE;
+
+reply += `\n\n${signatureBlock}`;    
     res.json({ generatedEmail: reply, tier: license.tier });
   } catch (err) {
     console.error(err);
