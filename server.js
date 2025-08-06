@@ -359,7 +359,7 @@ app.get('/validate-license', async (req, res) => {
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq.${email},license_key.eq.${licenseKey}`)
+      .or(`email.eq."${email}",license_key.eq."${licenseKey}"`)
       .maybeSingle();
 
     if (error || !data) {
