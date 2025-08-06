@@ -272,6 +272,13 @@ ${enhance_request}
       console.warn('Non-fatal: Failed to log enhancement:', logErr.message);
     }
 
+const signatureBlock = req.body?.sender_details?.trim()
+  ? req.body.sender_details.trim()
+  : DEFAULT_SIGNATURE;
+
+reply += `\n\n${signatureBlock}`;
+
+    
     res.status(200).json({
   generatedEmail: reply,
   tier: license?.tier || 'free'
