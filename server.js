@@ -217,7 +217,7 @@ app.post('/enhance', async (req, res) => {
     return res.status(403).json({ error: 'Enhancement is only available for Pro and Premium users.' });
   }
 
-  const enhancePrompt = `
+ const enhancePrompt = `
 You are an AI email enhancement assistant. A user has generated an email and requested a specific improvement.
 
 📩 **Original Email:**
@@ -231,8 +231,13 @@ ${enhance_request}
 - Maintain professional tone and formatting.
 - Make the email more effective, clear, and impactful where appropriate.
 - Only change what’s necessary based on the request.
-`.trim();
+- If sender signature details are included below, preserve them at the end of the email.
 
+${req.body.sender_details ? `
+🧾 **Sender Details (use to sign off):**
+${req.body.sender_details}
+` : ''}
+`.trim();
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
