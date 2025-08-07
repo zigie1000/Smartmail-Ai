@@ -135,7 +135,7 @@ if (error || !data) {
       expires: data.smartemail_expires || null,
     };
   }
-}
+
 
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
