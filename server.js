@@ -85,53 +85,55 @@ async function checkLicense(email) {
   const { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
-    .or(`email.eq.${email},license_key.eq.${email}`)
-    .maybeSingle();
-
-  if (error || !data) {
-  console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
-
-  const insertResult = await supabase
-  .from('licenses')
-  .upsert([
-    {
-      email: email,
-      smartemail_tier: 'free',
-      smartemail_expires: null,
-    }
-  ], { onConflict: ['email'] });
-
-  if (insertResult.error) {
-    console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
-    console.error(`📋 Full insertResult:`, JSON.stringify(insertResult, null, 2));
-    return { tier: 'free', reason: 'insert failed' };
-  }
-
-  // ✅ Recheck license immediately
-  const { data: recheckData, error: recheckError } = await supabase
-    .from('licenses')
-    .select('smartemail_tier, smartemail_expires')
     .eq('email', email)
     .maybeSingle();
 
-  if (recheckError || !recheckData) {
-    console.warn(`⚠️ Recheck failed for ${email}. Defaulting to free.`);
-    return { tier: 'free', reason: 'recheck failed' };
-  }
+  if (error || !data) {
+    console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
-  return {
-    tier: recheckData.smartemail_tier || 'free',
-    expires: recheckData.smartemail_expires || null,
-    reason: 'fallback inserted and rechecked',
-  };
-} else {
+    const insertResult = await supabase
+      .from('licenses')
+      .upsert(
+        {
+          email: email,
+          smartemail_tier: 'free',
+          smartemail_expires: null,
+        },
+        { onConflict: ['email'] }
+      );
+
+    if (insertResult.error) {
+      console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
+      console.error(`❌ Full insertResult:`, JSON.stringify(insertResult, null, 2));
+      return { tier: 'free', reason: 'insert failed' };
+    }
+
+    // Recheck license immediately
+    const { data: recheckData, error: recheckError } = await supabase
+      .from('licenses')
+      .select('smartemail_tier, smartemail_expires')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (recheckError || !recheckData) {
+      console.warn(`⚠️ Recheck failed for ${email}. Defaulting to free.`);
+      return { tier: 'free', reason: 'recheck failed' };
+    }
+
+    return {
+      tier: recheckData.smartemail_tier || 'free',
+      expires: recheckData.smartemail_expires || null,
+      reason: 'fallback inserted and rechecked',
+    };
+
+  } else {
+    // ✅ License was found on first try
     return {
       tier: data.smartemail_tier || 'free',
       expires: data.smartemail_expires || null,
     };
   }
 }
-
 // ✅ FIXED: SmartEmail-Compatible /generate route
 app.post('/generate', async (req, res) => {
   const {
