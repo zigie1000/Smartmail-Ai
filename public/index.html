@@ -445,9 +445,13 @@ document.getElementById("continueBtn").onclick = async function () {
     alert("Something went wrong while saving your email. Please try again.");
   }
 
-  if (statusMsg) statusMsg.innerText = "🔍 Checking license...";
   hideEmailPrompt();
+
+// ✅ Delay license check to ensure Supabase finishes first
+setTimeout(() => {
+  if (statusMsg) statusMsg.innerText = "🔍 Checking license...";
   detectAndSyncLicense(false);
+}, 350);
 
   // Re-enable button
   continueBtn.disabled = false;
