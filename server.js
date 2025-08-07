@@ -92,15 +92,19 @@ async function checkLicense(email) {
     console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
     const insertResult = await supabase
-      .from('licenses')
-      .upsert(
-        {
-          email: email,
-          smartemail_tier: 'free',
-          smartemail_expires: null,
-        },
-        { onConflict: ['email'] }
-      );
+  .from('licenses')
+  .upsert({
+    email: email.trim().toLowerCase(),
+    smartemail_tier: 'free',
+    smartemail_expires: null,
+  }, 
+  { onConflict: ['email'], returning: 'representation' }
+);
+
+if (insertResult.error) {
+  console.error('❌ Insert failed:', insertResult.error.message || insertResult.error);
+  return { tier: 'free', reason: 'insert failed' };
+}
 
     if (insertResult.error) {
       console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
