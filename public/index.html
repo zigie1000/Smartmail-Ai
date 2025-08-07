@@ -393,6 +393,48 @@ function hideEmailPrompt() { document.getElementById('modalBg').style.display = 
 function showLicenseEntry() { document.getElementById('licenseInput').value = ""; document.getElementById('licenseModalBg').style.display = 'block'; }
 function hideLicenseEntry() { document.getElementById('licenseModalBg').style.display = 'none'; }
 
+document.getElementById("continueBtn").onclick = async function () {
+  const emailField = document.getElementById("email");
+  let email = emailField?.value?.trim();
+
+  if (!email) {
+    email = localStorage.getItem("userEmail")?.trim() || "";
+    if (email && emailField) emailField.value = email;
+  }
+
+  if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
+    alert("Please enter a valid email.");
+    return;
+  }
+
+  localStorage.setItem("userEmail", email);
+
+  // --- Record free user email in Supabase
+  try {
+    const res = await fetch("/api/register-free-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+
+    const data = await res.json();
+
+    if (data.status === "inserted") {
+      log("✅ Free email registered in Supabase: " + email);
+    } else if (data.status === "exists") {
+      log("📧 Email already exists as free: " + email);
+    }
+  } catch (err) {
+    log("❌ Error registering free email: " + err.message);
+  }
+
+  document.getElementById("statusMsg").innerText = "🔍 Checking license...";
+  log("📬 Email entered: " + email);
+  hideEmailPrompt();
+  detectAndSyncLicense(false);
+};
+
+  
 function maskLicense(key) {
   if (!key || key.length < 4) return 'xxxx';
   return 'xxxx-xxxx-xxxx-' + key.slice(-4);
