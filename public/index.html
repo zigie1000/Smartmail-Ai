@@ -394,22 +394,38 @@ function showLicenseEntry() { document.getElementById('licenseInput').value = ""
 function hideLicenseEntry() { document.getElementById('licenseModalBg').style.display = 'none'; }
 
 document.getElementById("continueBtn").onclick = async function () {
-  const emailField = document.getElementById("email");
-  let email = emailField?.value?.trim();
+  const emailInput = document.getElementById("emailInput");
+  const hiddenEmailField = document.getElementById("email");
+  const statusMsg = document.getElementById("statusMsg");
+  const continueBtn = document.getElementById("continueBtn");
 
+  if (!emailInput || !continueBtn) return;
+
+  // Disable button to prevent double submissions
+  continueBtn.disabled = true;
+  continueBtn.innerText = "Processing...";
+
+  let email = emailInput.value.trim();
+
+  // Fallback to localStorage
   if (!email) {
     email = localStorage.getItem("userEmail")?.trim() || "";
-    if (email && emailField) emailField.value = email;
+    if (email) emailInput.value = email;
   }
 
-  if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
-    alert("Please enter a valid email.");
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    alert("Please enter a valid email address.");
+    continueBtn.disabled = false;
+    continueBtn.innerText = "Continue";
     return;
   }
 
+  // Update both visible and hidden fields
   localStorage.setItem("userEmail", email);
+  if (hiddenEmailField) hiddenEmailField.value = email;
 
-  // --- Record free user email in Supabase
   try {
     const res = await fetch("/api/register-free-user", {
       method: "POST",
@@ -420,18 +436,22 @@ document.getElementById("continueBtn").onclick = async function () {
     const data = await res.json();
 
     if (data.status === "inserted") {
-      log("✅ Free email registered in Supabase: " + email);
+      console.log("✅ Free email registered in Supabase:", email);
     } else if (data.status === "exists") {
-      log("📧 Email already exists as free: " + email);
+      console.log("📧 Email already exists as free:", email);
     }
   } catch (err) {
-    log("❌ Error registering free email: " + err.message);
+    console.error("❌ Error registering free email:", err.message);
+    alert("Something went wrong while saving your email. Please try again.");
   }
 
-  document.getElementById("statusMsg").innerText = "🔍 Checking license...";
-  log("📬 Email entered: " + email);
+  if (statusMsg) statusMsg.innerText = "🔍 Checking license...";
   hideEmailPrompt();
   detectAndSyncLicense(false);
+
+  // Re-enable button
+  continueBtn.disabled = false;
+  continueBtn.innerText = "Continue";
 };
 
   
