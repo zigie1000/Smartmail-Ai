@@ -89,25 +89,42 @@ async function checkLicense(email) {
     .maybeSingle();
 
   if (error || !data) {
-    console.warn(`👤 License not found for ${email}. Inserting as free tier...`);
+  console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
-    const insertResult = await supabase
-  .from('licenses')
-  .upsert([{
-    email: email,
-    smartemail_tier: 'free',
-    smartemail_expires: null
-  }], { onConflict: ['email'] }); // Will update if exists
+  const insertResult = await supabase
+    .from('licenses')
+    .upsert([
+      {
+        email: email,
+        smartemail_tier: 'free',
+        smartemail_expires: null,
+      }
+    ], { onConflict: ['email'] });
 
-    if (insertResult.error) {
-  console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || 'Unknown insert error');
-  console.error('📄 Full insertResult:', JSON.stringify(insertResult, null, 2));
-    } else {
-      console.log(`✅ Inserted ${email} as free tier license.`);
-    }
+  if (insertResult.error) {
+    console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
+    console.error(`📋 Full insertResult:`, JSON.stringify(insertResult, null, 2));
+    return { tier: 'free', reason: 'insert failed' };
+  }
 
-    return { tier: 'free', reason: 'inserted as fallback' };
-  } else {
+  // ✅ Recheck license immediately
+  const { data: recheckData, error: recheckError } = await supabase
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (recheckError || !recheckData) {
+    console.warn(`⚠️ Recheck failed for ${email}. Defaulting to free.`);
+    return { tier: 'free', reason: 'recheck failed' };
+  }
+
+  return {
+    tier: recheckData.smartemail_tier || 'free',
+    expires: recheckData.smartemail_expires || null,
+    reason: 'fallback inserted and rechecked',
+  };
+} else {
     return {
       tier: data.smartemail_tier || 'free',
       expires: data.smartemail_expires || null,
