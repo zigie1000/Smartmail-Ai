@@ -88,37 +88,30 @@ async function checkLicense(email) {
     .eq('email', email)
     .maybeSingle();
 
-  if (error || !data) {
-    console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
+ if (error || !data) {
+  console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
-    const insertResult = await supabase
-      .from('licenses')
-      .upsert(
-        {
-          email: email,
-          smartemail_tier: 'free',
-          smartemail_expires: null,
-        },
-        { onConflict: ['email'] }
-      );
+  const insertResult = await supabase
+    .from('licenses')
+    .upsert({
+      email: email,
+      smartemail_tier: 'free',
+      smartemail_expires: null,
+    }, { onConflict: ['email'] });
 
-    if (insertResult.error) {
-      console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
-      console.error(`❌ Full insertResult:`, JSON.stringify(insertResult, null, 2));
-      return { tier: 'free', reason: 'insert failed' };
-    }
+  if (insertResult.error) {
+    console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
+    console.error(`❌ Full insertResult:`, JSON.stringify(insertResult, null, 2));
+    return { tier: 'free', reason: 'insert failed' };
+  }
 
-    // Recheck license immediately
-    const { data: recheckData, error: recheckError } = await supabase
-      .from('licenses')
-      .select('smartemail_tier, smartemail_expires')
-      .eq('email', email)
-      .maybeSingle();
-
-    if (recheckError || !recheckData) {
-      console.warn(`⚠️ Recheck failed for ${email}. Defaulting to free.`);
-      return { tier: 'free', reason: 'recheck failed' };
-    }
+  console.log(`✅ Fallback license inserted for ${email} as free tier.`);
+  return {
+    tier: 'free',
+    expires: null,
+    reason: 'fallback insert worked'
+  };
+}
 
     return {
       tier: recheckData.smartemail_tier || 'free',
