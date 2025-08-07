@@ -1012,26 +1012,6 @@ function updateTierUI(tier) {
     }
   });
 </script>
-<script>
-  window.addEventListener('DOMContentLoaded', () => {
-    const continueBtn = document.getElementById('continueBtn');
-    const emailInput = document.getElementById('emailInput');
-
-    if (!continueBtn || !emailInput) return;
-
-    // Replace your continueBtn handler with this:
-continueBtn.addEventListener('click', () => {
-  const email = emailInput.value.trim();
-  if (!email.includes('@')) {
-    alert('Please enter a valid email.');
-    return;
-  }
-  localStorage.setItem('userEmail', email);
-  document.getElementById('email').value = email;
-  document.getElementById('modalBg').style.display = 'none';
-  if (typeof generate === 'function') generate();
-});
-</script>
   
 </body>
 </html>
