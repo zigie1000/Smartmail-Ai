@@ -394,16 +394,11 @@ function showLicenseEntry() { document.getElementById('licenseInput').value = ""
 function hideLicenseEntry() { document.getElementById('licenseModalBg').style.display = 'none'; }
 
 document.getElementById("continueBtn").onclick = async function () {
-  const email = document.getElementById('emailInput').value.trim();
-  if (!email) {
-    alert("Please enter a valid email.");
-    return;
-  }
-
   const emailInput = document.getElementById("emailInput");
   const hiddenEmailField = document.getElementById("email");
   const statusMsg = document.getElementById("statusMsg");
   const continueBtn = document.getElementById("continueBtn");
+
   if (!emailInput || !continueBtn) return;
 
   // Disable button to prevent double submissions
