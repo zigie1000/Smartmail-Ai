@@ -432,7 +432,7 @@ document.getElementById("continueBtn").onclick = async function () {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email })
     });
-
+console.log("📡 Supabase response status:", res.status, "ok?", res.ok);
     const data = await res.json();
 
     if (data.status === "inserted") {
@@ -444,7 +444,7 @@ document.getElementById("continueBtn").onclick = async function () {
   } catch (err) {
   console.warn("⚠️ Email already exists or minor issue:", err.message);
 
-  if (err.message.includes("already exists") || err.message.includes("duplicate")) {
+  if (err?.message?.toLowerCase().includes("duplicate key value")) {
     console.log("📧 Email already registered, continuing as free tier.");
   } else {
     alert("Something went wrong while saving your email. Please try again.");
