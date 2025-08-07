@@ -103,14 +103,9 @@ async function checkLicense(email) {
 
 if (insertResult.error) {
   console.error('❌ Insert failed:', insertResult.error.message || insertResult.error);
+  console.error('❌ Full insertResult:', JSON.stringify(insertResult, null, 2));
   return { tier: 'free', reason: 'insert failed' };
 }
-
-    if (insertResult.error) {
-      console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
-      console.error(`❌ Full insertResult:`, JSON.stringify(insertResult, null, 2));
-      return { tier: 'free', reason: 'insert failed' };
-    }
 
     // Recheck license immediately
     const { data: recheckData, error: recheckError } = await supabase
