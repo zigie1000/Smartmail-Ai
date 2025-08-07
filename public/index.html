@@ -441,10 +441,14 @@ document.getElementById("continueBtn").onclick = async function () {
       console.log("📧 Email already exists as free:", email);
     }
   } catch (err) {
-    console.error("❌ Error registering free email:", err.message);
+  console.warn("⚠️ Email already exists or minor issue:", err.message);
+
+  if (err.message.includes("already exists") || err.message.includes("duplicate")) {
+    console.log("📧 Email already registered, continuing as free tier.");
+  } else {
     alert("Something went wrong while saving your email. Please try again.");
   }
-
+}
   hideEmailPrompt();
 
 // ✅ Delay license check to ensure Supabase finishes first
