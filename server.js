@@ -30,6 +30,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// ✅ Ensure email is saved if not found
+async function saveEmailToDB(email) {
+  const { data, error } = await supabase
+    .from('licenses')
+    .insert([{ email: email, tier: 'free' }], { upsert: false });
+
+  if (error) {
+    console.error("❌ Error inserting email:", error);
+  } else {
+    console.log("✅ Email saved to DB:", email);
+  }
+}
+
 // Optional Google auth client
 let oauth2Client;
 if (USE_GOOGLE_AUTH) {
