@@ -93,13 +93,13 @@ async function checkLicense(email) {
 
   const insertResult = await supabase
   .from('licenses')
-  .insert([
+  .upsert([
     {
       email: email,
       smartemail_tier: 'free',
       smartemail_expires: null,
     }
-  ]);
+  ], { onConflict: ['email'] });
 
   if (insertResult.error) {
     console.error(`❌ Insert failed:`, insertResult.error.message || insertResult.error || '');
