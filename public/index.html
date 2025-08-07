@@ -437,6 +437,7 @@ document.getElementById("continueBtn").onclick = async function () {
 
     if (data.status === "inserted") {
       console.log("✅ Free email registered in Supabase:", email);
+      log("⏱️ Supabase responded with: " + JSON.stringify(data));
     } else if (data.status === "exists") {
       console.log("📧 Email already exists as free:", email);
     }
@@ -453,9 +454,10 @@ document.getElementById("continueBtn").onclick = async function () {
 
 // ✅ Delay license check to ensure Supabase finishes first
 setTimeout(() => {
-  if (statusMsg) statusMsg.innerText = "🔍 Checking license...";
+  if (statusMsg) statusMsg.innerText = "🔍 Checking license (post-registration)...";
+  log("📡 License check triggered after email registration fallback.");
   detectAndSyncLicense(false);
-}, 350);
+}, 700); // increased from 350ms to 700ms
 
   // Re-enable button
   continueBtn.disabled = false;
