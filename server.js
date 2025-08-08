@@ -433,7 +433,9 @@ app.post('/webhook', async (req, res) => {
 // ✅ License validation endpoint used by frontend
 app.get('/validate-license', async (req, res) => {
   const { email, licenseKey } = req.query;
-  if (!email && !licenseKey) return res.status(400).json({ error: 'Missing email or licenseKey' });
+  if (!email && !licenseKey) {
+    return res.status(400).json({ error: 'Missing email or licenseKey' });
+  }
 
   try {
     const { data, error } = await supabase
@@ -442,21 +444,25 @@ app.get('/validate-license', async (req, res) => {
       .or(`email.eq.${email},license_key.eq.${licenseKey}`)
       .maybeSingle();
 
-    if (error || !data) return res.json({ status: 'not_found', tier: 'free' });
+    if (error || !data) {
+      return res.json({ status: 'not_found', tier: 'free' });
+    }
 
+    // ✅ define isActive robustly (free is always active)
+    const now = new Date();
+    const tier = data.smartemail_tier || 'free';
     const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const isFree  = (data.smartemail_tier || 'free') === 'free';
-    const isActive = isFree ? true : (expiry && expiry >= new Date());
+    const isActive = tier === 'free' || (expiry && expiry >= now);
 
-    return res.json({
+    res.json({
       status: isActive ? 'active' : 'expired',
-      tier: data.smartemail_tier || 'free',
+      tier,
       licenseKey: data.license_key || null,
       email: data.email || null,
     });
   } catch (err) {
-    console.error('❌ Error in validate-license:', err);
-    return res.status(500).json({ error: 'Validation failed' });
+    console.error('❌ Error in validate-license:', err.message || err);
+    res.status(500).json({ error: 'Validation failed' });
   }
 });
 
