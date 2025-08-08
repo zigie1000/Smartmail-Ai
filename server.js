@@ -433,36 +433,30 @@ app.post('/webhook', async (req, res) => {
 // ✅ License validation endpoint used by frontend
 app.get('/validate-license', async (req, res) => {
   const { email, licenseKey } = req.query;
-  if (!email && !licenseKey) {
-    return res.status(400).json({ error: 'Missing email or licenseKey' });
-  }
+  if (!email && !licenseKey) return res.status(400).json({ error: 'Missing email or licenseKey' });
 
   try {
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq.${email || ''},license_key.eq.${licenseKey || ''}`)
+      .or(`email.eq.${email},license_key.eq.${licenseKey}`)
       .maybeSingle();
 
-    if (error || !data) {
-      console.log("👤 No valid license/email found, set to free.");
-      return res.json({ status: "not_found", tier: "free" });
-    }
+    if (error || !data) return res.json({ status: 'not_found', tier: 'free' });
 
-    // ✅ compute isActive safely even if expires is null
-    const now = new Date();
-    const exp = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const isActive = !data.smartemail_expires || (exp && exp >= now); // free has null -> treat as active
+    const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+    const isFree  = (data.smartemail_tier || 'free') === 'free';
+    const isActive = isFree ? true : (expiry && expiry >= new Date());
 
     return res.json({
-      status: isActive ? "active" : "expired",
-      tier: data.smartemail_tier || "free",
+      status: isActive ? 'active' : 'expired',
+      tier: data.smartemail_tier || 'free',
       licenseKey: data.license_key || null,
       email: data.email || null,
     });
   } catch (err) {
-    console.error("❌ Error in validate-license:", err.message || err);
-    return res.status(500).json({ error: "Validation failed" });
+    console.error('❌ Error in validate-license:', err);
+    return res.status(500).json({ error: 'Validation failed' });
   }
 });
 
