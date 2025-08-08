@@ -110,13 +110,15 @@ const isActive = isFree ? true : (expiry && expiry >= new Date());
 
     const insertResult = await supabase
   .from('licenses')
-  .upsert({
-    email: email.trim().toLowerCase(),
-    smartemail_tier: 'free',
-    smartemail_expires: null,
-  }, 
-  { onConflict: ['email'], returning: 'representation' }
-);
+  .upsert(
+    {
+      email: email.trim().toLowerCase(),
+      smartemail_tier: 'free',
+      smartemail_expires: null
+    },
+    { onConflict: 'email' }
+  )
+  .select(); // ✅ forces Supabase to return the inserted/updated row
 
 if (insertResult.error) {
   console.error('❌ Insert failed:', insertResult.error.message || insertResult.error);
