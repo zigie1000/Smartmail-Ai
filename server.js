@@ -447,10 +447,6 @@ app.get('/validate-license', async (req, res) => {
   console.log("👤 No valid license/email found, set to free.");
   return res.json({ status: "not_found", tier: "free" });
 }
-    const isFree = (data.smartemail_tier || 'free') === 'free';
-const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-const isActive = isFree ? true : (expiry && expiry >= new Date());
-
     res.json({
       status: isActive ? "active" : "expired",
       tier: data.smartemail_tier || "free",
