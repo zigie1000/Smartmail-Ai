@@ -387,12 +387,6 @@ async function detectAndSyncLicense(showPromptIfFree=true) {
   updateFeatureAccess();
   log("👤 No valid license/email found, set to free.");
   if (showPromptIfFree) showEmailPrompt();
-
-// Ensure email prompt always shows if no stored email
-if (!localStorage.getItem("userEmail")) {
-    showEmailPrompt();
-}
-  
 }
 function showEmailPrompt() { document.getElementById('modalBg').style.display = 'block'; }
 function hideEmailPrompt() { document.getElementById('modalBg').style.display = 'none'; }
