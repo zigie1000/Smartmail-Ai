@@ -450,13 +450,14 @@ app.get('/validate-license', async (req, res) => {
 
 // ✅ Auto-save free tier email to licenses if not found
 if (email) {
+  const cleanEmail = email.trim();
   const { error: insertError } = await supabase
     .from('licenses')
-    .insert([{ email: email, smartemail_tier: 'free' }]);
+    .insert([{ email: cleanEmail, smartemail_tier: 'free' }]);
   if (insertError) {
     console.error("Error inserting free license:", insertError);
   } else {
-    console.log(`📩 Saved new free tier license for ${email}`);
+    console.log(`📩 Saved new free tier license for ${cleanEmail}`);
   }
 }
       
