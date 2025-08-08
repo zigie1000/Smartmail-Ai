@@ -100,7 +100,11 @@ async function checkLicense(email) {
     .select('smartemail_tier, smartemail_expires')
     .eq('email', email)
     .maybeSingle();
-
+  
+const isFree = (data.smartemail_tier || 'free') === 'free';
+const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+const isActive = isFree ? true : (expiry && expiry >= new Date());
+  
   if (error || !data) {
     console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
