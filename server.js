@@ -459,6 +459,13 @@ app.get('/validate-license', async (req, res) => {
   }
 });
 
+app.get('/config', (req, res) => {
+  res.json({
+    PRO_URL: process.env.PRO_URL || '',
+    PREMIUM_URL: process.env.PREMIUM_URL || ''
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`SmartEmail backend running on port ${PORT}`);
 });
