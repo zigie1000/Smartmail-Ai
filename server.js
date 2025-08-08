@@ -441,28 +441,32 @@ app.get('/validate-license', async (req, res) => {
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq.${email},license_key.eq.${licenseKey}`)
+      .or(`email.eq.${email || ''},license_key.eq.${licenseKey || ''}`)
       .maybeSingle();
 
     if (error || !data) {
-      return res.json({ status: 'not_found', tier: 'free' });
+      console.log("👤 No valid license/email found, set to free.");
+      return res.json({ status: "not_found", tier: "free" });
     }
 
-    // ✅ define isActive robustly (free is always active)
-    const now = new Date();
     const tier = data.smartemail_tier || 'free';
-    const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const isActive = tier === 'free' || (expiry && expiry >= now);
 
-    res.json({
-      status: isActive ? 'active' : 'expired',
+    // Free is always "active"; otherwise check expiry
+    let isActive = true;
+    if (tier !== 'free') {
+      const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+      isActive = !!(expiry && expiry >= new Date());
+    }
+
+    return res.json({
+      status: isActive ? "active" : "expired",
       tier,
       licenseKey: data.license_key || null,
-      email: data.email || null,
+      email: (data.email || '').toLowerCase()
     });
   } catch (err) {
-    console.error('❌ Error in validate-license:', err.message || err);
-    res.status(500).json({ error: 'Validation failed' });
+    console.error("❌ Error in validate-license:", err.message || err);
+    return res.status(500).json({ error: "Validation failed" });
   }
 });
 
