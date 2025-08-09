@@ -445,28 +445,26 @@ app.get('/validate-license', async (req, res) => {
       .maybeSingle();
 
     if (error || !data) {
-      console.log("👤 No valid license/email found, set to free.");
-      return res.json({ status: "not_found", tier: "free" });
+      return res.json({ status: 'not_found', tier: 'free' });
     }
 
+    // ✅ compute isActive correctly
     const tier = data.smartemail_tier || 'free';
-
-    // Free is always "active"; otherwise check expiry
-    let isActive = true;
+    let isActive = true; // free is always active
     if (tier !== 'free') {
       const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
       isActive = !!(expiry && expiry >= new Date());
     }
 
     return res.json({
-      status: isActive ? "active" : "expired",
+      status: isActive ? 'active' : 'expired',
       tier,
       licenseKey: data.license_key || null,
-      email: (data.email || '').toLowerCase()
+      email: data.email || null,
     });
   } catch (err) {
-    console.error("❌ Error in validate-license:", err.message || err);
-    return res.status(500).json({ error: "Validation failed" });
+    console.error('❌ Error in validate-license:', err.message || err);
+    return res.status(500).json({ error: 'Validation failed' });
   }
 });
 
