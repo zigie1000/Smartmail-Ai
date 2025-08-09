@@ -30,19 +30,27 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ✅ Ensure email is saved if not found
-async function saveEmailToDB(email) {
-  const { data, error } = await supabase
-    .from('licenses')
-    .insert(
-      [{ email: email, smartemail_tier: 'free' }],
-      { upsert: false }
-    );
+// ✅ Ensure email is saved if not found (with tier and defaults)
+async function ensureEmailSaved(email) {
+  try {
+    const { data, error } = await supabase
+      .from('licenses')
+      .insert([
+        {
+          email: email,
+          tier: 'free',        // ✅ Set tier on first save
+          license_key: null,   // Optional — explicitly null for free tier
+          created_at: new Date().toISOString() // Optional — timestamp
+        }
+      ]);
 
-  if (error) {
-    console.error("❌ Error inserting email:", error);
-  } else {
-    console.log("✅ Email saved to DB:", email);
+    if (error) {
+      log(`❌ Error saving free-tier email: ${error.message}`);
+    } else {
+      log(`📥 Free-tier email saved to SQL: ${email}`);
+    }
+  } catch (err) {
+    log(`❌ Exception saving free-tier email: ${err.message}`);
   }
 }
 
