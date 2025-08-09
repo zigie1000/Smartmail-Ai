@@ -34,7 +34,10 @@ const supabase = createClient(
 async function saveEmailToDB(email) {
   const { data, error } = await supabase
     .from('licenses')
-    .insert([{ email: email, tier: 'free' }], { upsert: false });
+    .insert(
+      [{ email: email, smartemail_tier: 'free' }],
+      { upsert: false }
+    );
 
   if (error) {
     console.error("❌ Error inserting email:", error);
