@@ -33,21 +33,22 @@ const supabase = createClient(
 // ✅ Ensure email is saved if not found (with tier and defaults)
 async function ensureEmailSaved(email) {
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('licenses')
-      .insert([
+      .upsert(
         {
           email: email,
           tier: 'free',
           smartemail_tier: 'free',
-          smartemail_expires: null // explicitly store expiration as null for free tier
-        }
-      ]);
+          smartemail_expires: null
+        },
+        { onConflict: ['email'] } // ensures no duplicate emails
+      );
 
     if (error) {
-      console.error("❌ Error inserting free tier email:", error.message);
+      console.error("❌ Error saving free tier email:", error.message);
     } else {
-      console.log(`✅ Free tier email saved to SQL: ${email}`);
+      console.log(`✅ Free tier email saved/updated in SQL: ${email}`);
     }
   } catch (err) {
     console.error("❌ Exception saving free tier email:", err);
