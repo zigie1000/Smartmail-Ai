@@ -38,19 +38,19 @@ async function ensureEmailSaved(email) {
       .insert([
         {
           email: email,
-          tier: 'free',        // ✅ Set tier on first save
-          license_key: null,   // Optional — explicitly null for free tier
-          created_at: new Date().toISOString() // Optional — timestamp
+          tier: 'free',
+          smartemail_tier: 'free',
+          smartemail_expires: null // explicitly store expiration as null for free tier
         }
       ]);
 
     if (error) {
-      log(`❌ Error saving free-tier email: ${error.message}`);
+      console.error("❌ Error inserting free tier email:", error.message);
     } else {
-      log(`📥 Free-tier email saved to SQL: ${email}`);
+      console.log(`✅ Free tier email saved to SQL: ${email}`);
     }
   } catch (err) {
-    log(`❌ Exception saving free-tier email: ${err.message}`);
+    console.error("❌ Exception saving free tier email:", err);
   }
 }
 
