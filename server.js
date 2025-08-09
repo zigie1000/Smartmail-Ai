@@ -10,6 +10,8 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import imapRoutes from './imap-reader/imapRoutes.js';
+app.use('/', imapRoutes);
 
 dotenv.config();
 
