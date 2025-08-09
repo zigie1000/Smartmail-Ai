@@ -463,35 +463,50 @@ app.post('/webhook', async (req, res) => {
 
 // ✅ License validation endpoint used by frontend
 app.get('/validate-license', async (req, res) => {
-  const { email, licenseKey } = req.query;
+  // Normalize inputs
+  const email = (req.query.email || '').trim().toLowerCase();
+  const licenseKey = (req.query.licenseKey || '').trim();
+
   if (!email && !licenseKey) {
     return res.status(400).json({ error: 'Missing email or licenseKey' });
   }
 
   try {
+    // Build safe OR filter only with provided fields
+    const orFilter = [
+      email ? `email.eq.${email}` : null,
+      licenseKey ? `license_key.eq.${licenseKey}` : null,
+    ].filter(Boolean).join(',');
+
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq.${email},license_key.eq.${licenseKey}`)
+      .or(orFilter)
       .maybeSingle();
 
     if (error || !data) {
       return res.json({ status: 'not_found', tier: 'free' });
     }
 
-    const tier = data.smartemail_tier || 'free';
-    const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const isActive = tier === 'free' || (expiry && expiry >= new Date());
+    const tier = (data.smartemail_tier || 'free').toLowerCase();
+    const rawExpiry = data.smartemail_expires;
+    const expiry = rawExpiry ? new Date(rawExpiry) : null;
 
-    res.json({
+    // ✅ Free tier is always active; paid tiers must have a valid, future expiry
+    const isActive = tier === 'free'
+      ? true
+      : (expiry instanceof Date && !isNaN(expiry) && expiry >= new Date());
+
+    return res.json({
       status: isActive ? 'active' : 'expired',
       tier,
       licenseKey: data.license_key || null,
-      email: data.email || null
+      email: data.email || null,
+      expiresAt: rawExpiry || null,
     });
   } catch (err) {
-    console.error('❌ Error in validate-license:', err.message || err);
-    res.status(500).json({ error: 'Validation failed' });
+    console.error('❌ Error in validate-license:', err?.message || err);
+    return res.status(500).json({ error: 'Validation failed' });
   }
 });
 
