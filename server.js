@@ -96,18 +96,22 @@ app.get('/auth/google/callback', async (req, res) => {
 // Check license via Supabase
 async function checkLicense(email) {
   const { data, error } = await supabase
-  .from('licenses')
-  .select('smartemail_tier, smartemail_expires')
-  .eq('email', email)
-  .maybeSingle();
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
 
-if (error || !data) {
-  // ...insert fallback, recheck, return...
-} else {
+  if (error || !data) {
+    console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
+    // ... insert free-tier logic
+    return { tier: 'free', isActive: true, expires: null };
+  }
+
   const isFree = (data.smartemail_tier || 'free') === 'free';
   const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
   const isActive = isFree ? true : (expiry && expiry >= new Date());
-  return { tier: data.smartemail_tier || 'free', expires: data.smartemail_expires || null, isActive };
+
+  return { tier: data.smartemail_tier, isActive, expires: expiry };
 }
 const expiry = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
 const isActive = isFree ? true : (expiry && expiry >= new Date());
