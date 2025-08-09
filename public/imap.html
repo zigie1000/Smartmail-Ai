@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SmartEmail | IMAP Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #f4f4f4; padding: 20px; }
+  .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+  input, button { width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #ccc; }
+  button { background: #4CAF50; color: white; cursor: pointer; border: none; }
+  button:hover { background: #45a049; }
+  .email { border-bottom: 1px solid #eee; padding: 10px 0; }
+  .important { background: #fff6f0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>📧 Connect to Your Email</h2>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="App Password">
+  <input id="host" placeholder="IMAP Host (e.g., imap.gmail.com)">
+  <button onclick="fetchEmails()">Fetch & Classify</button>
+  <div id="emails"></div>
+</div>
+
+<script>
+async function fetchEmails() {
+  const res = await fetch('/imap/fetch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: document.getElementById('email').value,
+      password: document.getElementById('password').value,
+      host: document.getElementById('host').value
+    })
+  });
+  const data = await res.json();
+  if (data.success) {
+    const emailsDiv = document.getElementById('emails');
+    emailsDiv.innerHTML = '';
+    data.emails.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'email ' + (e.importance === 'important' ? 'important' : '');
+      div.innerHTML = `<strong>${e.subject}</strong><br><em>${e.from}</em><br>${e.importance}`;
+      emailsDiv.appendChild(div);
+    });
+  } else {
+    alert('Error: ' + data.error);
+  }
+}
+</script>
+</body>
+</html>
