@@ -108,6 +108,26 @@ const isActive = isFree ? true : (expiry && expiry >= new Date());
   if (error || !data) {
     console.warn(`⚠️ License not found for ${email}. Inserting as free tier...`);
 
+// ✅ Save free-tier email to SQL if not already present
+if (email) {
+  const { data: existing } = await supabase
+    .from('licenses')
+    .select('email')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (!existing) {
+    await supabase.from('licenses').insert([
+      {
+        email: email,
+        smartemail_tier: 'free',
+        smartemail_expires: null
+      }
+    ]);
+    console.log(`📩 Free-tier email saved to SQL: ${email}`);
+  }
+}
+
     const insertResult = await supabase
   .from('licenses')
   .upsert(
