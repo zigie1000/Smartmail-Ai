@@ -467,7 +467,7 @@ app.post('/webhook', async (req, res) => {
 //// GET /validate-license?email=you@example.com OR ?licenseKey=XXXX
 app.get('/validate-license', async (req, res) => {
   try {
-    // 1) sanitize inputs
+    // 1) Sanitize inputs
     const emailRaw = typeof req.query.email === 'string' ? req.query.email.trim() : '';
     const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
     const email = emailRaw ? emailRaw.toLowerCase() : '';
@@ -476,8 +476,9 @@ app.get('/validate-license', async (req, res) => {
       return res.status(400).json({ error: 'Missing email or licenseKey' });
     }
 
-        // 2) query deterministically (avoid .or with empty operands)
     let row = null;
+
+    // 2) Query deterministically
     if (licenseKeyRaw) {
       const { data, error } = await supabase
         .from('licenses')
@@ -496,49 +497,43 @@ app.get('/validate-license', async (req, res) => {
       row = data;
     }
 
-    // ✅ Compute active/expired immediately after fetching row
-    if (row) {
-      const now = new Date();
-      const expiry = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
-      row.isActive = (row.smartemail_tier || 'free') === 'free'
-        ? true
-        : !!(expiry && expiry >= now);
+    // 3) If no row, auto-create free license
+    if (!row && email) {
+      const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
+      const { data: inserted, error: insertError } = await supabase
+        .from('licenses')
+        .insert([{
+          email,
+          license_key: newLicenseKey,
+          smartemail_tier: 'free',
+          smartemail_expires: null
+        }])
+        .select()
+        .maybeSingle();
+
+      if (insertError) throw insertError;
+      row = inserted;
     }
 
-    // 3) not found → do NOT write here; let /api/register-free-user create rows
-    if (!row) {
-      return res.status(200).json({
-        status: 'not_found',
-        tier: 'free',
-        email: email || null,
-        licenseKey: null,
-        expiresAt: null
-      });
-    }
-
-    // 4) compute active/expired safely
+    // 4) Compute active/expired
+    const now = new Date();
     const tier = row.smartemail_tier || 'free';
     const expiresAt = row.smartemail_expires || null;
+    const expiryDate = expiresAt ? new Date(expiresAt) : null;
 
-    let isActive;
-    if (tier === 'free') {
-      isActive = true; // free is always active
-    } else if (!expiresAt) {
-      isActive = false;
-    } else {
-      // compare using Date, tolerate invalid date
-      const d = new Date(expiresAt);
-      isActive = Number.isFinite(d.getTime()) && d >= new Date();
-    }
+    const isActive = tier === 'free'
+      ? true
+      : !!(expiryDate && expiryDate >= now);
 
-    // 5) stable response shape
+    // 5) Response
     return res.status(200).json({
-  status: isActive ? 'active' : 'expired',
-  tier: row.smartemail_tier || 'free',   // ✅ match DB column
-  email: row.email || null,
-  licenseKey: row.license_key || null,
-  expiresAt: row.smartemail_expires || null
-});
+      status: isActive ? 'active' : 'expired',
+      tier,
+      email: row.email || null,
+      licenseKey: row.license_key || null,
+      expiresAt
+    });
+
   } catch (err) {
     console.error('❌ /validate-license error:', err?.message || err);
     return res.status(500).json({ error: 'Validation failed' });
