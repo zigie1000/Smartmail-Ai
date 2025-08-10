@@ -464,6 +464,7 @@ app.post('/webhook', async (req, res) => {
 });*/
 
 // ✅ License validation endpoint used by frontend
+app// ✅ License validation endpoint used by frontend
 app.get('/validate-license', async (req, res) => {
   const { email, licenseKey } = req.query;
   if (!email && !licenseKey) {
@@ -471,46 +472,45 @@ app.get('/validate-license', async (req, res) => {
   }
 
   try {
+    // Try to find license by email or license key
     const { data, error } = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, license_key, email')
       .or(`email.eq.${email || ''},license_key.eq.${licenseKey || ''}`)
       .maybeSingle();
 
-   if (error || !data) {
-  if (email) {
-    const { error: insertErr } = await supabase
-      .from('licenses')
-      .insert([
-        {
-          email,
-          smartemail_tier: 'free',
-          smartemail_expires: null,
-          license_key: null
-        }
-      ], { ignoreDuplicates: true }); // avoids double-insert
-
-    if (insertErr) {
-      console.error('❌ Error inserting free-tier license:', insertErr);
+    if (error) {
+      console.error('❌ Supabase error in validate-license:', error);
     }
 
-    // set data so rest of logic still runs
-    data = {
-      email,
-      smartemail_tier: 'free',
-      smartemail_expires: null,
-      license_key: null
-    };
-  } else {
-    return res.json({ status: 'not_found', tier: 'free' });
-  }
-   }
+    if (!data) {
+      // If no match and email provided, insert a free-tier license
+      if (email) {
+        const { error: insertError } = await supabase
+          .from('licenses')
+          .insert([{
+            email,
+            smartemail_tier: 'free',
+            smartemail_expires: null,
+            license_key: null
+          }]);
 
-    // ✅ define isActive before using it
+        if (insertError) {
+          console.error('❌ Error inserting free-tier license:', insertError);
+          return res.status(500).json({ error: 'Database insert failed' });
+        }
+      }
+
+      return res.json({ status: 'not_found', tier: 'free' });
+    }
+
+    // Define isActive
     const now = new Date();
-    const expiresAt = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+    const expiresAt = data.smartemail_expires
+      ? new Date(data.smartemail_expires)
+      : null;
 
-    // Treat free tier as always active, otherwise compare expiry
+    // Free tier is always active, otherwise check expiry
     const isActive =
       (data.smartemail_tier || 'free') === 'free'
         ? true
@@ -520,8 +520,9 @@ app.get('/validate-license', async (req, res) => {
       status: isActive ? 'active' : 'expired',
       tier: data.smartemail_tier || 'free',
       licenseKey: data.license_key || null,
-      email: data.email || null,
+      email: data.email || null
     });
+
   } catch (err) {
     console.error('❌ Error in validate-license:', err);
     return res.status(500).json({ error: 'Validation failed' });
