@@ -10,7 +10,13 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import imapRoutes from './imap-reader/imapRoutes.js';
+let imapRoutes;
+try {
+  imapRoutes = await import('./imap-reader/imapRoutes.js').then(m => m.default);
+  app.use('/', imapRoutes);
+} catch (err) {
+  console.error('❌ Failed to load IMAP routes:', err);
+}
 
 dotenv.config();
 
