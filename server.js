@@ -32,7 +32,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/webhook', stripeWebHook);
 app.use(express.static(path.join(__dirname, 'public')));
-if (imapRoutes) app.use('/', imapRoutes);
+if (imapRoutes) app.use('/imap', imapRoutes);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
