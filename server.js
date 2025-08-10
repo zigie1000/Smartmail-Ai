@@ -533,12 +533,12 @@ app.get('/validate-license', async (req, res) => {
 
     // 5) stable response shape
     return res.status(200).json({
-      status: isActive ? 'active' : 'expired',
-      tier,
-      email: row.email || null,
-      licenseKey: row.license_key || null,
-      expiresAt
-    });
+  status: isActive ? 'active' : 'expired',
+  tier: row.smartemail_tier || 'free',   // ✅ match DB column
+  email: row.email || null,
+  licenseKey: row.license_key || null,
+  expiresAt: row.smartemail_expires || null
+});
   } catch (err) {
     console.error('❌ /validate-license error:', err?.message || err);
     return res.status(500).json({ error: 'Validation failed' });
