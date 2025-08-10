@@ -504,6 +504,7 @@ app.get('/validate-license', async (req, res) => {
   } else {
     return res.json({ status: 'not_found', tier: 'free' });
   }
+   }
 
     // ✅ define isActive before using it
     const now = new Date();
