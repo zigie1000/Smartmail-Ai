@@ -464,67 +464,74 @@ app.post('/webhook', async (req, res) => {
 });*/
 
 // ✅ License validation endpoint used by frontend
-// ✅ License validation endpoint used by frontend
+//// GET /validate-license?email=you@example.com OR ?licenseKey=XXXX
 app.get('/validate-license', async (req, res) => {
-  const { email, licenseKey } = req.query;
-  if (!email && !licenseKey) {
-    return res.status(400).json({ error: 'Missing email or licenseKey' });
-  }
-
   try {
-    // Try to find license by email or license key
-    const { data, error } = await supabase
-      .from('licenses')
-      .select('smartemail_tier, smartemail_expires, license_key, email')
-      .or(`email.eq.${email || ''},license_key.eq.${licenseKey || ''}`)
-      .maybeSingle();
+    // 1) sanitize inputs
+    const emailRaw = typeof req.query.email === 'string' ? req.query.email.trim() : '';
+    const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
+    const email = emailRaw ? emailRaw.toLowerCase() : '';
 
-    if (error) {
-      console.error('❌ Supabase error in validate-license:', error);
+    if (!email && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Missing email or licenseKey' });
     }
 
-    if (!data) {
-      // If no match and email provided, insert a free-tier license
-      if (email) {
-        const { error: insertError } = await supabase
-          .from('licenses')
-          .insert([{
-            email,
-            smartemail_tier: 'free',
-            smartemail_expires: null,
-            license_key: null
-          }]);
-
-        if (insertError) {
-          console.error('❌ Error inserting free-tier license:', insertError);
-          return res.status(500).json({ error: 'Database insert failed' });
-        }
-      }
-
-      return res.json({ status: 'not_found', tier: 'free' });
+    // 2) query deterministically (avoid .or with empty operands)
+    let row = null;
+    if (licenseKeyRaw) {
+      const { data, error } = await supabase
+        .from('licenses')
+        .select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      if (error) throw error;
+      row = data;
+    } else {
+      const { data, error } = await supabase
+        .from('licenses')
+        .select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('email', email)
+        .maybeSingle();
+      if (error) throw error;
+      row = data;
     }
 
-    // Define isActive
-    const now = new Date();
-    const expiresAt = data.smartemail_expires
-      ? new Date(data.smartemail_expires)
-      : null;
+    // 3) not found → do NOT write here; let /api/register-free-user create rows
+    if (!row) {
+      return res.status(200).json({
+        status: 'not_found',
+        tier: 'free',
+        email: email || null,
+        licenseKey: null,
+        expiresAt: null
+      });
+    }
 
-    // Free tier is always active, otherwise check expiry
-    const isActive =
-      (data.smartemail_tier || 'free') === 'free'
-        ? true
-        : !!(expiresAt && expiresAt >= now);
+    // 4) compute active/expired safely
+    const tier = row.smartemail_tier || 'free';
+    const expiresAt = row.smartemail_expires || null;
 
-    return res.json({
+    let isActive;
+    if (tier === 'free') {
+      isActive = true; // free is always active
+    } else if (!expiresAt) {
+      isActive = false;
+    } else {
+      // compare using Date, tolerate invalid date
+      const d = new Date(expiresAt);
+      isActive = Number.isFinite(d.getTime()) && d >= new Date();
+    }
+
+    // 5) stable response shape
+    return res.status(200).json({
       status: isActive ? 'active' : 'expired',
-      tier: data.smartemail_tier || 'free',
-      licenseKey: data.license_key || null,
-      email: data.email || null
+      tier,
+      email: row.email || null,
+      licenseKey: row.license_key || null,
+      expiresAt
     });
-
   } catch (err) {
-    console.error('❌ Error in validate-license:', err);
+    console.error('❌ /validate-license error:', err?.message || err);
     return res.status(500).json({ error: 'Validation failed' });
   }
 });
