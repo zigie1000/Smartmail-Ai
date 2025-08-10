@@ -477,20 +477,34 @@ app.get('/validate-license', async (req, res) => {
       .or(`email.eq.${email || ''},license_key.eq.${licenseKey || ''}`)
       .maybeSingle();
 
-    if (error || !data) {
-  // Insert free-tier license if email is provided
+   if (error || !data) {
   if (email) {
-    await supabase.from('licenses').insert([
-      {
-        email,
-        smartemail_tier: 'free',
-        smartemail_expires: null,
-        license_key: null
-      }
-    ]);
+    const { error: insertErr } = await supabase
+      .from('licenses')
+      .insert([
+        {
+          email,
+          smartemail_tier: 'free',
+          smartemail_expires: null,
+          license_key: null
+        }
+      ], { ignoreDuplicates: true }); // avoids double-insert
+
+    if (insertErr) {
+      console.error('❌ Error inserting free-tier license:', insertErr);
+    }
+
+    // set data so rest of logic still runs
+    data = {
+      email,
+      smartemail_tier: 'free',
+      smartemail_expires: null,
+      license_key: null
+    };
+  } else {
+    return res.json({ status: 'not_found', tier: 'free' });
   }
-  return res.json({ status: 'not_found', tier: 'free' });
-}
+
     // ✅ define isActive before using it
     const now = new Date();
     const expiresAt = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
