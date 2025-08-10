@@ -478,9 +478,19 @@ app.get('/validate-license', async (req, res) => {
       .maybeSingle();
 
     if (error || !data) {
-      return res.json({ status: 'not_found', tier: 'free' });
-    }
-
+  // Insert free-tier license if email is provided
+  if (email) {
+    await supabase.from('licenses').insert([
+      {
+        email,
+        smartemail_tier: 'free',
+        smartemail_expires: null,
+        license_key: null
+      }
+    ]);
+  }
+  return res.json({ status: 'not_found', tier: 'free' });
+}
     // ✅ define isActive before using it
     const now = new Date();
     const expiresAt = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
