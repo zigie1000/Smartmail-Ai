@@ -559,15 +559,14 @@ app.get('/validate-license', async (req, res) => {
   }
 });
 
-let imapRoutes;
+import imapRoutes from './imap-reader/imapRoutes.js';
+
 try {
-  imapRoutes = await import('./imap-reader/imapRoutes.js').then(m => m.default);
   app.use('/imap', imapRoutes);
-  console.log('📬 IMAP routes loaded at /imap');
+  console.log('✅ IMAP routes loaded at /imap');
 } catch (err) {
   console.error('❌ Failed to load IMAP routes:', err);
 }
-
 
 
 app.listen(PORT, () => {
