@@ -476,7 +476,7 @@ app.get('/validate-license', async (req, res) => {
       return res.status(400).json({ error: 'Missing email or licenseKey' });
     }
 
-    // 2) query deterministically (avoid .or with empty operands)
+        // 2) query deterministically (avoid .or with empty operands)
     let row = null;
     if (licenseKeyRaw) {
       const { data, error } = await supabase
@@ -494,6 +494,15 @@ app.get('/validate-license', async (req, res) => {
         .maybeSingle();
       if (error) throw error;
       row = data;
+    }
+
+    // ✅ Compute active/expired immediately after fetching row
+    if (row) {
+      const now = new Date();
+      const expiry = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+      row.isActive = (row.smartemail_tier || 'free') === 'free'
+        ? true
+        : !!(expiry && expiry >= now);
     }
 
     // 3) not found → do NOT write here; let /api/register-free-user create rows
