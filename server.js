@@ -10,17 +10,6 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-// server.js (SmartEmail Restored Full Functionality)
-import express from 'express';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-import cors from 'cors';
-import { createClient } from '@supabase/supabase-js';
-import { google } from 'googleapis';
-import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
 let imapRoutes;
 try {
