@@ -14,10 +14,10 @@ let imapRoutes;
 try {
   imapRoutes = await import('./imap-reader/imapRoutes.js').then(m => m.default);
   app.use('/', imapRoutes);
+  console.log('✅ IMAP routes loaded');
 } catch (err) {
   console.error('❌ Failed to load IMAP routes:', err);
 }
-
 dotenv.config();
 
 const app = express();
