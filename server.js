@@ -559,15 +559,23 @@ app.get('/validate-license', async (req, res) => {
   }
 });
 
-import imapRoutes from './imap-reader/imapRoutes.js';
-
 try {
-  app.use('/imap', imapRoutes);
-  console.log('✅ IMAP routes loaded at /imap');
-} catch (err) {
-  console.error('❌ Failed to load IMAP routes:', err);
-}
+  const imapRoutes = await import('./imap-reader/imapRoutes.js')
+    .then(m => m.default)
+    .catch(err => {
+      console.error('❌ Could not import IMAP routes:', err);
+      return null;
+    });
 
+  if (imapRoutes) {
+    app.use('/imap', imapRoutes);
+    console.log('✅ IMAP routes loaded at /imap');
+  } else {
+    console.warn('⚠ IMAP routes not loaded.');
+  }
+} catch (err) {
+  console.error('❌ IMAP setup failed:', err);
+}
 
 app.listen(PORT, () => {
   console.log(`SmartEmail backend running on port ${PORT}`);
