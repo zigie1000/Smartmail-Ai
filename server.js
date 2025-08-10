@@ -10,14 +10,26 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+// server.js (SmartEmail Restored Full Functionality)
+import express from 'express';
+import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import { google } from 'googleapis';
+import Stripe from 'stripe';
+import stripeWebHook from './stripeWebHook.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 let imapRoutes;
 try {
   imapRoutes = await import('./imap-reader/imapRoutes.js').then(m => m.default);
-  app.use('/', imapRoutes);
   console.log('✅ IMAP routes loaded');
 } catch (err) {
   console.error('❌ Failed to load IMAP routes:', err);
 }
+
 dotenv.config();
 
 const app = express();
@@ -31,6 +43,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/webhook', stripeWebHook);
 app.use(express.static(path.join(__dirname, 'public')));
+if (imapRoutes) app.use('/', imapRoutes);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
