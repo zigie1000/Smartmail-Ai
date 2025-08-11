@@ -1,4 +1,4 @@
-// server.js — SmartEmail + IMAP UI/API clean split
+// server.js — SmartEmail + IMAP UI/API + Google & Microsoft OAuth
 
 import express from 'express';
 import fetch from 'node-fetch';
@@ -10,77 +10,165 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
-// ✅ MINIMAL ADD: import IMAP routes (matches your /imap-reader/ folder)
+// ✅ IMAP REST routes
 import imapRoutes from './imap-reader/imapRoutes.js';
 
-// ✅ Load env
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const USE_GOOGLE_AUTH = process.env.USE_GOOGLE_AUTH === 'true';
+
+const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
+const USE_MS_AUTH = (process.env.USE_MS_AUTH || 'true') === 'true';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ Core middleware
+// Core middleware
 app.use(cors());
 app.use(express.json());
 
-// ✅ Static UI (put your HTML files in /public)
+// Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ----- SMARTEMAIL (unchanged sections kept) -----
-
+// ----- SUPABASE -----
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// Optional Google auth client
-let oauth2Client;
+// ----- GOOGLE OAUTH (optional) -----
+let googleClient;
 if (USE_GOOGLE_AUTH) {
-  oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+  googleClient = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID || '',
+    process.env.GOOGLE_CLIENT_SECRET || '',
+    process.env.GOOGLE_REDIRECT_URI || ''
   );
 }
 
-// Home route -> SmartEmail UI
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Status check
-app.get('/api/status', (req, res) => {
-  res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, mode: 'SmartEmail' });
-});
-
-// Google OAuth (unchanged)
 app.get('/auth/google', (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
-  const url = oauth2Client.generateAuthUrl({
+  const url = googleClient.generateAuthUrl({
     access_type: 'offline',
     scope: ['profile', 'email'],
+    prompt: 'consent'
   });
   res.redirect(url);
 });
 
 app.get('/auth/google/callback', async (req, res) => {
   if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
-  const { code } = req.query;
   try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const userInfo = await oauth2.userinfo.get();
-    res.json({ user: userInfo.data });
-  } catch (err) {
-    console.error('OAuth error:', err);
+    const { tokens } = await googleClient.getToken(String(req.query.code || ''));
+    googleClient.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: googleClient });
+    const user = await oauth2.userinfo.get();
+    res.json({ provider: 'google', user: user.data, tokens });
+  } catch (e) {
+    console.error('OAuth error:', e);
     res.status(500).send('Google authentication failed.');
   }
+});
+
+// ----- MICROSOFT OAUTH (for Outlook/Office 365 IMAP) -----
+const MS_SCOPES = [
+  'offline_access',
+  'https://outlook.office.com/IMAP.AccessAsUser.All',
+  'https://outlook.office.com/SMTP.Send'
+].join(' ');
+
+app.get('/auth/microsoft', (req, res) => {
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
+
+  const state = crypto.randomBytes(16).toString('hex');
+  const nonce = crypto.randomBytes(16).toString('hex');
+
+  const params = new URLSearchParams({
+    client_id: process.env.MS_CLIENT_ID || '',
+    response_type: 'code',
+    redirect_uri: process.env.MS_REDIRECT_URI || '',
+    response_mode: 'query',
+    scope: MS_SCOPES,
+    state,
+    nonce,
+    prompt: 'select_account'
+  });
+
+  res.redirect(
+    'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' +
+      params.toString()
+  );
+});
+
+app.get('/auth/microsoft/callback', async (req, res) => {
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
+
+  const code = String(req.query.code || '');
+  if (!code) return res.status(400).send('Missing authorization code');
+
+  try {
+    const tokenRes = await fetch(
+      'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.MS_CLIENT_ID || '',
+          client_secret: process.env.MS_CLIENT_SECRET || '',
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: process.env.MS_REDIRECT_URI || '',
+          scope: MS_SCOPES
+        })
+      }
+    );
+
+    const tokens = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error('MS token error:', tokens);
+      return res
+        .status(500)
+        .json({ error: 'Failed to exchange Microsoft token', detail: tokens });
+    }
+
+    // You can persist tokens in Supabase keyed by email if desired.
+    return res.json({
+      provider: 'microsoft',
+      message: 'Microsoft OAuth successful',
+      tokens
+    });
+  } catch (err) {
+    console.error('Microsoft OAuth Error:', err);
+    return res.status(500).json({ error: 'Microsoft OAuth exchange failed' });
+  }
+});
+
+// Helper for clients: which providers are enabled
+app.get('/auth/providers', (req, res) => {
+  res.json({
+    google_enabled: USE_GOOGLE_AUTH,
+    microsoft_enabled: USE_MS_AUTH,
+    google_url: USE_GOOGLE_AUTH ? '/auth/google' : null,
+    microsoft_url: USE_MS_AUTH ? '/auth/microsoft' : null
+  });
+});
+
+// ----- HOME (SmartEmail UI) -----
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ----- STATUS -----
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    googleLogin: USE_GOOGLE_AUTH,
+    microsoftLogin: USE_MS_AUTH,
+    mode: 'SmartEmail'
+  });
 });
 
 // ---------- LICENSE HELPERS ----------
@@ -111,7 +199,7 @@ async function checkLicense(email) {
   };
 }
 
-// ---------- GENERATE / ENHANCE ----------
+// ---------- GENERATE ----------
 app.post('/generate', async (req, res) => {
   const {
     email, email_type, emailType,
@@ -129,11 +217,6 @@ app.post('/generate', async (req, res) => {
   const finalAudience = target_audience || audience;
   const finalContent = email_content || content;
   const finalAgent = sender_details || agent;
-
-  if (req.body?.content === 'license-check' && finalEmail) {
-    const lic = await checkLicense(finalEmail);
-    return res.json({ tier: lic.tier || 'free' });
-  }
 
   if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
     return res.status(400).json({ error: 'Missing required fields.' });
@@ -192,6 +275,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
   }
 });
 
+// ---------- ENHANCE ----------
 app.post('/enhance', async (req, res) => {
   const { email, enhance_request, enhance_content } = req.body;
   if (!email || !enhance_request || !enhance_content) {
@@ -243,7 +327,7 @@ ${enhance_request}`.trim();
   }
 });
 
-// ---------- Free user registration + config ----------
+// ---------- FREE USER & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
@@ -327,16 +411,16 @@ app.get('/validate-license', async (req, res) => {
   }
 });
 
-// ---------- IMAP UI + API split ----------
-// Serve the IMAP HTML UI
+// ---------- IMAP UI + API ----------
+// UI
 app.get('/imap', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
 
-// Mount IMAP API under /api/imap/*
+// API
 app.use('/api/imap', imapRoutes);
 
-// ---------- Start ----------
+// ---------- START ----------
 app.listen(PORT, () => {
   console.log(`SmartEmail backend running on port ${PORT}`);
 });
