@@ -21,7 +21,7 @@
   label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
   input,select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
   input[type="number"]{max-width:140px}
-  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;align-items:center}
   button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
   .btn{background:var(--brand);color:#fff}
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
@@ -84,12 +84,22 @@
 
       <div class="toolbar">
         <button class="btn" id="btnFetch">Fetch & Classify</button>
+        <button class="btn ghost" id="btnRefresh">Refresh</button>
+        <span class="hint">Range</span>
+        <select id="range">
+          <option value="120">Last 2 hours</option>
+          <option value="720">Last 12 hours</option>
+          <option value="1440">Last 1 day</option>
+          <option value="2880" selected>Last 2 days</option>
+          <option value="10080">Last 7 days</option>
+          <option value="20160">Last 14 days</option>
+        </select>
         <button class="btn secondary" id="btnImportant">Filter: Important</button>
         <button class="btn ghost" id="btnAll">Show All</button>
         <button class="btn ghost" id="btnExportJson">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv">Export CSV</button>
         <button class="btn secondary" id="btnSendSelected">Send Selected → Generator</button>
-        <span class="hint">Tip: Gmail requires an <b>App Password</b> for IMAP.</span>
+        <span class="hint" id="lastSyncHint" style="margin-left:auto;">&nbsp;</span>
       </div>
 
       <div id="msg"></div>
@@ -124,8 +134,11 @@
   const pageInfo = document.getElementById('pageInfo');
   const countInfo = document.getElementById('countInfo');
   const pageSizeSel = document.getElementById('pageSize');
+  const rangeSel = document.getElementById('range');
+  const lastSyncHint = document.getElementById('lastSyncHint');
 
-  document.getElementById('btnFetch').onclick = fetchEmails;
+  document.getElementById('btnFetch').onclick = () => fetchEmails(false);
+  document.getElementById('btnRefresh').onclick = () => fetchEmails(true);
   document.getElementById('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
   document.getElementById('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
   document.getElementById('btnExportJson').onclick = () => exportJson(getSelected());
@@ -145,20 +158,23 @@
     list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
   }
 
-  async function fetchEmails(){
+  async function fetchEmails(isRefresh){
     const email = val('email'), password = val('password'), host = val('host'), port = Number(val('port'));
     if (!email || !password || !host || !port){ showMsg('Please fill Email, App Password, Host and Port.'); return; }
 
-    skeleton(6);
-    toggleDisabled(true);
+    if (!isRefresh) {
+      skeleton(6);
+      toggleDisabled(true);
+    }
 
     try {
+      const sinceMinutes = Number(rangeSel.value || 2880); // default 2 days
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 60000); // 60s
       const res = await fetch(`${API}/fetch`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ email, password, host, port, limit: 200 }),
+        body: JSON.stringify({ email, password, host, port, limit: 200, sinceMinutes }),
         signal: controller.signal
       });
       clearTimeout(t);
@@ -169,18 +185,34 @@
       }
 
       const items = Array.isArray(data.emails) ? data.emails : (Array.isArray(data) ? data : []);
-      cache = items.map(normalizeEmail);
-      view = cache.slice();
-      page = 1;
-      render();
+      const normalized = items.map(normalizeEmail);
+
+      // If refresh, merge; else replace.
+      if (isRefresh) {
+        let added = 0;
+        for (const e of normalized) {
+          if (!cache.find(x => String(x.id) === String(e.id))) {
+            cache.unshift(e);
+            added++;
+          }
+        }
+        if (added) { view = cache.slice(); page = 1; render(); showMsg(`+${added} new email(s).`, 'ok'); }
+      } else {
+        cache = normalized;
+        view = cache.slice();
+        page = 1;
+        render();
+      }
+
       list.setAttribute('aria-busy','false');
-      showMsg(`Fetched ${cache.length} email(s).`, 'ok');
+      lastSyncHint.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
+      if (!isRefresh) showMsg(`Fetched ${cache.length} email(s).`, 'ok');
     } catch (e){
       list.setAttribute('aria-busy','false');
-      list.innerHTML = '';
+      if (!isRefresh) list.innerHTML = '';
       showMsg(e.name === 'AbortError' ? 'Request timed out. Please try again.' : (e.message || 'Fetch failed.'));
     } finally {
-      toggleDisabled(false);
+      if (!isRefresh) toggleDisabled(false);
     }
   }
 
@@ -194,7 +226,10 @@
       date: e.date || e.internalDate || '',
       importance: e.importance || 'unclassified',
       fromEmail: (() => { const m=(e.from||'').match(/<([^>]+)>/); return (m && m[1]) || (e.from||''); })(),
-      fromDomain: (() => { const fe=(e.fromEmail || ((e.from||'').match(/<([^>]+)>/)||[,''])[1] || e.from||''); return (fe.split('@')[1]||'').trim(); })()
+      fromDomain: (() => {
+        const fe = ((e.from||'').match(/<([^>]+)>/)||[,''])[1] || (e.from||'');
+        return (String(fe).split('@')[1]||'').trim();
+      })()
     };
   }
 
@@ -219,7 +254,6 @@
     countInfo.textContent = `${total} email(s) • showing ${slice.length}`;
   }
 
-  // UPDATED: shows domain + clearer pill + Send →
   function cardHtml(e){
     const fromText = e.from || '';
     const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
@@ -296,7 +330,7 @@
   function ts(){ return new Date().toISOString().replace(/[:.]/g,'-'); }
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
-  function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id)); }
+  function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize','range'].includes(el.id)); }
   function val(id){ return document.getElementById(id)?.value?.trim(); }
 
   // expose single-send for per-card button
@@ -313,7 +347,7 @@
     navigateToGenerator(chosen[0]); // first for now
   }
 
-  // UPDATED: send the exact params your generator expects
+  // Sends params your generator expects; your index universalPrefill handles from/subject/body
   function navigateToGenerator(e){
     const fromText = e.from || '';
     const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
