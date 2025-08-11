@@ -38,19 +38,19 @@ export async function fetchEmails({
         servername: host,                     // SNI
         ca: rootCas                           // ✅ local trusted CA bundle
       },
-      connTimeout: 15000,
-      authTimeout: 15000
+      connTimeout: 30000,                     // ⬆︎ was 15000
+      authTimeout: 30000                      // ⬆︎ was 15000
       // debug: (/*msg*/) => {}               // keep off to avoid leaking
     });
 
     const emails = [];
     const parsers = [];
 
-    // Safety watchdog
+    // Safety watchdog (allow slow cold starts / Gmail handshake)
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
-    }, 45000);
+    }, 90000); // ⬆︎ was 45000
 
     imap.once('ready', () => {
       imap.openBox('INBOX', true, (err) => {
