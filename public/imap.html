@@ -5,50 +5,162 @@
 <title>SmartEmail | IMAP Reader</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body { font-family: 'Segoe UI', sans-serif; background: #f4f4f4; padding: 20px; }
-  .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
-  input, button { width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #ccc; }
-  button { background: #4CAF50; color: white; cursor: pointer; border: none; }
-  button:hover { background: #45a049; }
-  .email { border-bottom: 1px solid #eee; padding: 10px 0; }
-  .important { background: #fff6f0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background:#f5f7fb; margin:0; padding:32px 16px; color:#243447;}
+  .container { max-width: 940px; margin: auto; background:#fff; padding: 24px 24px 18px; border-radius:14px; box-shadow:0 10px 30px rgba(3,27,78,.08);}
+  h2 { margin:0 0 16px; font-size:22px; }
+  .grid { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px;}
+  .row { margin:10px 0; }
+  input, select { width:100%; padding:10px 12px; border:1px solid #c8d3df; border-radius:8px; background:#f9fbfd; }
+  button { padding:10px 14px; border:none; border-radius:8px; cursor:pointer; }
+  .btn { background:#1976d2; color:#fff; }
+  .btn.secondary { background:#e9eef6; color:#21314d; }
+  .btn:disabled { opacity:.6; cursor:not-allowed; }
+  .toolbar { display:flex; gap:10px; margin:10px 0 16px; flex-wrap:wrap; }
+  .email { border:1px solid #e7eef6; border-radius:10px; padding:12px; margin:10px 0; background:#fcfdff; }
+  .email.important { border-color:#ffd9b3; background:#fff8ee; }
+  .email-header { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+  .tag { font-size:12px; padding:4px 8px; border-radius:20px; border:1px solid #d5e3f0; background:#f1f7ff; }
+  .tag.imp { background:#fff4e0; border-color:#ffcf99; }
+  .list { max-height:60vh; overflow:auto; }
+  .small { font-size:12px; color:#556; }
+  .actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h2>📧 Connect to Your Email</h2>
-  <input id="email" placeholder="Email">
-  <input id="password" type="password" placeholder="App Password">
-  <input id="host" placeholder="IMAP Host (e.g., imap.gmail.com)">
-  <button onclick="fetchEmails()">Fetch & Classify</button>
-  <div id="emails"></div>
+  <h2>📬 IMAP Reader & Classifier</h2>
+
+  <div class="grid">
+    <div class="row"><input id="email" placeholder="Email"></div>
+    <div class="row"><input id="password" type="password" placeholder="App Password"></div>
+    <div class="row"><input id="host" placeholder="IMAP Host (e.g., imap.gmail.com)"></div>
+    <div class="row">
+      <select id="port">
+        <option value="993" selected>993 (TLS)</option>
+        <option value="143">143 (STARTTLS/Plain)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" id="btnFetch">Fetch & Classify</button>
+    <button class="btn secondary" id="btnImportant">Filter: Important</button>
+    <button class="btn secondary" id="btnAll">Show All</button>
+    <button class="btn secondary" id="btnExport">Export Selected (JSON)</button>
+    <button class="btn" id="btnSendSelected">Send Selected → Generator</button>
+  </div>
+
+  <div class="small">Tip: For Gmail, create an “App Password” and use host <b>imap.gmail.com</b>.</div>
+
+  <div id="emails" class="list"></div>
 </div>
 
 <script>
+const API = '/api/imap';
+let cache = [];
+let view = [];
+
+document.getElementById('btnFetch').onclick = fetchEmails;
+document.getElementById('btnImportant').onclick = () => render(cache.filter(e => e.importance === 'important'));
+document.getElementById('btnAll').onclick = () => render(cache);
+document.getElementById('btnExport').onclick = exportSelected;
+document.getElementById('btnSendSelected').onclick = sendSelectedToGenerator;
+
 async function fetchEmails() {
-  const res = await fetch('/imap/fetch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: document.getElementById('email').value,
-      password: document.getElementById('password').value,
-      host: document.getElementById('host').value
-    })
-  });
-  const data = await res.json();
-  if (data.success) {
-    const emailsDiv = document.getElementById('emails');
-    emailsDiv.innerHTML = '';
-    data.emails.forEach(e => {
-      const div = document.createElement('div');
-      div.className = 'email ' + (e.importance === 'important' ? 'important' : '');
-      div.innerHTML = `<strong>${e.subject}</strong><br><em>${e.from}</em><br>${e.importance}`;
-      emailsDiv.appendChild(div);
+  toggleDisable(true);
+  const body = {
+    email: document.getElementById('email').value.trim(),
+    password: document.getElementById('password').value,
+    host: document.getElementById('host').value.trim(),
+    port: Number(document.getElementById('port').value),
+    limit: 30
+  };
+  try {
+    const res = await fetch(`${API}/fetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     });
-  } else {
-    alert('Error: ' + data.error);
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Fetch failed');
+    cache = data.emails || [];
+    render(cache);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    toggleDisable(false);
   }
 }
+
+function render(list) {
+  view = list;
+  const box = document.getElementById('emails');
+  box.innerHTML = '';
+  list.forEach((e, i) => {
+    const div = document.createElement('div');
+    div.className = 'email ' + (e.importance === 'important' ? 'important' : '');
+    div.innerHTML = `
+      <div class="email-header">
+        <div>
+          <input type="checkbox" data-i="${i}"> 
+          <strong>${escapeHtml(e.subject || '(no subject)')}</strong><br>
+          <span class="small">${escapeHtml(e.from || '')}</span>
+        </div>
+        <span class="tag ${e.importance === 'important' ? 'imp' : ''}">${e.importance || 'unclassified'}</span>
+      </div>
+      <details style="margin-top:8px">
+        <summary>Preview</summary>
+        <div class="small" style="white-space:pre-wrap;margin-top:6px">${escapeHtml(e.text || '')}</div>
+      </details>
+      <div class="actions">
+        <button class="btn secondary" onclick="sendOneToGenerator(${i})">Send → Generator</button>
+      </div>
+    `;
+    box.appendChild(div);
+  });
+}
+
+function exportSelected() {
+  const checks = [...document.querySelectorAll('input[type="checkbox"][data-i]')];
+  const out = checks.filter(c => c.checked).map(c => view[Number(c.getAttribute('data-i'))]);
+  if (!out.length) return alert('Select at least one email.');
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `emails_${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function sendOneToGenerator(i){
+  const e = view[i];
+  navigateToGenerator(e);
+}
+
+function sendSelectedToGenerator(){
+  const checks = [...document.querySelectorAll('input[type="checkbox"][data-i]')];
+  const chosen = checks.filter(c => c.checked).map(c => view[Number(c.getAttribute('data-i'))]);
+  if (!chosen.length) return alert('Select at least one email.');
+  // Use the first selected to prefill. (We can extend to tabbed compose later.)
+  navigateToGenerator(chosen[0]);
+}
+
+function navigateToGenerator(e){
+  const params = new URLSearchParams({
+    prefill_subject: (e.subject || '').slice(0,180),
+    prefill_from: e.from || '',
+    prefill_body: e.text || e.html || ''
+  });
+  window.location.href = `/${params.toString() ? ('?' + params.toString()) : ''}`;
+}
+
+function toggleDisable(state){
+  document.querySelectorAll('button, input, select').forEach(el => {
+    if (el.id !== 'btnAll' && el.id !== 'btnImportant') el.disabled = state;
+  });
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 </script>
 </body>
 </html>
