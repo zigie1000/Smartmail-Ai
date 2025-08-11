@@ -5,6 +5,37 @@ import { classifyEmails } from './emailClassifier.js';
 
 const router = express.Router();
 
+/* ----------------------- Step 1: helpers (top of file) ---------------------- */
+const stripHtml = (html = '') => {
+  const txt = String(html)
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '');
+  return txt;
+};
+
+// quick heuristic — returns 'important' | 'unimportant' | null
+function heuristicImportance(e) {
+  const subj = (e.subject || '').toLowerCase();
+  const snip = (e.snippet || '').toLowerCase();
+  const fromDomain = (e.fromDomain || '').toLowerCase();
+
+  const hotWords = [
+    'invoice','payment','overdue','past due','contract','nda',
+    'offer','interview','meeting','schedule','deadline','urgent',
+    'action required','security alert','verification code','2fa','otp'
+  ];
+  if (hotWords.some(w => subj.includes(w) || snip.includes(w))) return 'important';
+
+  const promoDomains = ['newsletters.','mailchimp.','sendgrid.','amazonses.','sparkpost.','substack.com'];
+  if (promoDomains.some(d => fromDomain.includes(d))) return 'unimportant';
+
+  if (/^re:|^fwd:/i.test(e.subject || '')) return 'important';
+
+  return null;
+}
+/* --------------------------------------------------------------------------- */
+
 // Health check
 router.get('/', (_req, res) => {
   res.json({ success: true, message: 'IMAP API is live' });
@@ -17,10 +48,8 @@ router.post('/fetch', async (req, res) => {
       password,
       host,
       port = 993,
-      // ✅ default to last 2 days for testing
-      sinceDays = 2,
-      // ✅ reasonable upper bound so we don’t flood the model
-      limit = 25,
+      sinceDays = 2,   // ✅ default to last 2 days for testing
+      limit = 25,      // ✅ default count
       criteria = ['ALL']
     } = req.body || {};
 
@@ -28,7 +57,7 @@ router.post('/fetch', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required fields.' });
     }
 
-    // Build IMAP criteria with SINCE date (e.g. 11-Aug-2025)
+    // Build IMAP criteria with SINCE (e.g., 11-Aug-2025)
     let crit = Array.isArray(criteria) ? [...criteria] : ['ALL'];
     if (sinceDays && Number(sinceDays) > 0) {
       const d = new Date();
@@ -39,49 +68,65 @@ router.post('/fetch', async (req, res) => {
       crit.push(['SINCE', fmt]);
     }
 
-    // Keep a hard ceiling regardless of client input
+    // Hard ceiling
     const safeLimit = Math.min(Number(limit) || 25, 50);
 
-    // Fetch raw emails (headers/body) from IMAP
+    // Fetch from IMAP
     const raw = await fetchEmails({ email, password, host, port, criteria: crit, limit: safeLimit });
 
-    // Compact each email to keep token usage small
-    const compact = raw.map(e => ({
-      subject: (e.subject || '(no subject)').slice(0, 140),
-      from: (e.from || '').slice(0, 120),
-      date: e.date || null,
-      // Use a short text snippet only; drop HTML for classification
-      snippet: ((e.text || '').trim()).slice(0, 300)
-    }));
+    // Compact & enrich signals for classification
+    const compact = raw.map(e => {
+      const fromText = e.from || '';
+      const fromEmail = (fromText.match(/<([^>]+)>/) || [,''])[1] || fromText;
+      const fromDomain = (fromEmail.split('@')[1] || '').trim();
 
-    // If no OpenAI key present, just return compact data unclassified
-    if (!process.env.OPENAI_API_KEY) {
-      return res.json({ success: true, emails: compact.map(x => ({ ...x, importance: 'unclassified' })) });
+      const body = e.text && e.text.trim()
+        ? e.text
+        : stripHtml(e.html || '');
+
+      const item = {
+        subject: (e.subject || '(no subject)').slice(0, 180),
+        from: fromText.slice(0, 160),
+        fromEmail: fromEmail.slice(0, 120),
+        fromDomain: fromDomain.slice(0, 120),
+        to: (e.to || '').slice(0, 200),
+        cc: (e.cc || '').slice(0, 200),
+        date: e.date || null,
+        snippet: (body || '').slice(0, 600)
+      };
+
+      // Heuristic first (cheap)
+      const h = heuristicImportance(item);
+      if (h) item.importance = h;
+
+      return item;
+    });
+
+    // Only send uncertain to OpenAI
+    const certain = compact.filter(x => x.importance);
+    const uncertain = compact.filter(x => !x.importance);
+
+    // If no API key or nothing uncertain, return now
+    if (!process.env.OPENAI_API_KEY || uncertain.length === 0) {
+      const result = certain.concat(uncertain.map(u => ({ ...u, importance: 'unclassified' })));
+      return res.json({ success: true, emails: result });
     }
 
-    // Batch classify to avoid token/rate limits
-    const chunkSize = 20; // small safe chunks
-    const chunks = [];
-    for (let i = 0; i < compact.length; i += chunkSize) {
-      chunks.push(compact.slice(i, i + chunkSize));
-    }
-
-    const results = [];
-    for (const chunk of chunks) {
+    // Batch classify uncertain items
+    const chunkSize = 18;
+    for (let i = 0; i < uncertain.length; i += chunkSize) {
+      const chunk = uncertain.slice(i, i + chunkSize);
       let tries = 0;
+      // light retry/backoff on rate limits
       while (true) {
         try {
-          const out = await classifyEmails(chunk); // returns [{subject, from, importance}]
-          // Merge importance back onto items (preserve date/snippet)
-          const merged = chunk.map((c, idx) => ({
-            ...c,
-            importance: (out[idx]?.importance || 'unclassified')
-          }));
-          results.push(...merged);
+          const out = await classifyEmails(chunk); // returns [{ importance }]
+          out.forEach((o, idx) => {
+            uncertain[i + idx].importance = /important/i.test(o?.importance) ? 'important' : 'unimportant';
+          });
           break;
         } catch (err) {
           const msg = String(err?.message || '');
-          // Simple backoff on 429s
           if (++tries <= 2 && /429|rate|limit/i.test(msg)) {
             await new Promise(r => setTimeout(r, 1200 * tries));
             continue;
@@ -91,6 +136,7 @@ router.post('/fetch', async (req, res) => {
       }
     }
 
+    const results = certain.concat(uncertain);
     return res.json({ success: true, emails: results });
   } catch (err) {
     console.error('IMAP fetch/classify error:', err?.message || err);
