@@ -333,7 +333,7 @@ app.get('/imap', (req, res) => {
 });
 
 // Mount IMAP API under /api/imap/*
-import imapRoutes from './imapRoutes.js';
+// import imapRoutes from './imapRoutes.js'; // Disabled for SmartEmail-only deploy
 app.use('/api/imap', imapRoutes);
 
 // ---------- Start ----------
