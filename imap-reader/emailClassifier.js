@@ -4,27 +4,51 @@ dotenv.config();
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function classifyEmails(emails) {
-  const prompt = `
-You are an email assistant. Classify each email as "important" or "unimportant".
-Criteria:
-- Important: urgent, from known contacts, contains deadlines, money, legal, or customer issues.
-- Unimportant: spam, newsletters, promotions.
+/**
+ * Input: [{ subject, from, fromEmail, fromDomain, to, cc, date, snippet }]
+ * Output: [{ importance: "important" | "unimportant" }]
+ */
+export async function classifyEmails(items) {
+  const input = items.map(e => ({
+    subject: e.subject,
+    from: e.from,
+    fromEmail: e.fromEmail,
+    fromDomain: e.fromDomain,
+    to: e.to,
+    cc: e.cc,
+    date: e.date,
+    snippet: e.snippet
+  }));
 
-Return JSON array with: subject, from, importance.
-Emails:
-${JSON.stringify(emails)}
-`;
+  const sys = `
+You label emails as "important" or "unimportant".
+Heuristics:
+- IMPORTANT if: time-sensitive (deadlines, interviews, meetings, offers), money/billing (invoice, payment, refund, receipt), legal/security (contracts, verification codes, password reset), direct replies/threads (Re:, Fwd:), from work or known senders (non-bulk).
+- UNIMPORTANT if: bulk promos/newsletters/marketing, automated notifications with no action, social media digests.
 
-  const response = await client.chat.completions.create({
+Prefer IMPORTANT when unsure. Return ONLY a JSON array with objects of shape: { "importance": "important" | "unimportant" } — one per input item, same order.
+`.trim();
+
+  const user = `Emails:\n${JSON.stringify(input)}`;
+
+  const resp = await client.chat.completions.create({
     model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0
+    temperature: 0,
+    max_tokens: 256,
+    messages: [
+      { role: 'system', content: sys },
+      { role: 'user', content: user }
+    ]
   });
 
   try {
-    return JSON.parse(response.choices[0].message.content);
+    const text = resp.choices?.[0]?.message?.content?.trim() || '[]';
+    const parsed = JSON.parse(text);
+    // Normalize & clamp
+    return Array.isArray(parsed)
+      ? parsed.map(x => ({ importance: /important/i.test(x?.importance) ? 'important' : 'unimportant' }))
+      : items.map(() => ({ importance: 'unclassified' }));
   } catch {
-    return emails.map(e => ({ ...e, importance: 'unclassified' }));
+    return items.map(() => ({ importance: 'unclassified' }));
   }
 }
