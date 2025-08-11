@@ -2,6 +2,7 @@
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
+import { rootCertificates } from 'tls';
 dotenv.config();
 
 export async function fetchEmails({
@@ -14,57 +15,57 @@ export async function fetchEmails({
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const done = (err, data) => {
+    const finish = (err, data) => {
       if (settled) return;
       settled = true;
       if (err) reject(err);
       else resolve(data || []);
     };
 
-    // ✅ Force TLS and reject bad certs
+    // ✅ Force TLS and use Node's trusted CA bundle (no self-signed)
     const imap = new Imap({
       user: email,
-      password,                           // in-memory only; never logged
+      password,                       // in-memory only; never logged
       host,
       port: Number(port) || 993,
       tls: true,
-      tlsOptions: { rejectUnauthorized: true }, // no self-signed fallback
-      connTimeout: 15000,                 // optional: fail fast on bad hosts
-      authTimeout: 15000                  // optional: fail fast on bad creds
-      // debug: (/*msg*/) => {}           // keep disabled to avoid leaking
+      tlsOptions: {
+        rejectUnauthorized: true,
+        ca: rootCertificates          // <-- key fix: trust system CAs explicitly
+      },
+      connTimeout: 15000,
+      authTimeout: 15000
+      // debug: (/*msg*/) => {}        // keep off to avoid leaking data
     });
 
     const emails = [];
-    const parsePromises = [];
+    const parsers = [];
 
-    // Safety: abort if connect takes too long (belt & braces)
+    // Safety watchdog (belt & braces)
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
-      done(new Error('IMAP connection timed out'));
+      finish(new Error('IMAP connection timed out'));
     }, 45000);
 
     imap.once('ready', () => {
-      imap.openBox('INBOX', true, (err, box) => {
-        if (err) { clearTimeout(watchdog); return done(err); }
+      imap.openBox('INBOX', true, (err) => {
+        if (err) { clearTimeout(watchdog); return finish(err); }
 
         imap.search(criteria, (err, results = []) => {
-          if (err) { clearTimeout(watchdog); return done(err); }
-
-          // ✅ Handle empty mailbox or no matches
+          if (err) { clearTimeout(watchdog); return finish(err); }
           if (!Array.isArray(results) || results.length === 0) {
             clearTimeout(watchdog);
-            imap.end();                    // triggers 'end' → resolve([])
-            return;
+            try { imap.end(); } catch {}
+            return; // 'end' will resolve with []
           }
 
-          // ✅ Respect limit safely
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
           const uids = results.slice(-n);
 
           const fetcher = imap.fetch(uids, { bodies: '' });
 
-          fetcher.on('message', (msg /*, seqno*/) => {
-            msg.on('body', (stream /*, info*/) => {
+          fetcher.on('message', (msg) => {
+            msg.on('body', (stream) => {
               const p = new Promise((res) => {
                 simpleParser(stream, (err, parsed) => {
                   if (!err && parsed) {
@@ -76,21 +77,20 @@ export async function fetchEmails({
                       html: parsed.html || ''
                     });
                   }
-                  res(); // always resolve to avoid hanging on a bad message
+                  res(); // always resolve so one bad message doesn't hang
                 });
               });
-              parsePromises.push(p);
+              parsers.push(p);
             });
           });
 
           fetcher.once('error', (e) => {
             clearTimeout(watchdog);
-            done(new Error(`IMAP fetch error: ${e?.message || e}`));
+            finish(new Error(`IMAP fetch error: ${e?.message || e}`));
           });
 
-          // Wait for parser(s) to finish before closing the connection
           fetcher.once('end', () => {
-            Promise.allSettled(parsePromises).finally(() => {
+            Promise.allSettled(parsers).finally(() => {
               try { imap.end(); } catch {}
             });
           });
@@ -100,19 +100,19 @@ export async function fetchEmails({
 
     imap.once('error', (err) => {
       clearTimeout(watchdog);
-      done(new Error(err?.message || 'IMAP error'));
+      finish(new Error(err?.message || 'IMAP error'));
     });
 
     imap.once('end', () => {
       clearTimeout(watchdog);
-      done(null, emails);
+      finish(null, emails);
     });
 
     try {
       imap.connect();
     } catch (e) {
       clearTimeout(watchdog);
-      done(new Error(e?.message || 'Failed to start IMAP connection'));
+      finish(new Error(e?.message || 'Failed to start IMAP connection'));
     }
   });
 }
