@@ -47,7 +47,7 @@
   .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
   .sk-card{height:86px;border-radius:12px;margin:10px 0}
   @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
-  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #e6e9f0}
   .pager{display:flex;gap:6px;align-items:center}
   .pager button{padding:8px 12px}
   .hint{font-size:12px;color:var(--muted)}
@@ -76,7 +76,7 @@
           <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
         </div>
         <div class="col">
-          <label for="password">App Password</label>
+          <label for="password">App Password / Password</label>
           <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
         </div>
         <div class="col">
@@ -127,9 +127,9 @@
         <div class="col">
           <label>&nbsp;</label>
           <div class="right-buttons">
-            <button class="btn warn" id="btnSave">Save</button>
-            <button class="btn ghost" id="btnUse">Use</button>
-            <button class="btn ghost" id="btnDelete">Delete</button>
+            <button class="btn warn" id="btnSave" title="Save these settings for this email locally">Save</button>
+            <button class="btn ghost" id="btnUse" title="Load saved settings for this email">Use</button>
+            <button class="btn ghost" id="btnDelete" title="Delete saved settings for this email">Delete</button>
           </div>
         </div>
       </div>
@@ -174,17 +174,17 @@
   let pageSize = 20;
 
   const PROVIDERS = {
-    gmail:      { host:'imap.gmail.com',      port:993, tls:'on', tip:'Gmail: enable 2-Step Verification and create an App Password for “Mail”.' },
-    office365:  { host:'outlook.office365.com', port:993, tls:'on', tip:'Microsoft 365/Outlook: use your account password or an app password if enforced by policy.' },
-    yahoo:      { host:'imap.mail.yahoo.com', port:993, tls:'on', tip:'Yahoo: enable 2-Step Verification → create an App Password for “Mail”.' },
-    icloud:     { host:'imap.mail.me.com',    port:993, tls:'on', tip:'iCloud: enable 2-factor → create an App-specific password (appleid.apple.com).' },
-    zoho:       { host:'imap.zoho.com',       port:993, tls:'on', tip:'Zoho: enable IMAP in settings; app password may be required with MFA.' },
-    aol:        { host:'imap.aol.com',        port:993, tls:'on', tip:'AOL: enable 2-Step Verification → create an App Password.' },
-    proton:     { host:'127.0.0.1',           port:1143, tls:'off', tip:'ProtonMail requires the Proton Bridge app (IMAP on 127.0.0.1, usually port 1143/993).' },
-    fastmail:   { host:'imap.fastmail.com',   port:993, tls:'on', tip:'Fastmail: use your normal password or app password with 2FA.' },
-    gmx:        { host:'imap.gmx.com',        port:993, tls:'on', tip:'GMX: IMAP enabled in settings; use account password.' },
-    yandex:     { host:'imap.yandex.com',     port:993, tls:'on', tip:'Yandex: enable IMAP in mailbox settings; app password may be required.' },
-    custom:     { host:'',                    port:993, tls:'on', tip:'Custom: enter host/port/TLS as provided by your email host.' }
+    gmail:      { host:'imap.gmail.com',        port:993, tls:'on', tip:'Gmail: enable 2-Step Verification and create an App Password for “Mail”.' },
+    office365:  { host:'outlook.office365.com', port:993, tls:'on', tip:'Microsoft 365/Outlook: use your account password or an app password if policy requires it.' },
+    yahoo:      { host:'imap.mail.yahoo.com',   port:993, tls:'on', tip:'Yahoo: enable 2-Step Verification → create an App Password for “Mail”.' },
+    icloud:     { host:'imap.mail.me.com',      port:993, tls:'on', tip:'iCloud: enable 2-factor → create an app-specific password at appleid.apple.com.' },
+    zoho:       { host:'imap.zoho.com',         port:993, tls:'on', tip:'Zoho: enable IMAP; with MFA use an app password.' },
+    aol:        { host:'imap.aol.com',          port:993, tls:'on', tip:'AOL: enable 2-Step Verification → app password.' },
+    proton:     { host:'127.0.0.1',             port:1143, tls:'off', tip:'ProtonMail requires Proton Bridge. Use its local IMAP port (1143/993).' },
+    fastmail:   { host:'imap.fastmail.com',     port:993, tls:'on', tip:'Fastmail: normal or app password (with 2FA).' },
+    gmx:        { host:'imap.gmx.com',          port:993, tls:'on', tip:'GMX: enable IMAP in settings; use account password.' },
+    yandex:     { host:'imap.yandex.com',       port:993, tls:'on', tip:'Yandex: enable IMAP; with 2FA use an app password.' },
+    custom:     { host:'',                      port:993, tls:'on', tip:'Custom: enter host/port/TLS from your provider.' }
   };
 
   // DOM refs
@@ -223,13 +223,9 @@
   // initialize defaults
   providerSel.dispatchEvent(new Event('change'));
 
-  // Save/Use/Delete simple presets (localStorage only)
+  // Save/Use/Delete presets in localStorage
   const KEY = 'imapSavedAccounts';
-  const btnSave = document.getElementById('btnSave');
-  const btnUse = document.getElementById('btnUse');
-  const btnDelete = document.getElementById('btnDelete');
-
-  btnSave.onclick = () => {
+  document.getElementById('btnSave').onclick = () => {
     const email = val('email');
     if (!email) return showMsg('Enter an email to save this account.');
     const store = loadSaved();
@@ -243,7 +239,7 @@
     saveSaved(store);
     showMsg('Saved account preset.','ok');
   };
-  btnUse.onclick = () => {
+  document.getElementById('btnUse').onclick = () => {
     const email = val('email');
     const store = loadSaved();
     const row = store[email];
@@ -255,7 +251,7 @@
     providerSel.dispatchEvent(new Event('change'));
     showMsg('Loaded saved preset.','ok');
   };
-  btnDelete.onclick = () => {
+  document.getElementById('btnDelete').onclick = () => {
     const email = val('email');
     const store = loadSaved();
     if (!store[email]) return showMsg('Nothing to delete for this email.');
@@ -267,12 +263,11 @@
   function loadSaved(){ try{ return JSON.parse(localStorage.getItem(KEY)||'{}'); }catch{ return {}; } }
   function saveSaved(obj){ localStorage.setItem(KEY, JSON.stringify(obj)); }
 
-  // Messaging helpers
+  // Helpers
   function showMsg(text, type='err'){
     msg.innerHTML = `<div class="alert ${type==='err'?'err':'ok'}">${escapeHtml(text)}</div>`;
     setTimeout(() => { msg.innerHTML=''; }, 5000);
   }
-
   function skeleton(count=5){
     list.setAttribute('aria-busy','true');
     list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
@@ -284,14 +279,14 @@
     const days = Number(document.getElementById('range').value||2);
     const since = days>0 ? new Date(Date.now()-days*864e5).toISOString() : null;
 
-    if (!email || !password || !host || !port){ showMsg('Please fill Email, App Password, Host and Port.'); return; }
+    if (!email || !password || !host || !port){ showMsg('Please fill Email, Password/App Password, Host and Port.'); return; }
 
     skeleton(6);
     toggleDisabled(true);
 
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 60000); // 60s
+      const t = setTimeout(() => controller.abort(), 60000);
       const body = { email, password, host, port, tls, limit: 200 };
       if (since) body.since = since;
 
