@@ -154,7 +154,7 @@
 
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 60000); // ⬆︎ was 30000 (60s)
+      const t = setTimeout(() => controller.abort(), 60000); // 60s
       const res = await fetch(`${API}/fetch`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -192,7 +192,9 @@
       text: e.text || '',
       html: e.html || '',
       date: e.date || e.internalDate || '',
-      importance: e.importance || 'unclassified'
+      importance: e.importance || 'unclassified',
+      fromEmail: (() => { const m=(e.from||'').match(/<([^>]+)>/); return (m && m[1]) || (e.from||''); })(),
+      fromDomain: (() => { const fe=(e.fromEmail || ((e.from||'').match(/<([^>]+)>/)||[,''])[1] || e.from||''); return (fe.split('@')[1]||'').trim(); })()
     };
   }
 
@@ -217,16 +219,25 @@
     countInfo.textContent = `${total} email(s) • showing ${slice.length}`;
   }
 
+  // UPDATED: shows domain + clearer pill + Send →
   function cardHtml(e){
+    const fromText = e.from || '';
+    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
+    const fromDomain = (e.fromDomain || (fromEmail.split('@')[1] || '')).trim();
     const dateStr = e.date ? new Date(e.date).toLocaleString() : '';
-    const pill = (e.importance||'').toLowerCase()==='important' ? 'tag imp' : 'tag';
+    const pill = (e.importance||'unclassified').toLowerCase()==='important' ? 'tag imp' : 'tag';
+
     return `
       <div class="email" data-id="${escapeHtml(e.id)}">
         <div class="email-header">
           <input class="sel" type="checkbox" aria-label="select email">
           <div>
-            <div class="subject">${escapeHtml(e.subject)}</div>
-            <div class="from">${escapeHtml(e.from)} ${dateStr ? ' • ' + escapeHtml(dateStr) : ''}</div>
+            <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+            <div class="from">
+              ${escapeHtml(fromText)}
+              ${fromDomain ? ` • <b>${escapeHtml(fromDomain)}</b>` : ''}
+              ${dateStr ? ` • ${escapeHtml(dateStr)}` : ''}
+            </div>
           </div>
           <div class="meta">
             <span class="${pill}">${escapeHtml(e.importance||'unclassified')}</span>
@@ -302,11 +313,16 @@
     navigateToGenerator(chosen[0]); // first for now
   }
 
+  // UPDATED: send the exact params your generator expects
   function navigateToGenerator(e){
+    const fromText = e.from || '';
+    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
+    const fromName = (fromText.replace(/<[^>]*>/g,'').trim() || fromEmail).trim();
+
     const params = new URLSearchParams({
-      prefill_subject: (e.subject||'').slice(0,180),
-      prefill_from: e.from || '',
-      prefill_body: e.text || stripHtml(e.html) || ''
+      from: fromName || fromEmail,
+      subject: (e.subject||'').slice(0,180),
+      body: (e.text || stripHtml(e.html) || '').slice(0,8000)
     });
     window.location.href = `/${params.toString() ? '?' + params.toString() : ''}`;
   }
