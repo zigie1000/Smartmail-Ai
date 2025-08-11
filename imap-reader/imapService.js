@@ -2,7 +2,12 @@
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
-import { rootCertificates } from 'tls';
+
+// ✅ Load Mozilla root CAs (fixes "self-signed certificate" on some hosts)
+import sslRootCAs from 'ssl-root-cas/latest.js';
+const rootCas = sslRootCAs.create();
+rootCas.inject(); // also affects global https agent (safe)
+
 dotenv.config();
 
 export async function fetchEmails({
@@ -22,26 +27,26 @@ export async function fetchEmails({
       else resolve(data || []);
     };
 
-    // ✅ Force TLS and use Node's trusted CA bundle (no self-signed)
     const imap = new Imap({
       user: email,
-      password,                       // in-memory only; never logged
+      password,                               // in-memory only
       host,
       port: Number(port) || 993,
       tls: true,
       tlsOptions: {
-        rejectUnauthorized: true,
-        ca: rootCertificates          // <-- key fix: trust system CAs explicitly
+        rejectUnauthorized: true,             // keep validation strict
+        servername: host,                     // SNI
+        ca: rootCas                           // ✅ trusted CA bundle
       },
       connTimeout: 15000,
       authTimeout: 15000
-      // debug: (/*msg*/) => {}        // keep off to avoid leaking data
+      // debug: (/*msg*/) => {}               // keep off to avoid leaking
     });
 
     const emails = [];
     const parsers = [];
 
-    // Safety watchdog (belt & braces)
+    // Watchdog (belt & braces)
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
@@ -61,7 +66,6 @@ export async function fetchEmails({
 
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
           const uids = results.slice(-n);
-
           const fetcher = imap.fetch(uids, { bodies: '' });
 
           fetcher.on('message', (msg) => {
@@ -77,7 +81,7 @@ export async function fetchEmails({
                       html: parsed.html || ''
                     });
                   }
-                  res(); // always resolve so one bad message doesn't hang
+                  res(); // don’t let one bad message hang the whole fetch
                 });
               });
               parsers.push(p);
