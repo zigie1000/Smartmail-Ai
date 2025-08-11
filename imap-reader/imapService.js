@@ -3,10 +3,10 @@ import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
 
-// ✅ Load Mozilla root CAs (fixes "self-signed certificate" on some hosts)
-import sslRootCAs from 'ssl-root-cas/latest.js';
+// ✅ Use LOCAL root CA bundle (no remote fetch)
+import sslRootCAs from 'ssl-root-cas';
 const rootCas = sslRootCAs.create();
-rootCas.inject(); // also affects global https agent (safe)
+rootCas.inject(); // also updates the global https agent
 
 dotenv.config();
 
@@ -29,14 +29,14 @@ export async function fetchEmails({
 
     const imap = new Imap({
       user: email,
-      password,                               // in-memory only
+      password,                               // in-memory only; never logged
       host,
       port: Number(port) || 993,
       tls: true,
       tlsOptions: {
         rejectUnauthorized: true,             // keep validation strict
         servername: host,                     // SNI
-        ca: rootCas                           // ✅ trusted CA bundle
+        ca: rootCas                           // ✅ local trusted CA bundle
       },
       connTimeout: 15000,
       authTimeout: 15000
@@ -46,7 +46,7 @@ export async function fetchEmails({
     const emails = [];
     const parsers = [];
 
-    // Watchdog (belt & braces)
+    // Safety watchdog
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
