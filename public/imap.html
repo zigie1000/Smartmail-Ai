@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SmartEmail | IMAP Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb;
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --line:#e5e7eb; --chip:#eef2ff; --chipText:#1e3a8a;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  header h1{font-size:22px;margin:0}
+  .chip{font-size:12px;background:var(--chip);color:var(--chipText);padding:4px 10px;border-radius:999px;border:1px solid #dbeafe}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
+  .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .row > .col{display:flex;flex-direction:column}
+  label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
+  input,select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
+  input[readonly]{background:#f9fafb;color:#6b7280}
+  input[type="number"]{max-width:140px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
+  .btn{background:var(--brand);color:#fff}
+  .btn.secondary{background:#eef2ff;color:#1e3a8a}
+  .btn.ghost{background:#f3f4f6;color:#374151}
+  .btn.ms{background:#1662c4}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
+  .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
+  .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
+  .list{margin-top:14px}
+  .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
+  .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+  .from{color:var(--muted);font-size:12px}
+  .subject{font-weight:600}
+  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
+  .tag.imp{background:#fff7ed;border-color:#fed7aa}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:#374151}
+  .meta{display:flex;gap:8px;align-items:center}
+  .sel{margin-right:6px}
+  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);background-size:300% 100%}
+  .sk-card{height:86px;border-radius:12px;margin:10px 0}
+  @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+  .pager{display:flex;gap:6px;align-items:center}
+  .pager button{padding:8px 12px}
+  .hint{font-size:12px;color:var(--muted)}
+  .row.sm{grid-template-columns:repeat(6,minmax(0,1fr))}
+  @media (max-width:980px){.row{grid-template-columns:1fr 1fr}.row.sm{grid-template-columns:1fr 1fr 1fr}
+    .email-header{grid-template-columns:1fr auto}
+    .footer{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>IMAP Reader & Classifier</h1>
+      <span class="chip">Universal IMAP</span>
+    </header>
+
+    <section class="card" style="padding:16px 16px 8px">
+      <div class="row">
+        <div class="col">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
+        </div>
+        <div class="col" id="colPassword">
+          <label for="password">App Password</label>
+          <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
+        </div>
+        <div class="col">
+          <label for="host">IMAP Host</label>
+          <input id="host" placeholder="imap.gmail.com" />
+        </div>
+        <div class="col">
+          <label for="port">Port</label>
+          <input id="port" type="number" value="993" min="1" />
+        </div>
+      </div>
+
+      <div class="row sm" style="margin-top:6px">
+        <div class="col">
+          <label for="provider">Provider</label>
+          <select id="provider">
+            <option value="generic">Generic / cPanel</option>
+            <option value="gmail">Gmail</option>
+            <option value="icloud">Apple iCloud</option>
+            <option value="yahoo">Yahoo</option>
+            <option value="zoho">Zoho</option>
+            <option value="outlook">Outlook / Office 365</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="tls">TLS</label>
+          <select id="tls">
+            <option value="ssl" selected>On (SSL, port 993)</option>
+            <option value="starttls">STARTTLS (port 143)</option>
+            <option value="off">Off (not recommended)</option>
+          </select>
+        </div>
+        <div class="col" style="align-items:flex-start;justify-content:flex-end;padding-top:26px">
+          <button id="btnMsLogin" class="btn ms" style="display:none">Sign in with Microsoft</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn" id="btnFetch">Fetch & Classify</button>
+        <button class="btn ghost" id="btnRefresh">Refresh</button>
+        <select id="range" class="btn ghost" style="appearance:none;padding-right:28px">
+          <option value="2">Last 2 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+        </select>
+        <button class="btn secondary" id="btnImportant">Filter: Important</button>
+        <button class="btn ghost" id="btnAll">Show All</button>
+        <button class="btn ghost" id="btnExportJson">Export JSON</button>
+        <button class="btn ghost" id="btnExportCsv">Export CSV</button>
+        <button class="btn secondary" id="btnSendSelected">Send Selected → Generator</button>
+      </div>
+
+      <div class="hint" style="padding:10px 12px;border:1px dashed #dbeafe;border-radius:10px;background:#f8fbff">
+        Tip: Most providers require an <b>App Password</b> for IMAP. For <b>Outlook/Office 365</b>, password logins are disabled —
+        use the <b>Sign in with Microsoft</b> button above.
+      </div>
+
+      <div id="msg"></div>
+    </section>
+
+    <section class="card list" id="list" aria-live="polite" aria-busy="false" style="padding:6px 12px 0"></section>
+
+    <div class="card footer">
+      <div class="pager">
+        <button id="prev">&larr; Prev</button>
+        <span class="hint" id="pageInfo">Page 1</span>
+        <button id="next">Next &rarr;</button>
+        <span class="hint">Page size</span>
+        <select id="pageSize">
+          <option>10</option><option selected>20</option><option>50</option>
+        </select>
+      </div>
+      <div class="hint" id="countInfo"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const API = '/api/imap';
+  let cache = [];
+  let view = [];
+  let page = 1;
+  let pageSize = 20;
+  let msStatus = { loggedIn:false, email:null };
+
+  const list = document.getElementById('list');
+  const msg = document.getElementById('msg');
+  const pageInfo = document.getElementById('pageInfo');
+  const countInfo = document.getElementById('countInfo');
+  const pageSizeSel = document.getElementById('pageSize');
+
+  const providerSel = document.getElementById('provider');
+  const host = document.getElementById('host');
+  const port = document.getElementById('port');
+  const tlsSel = document.getElementById('tls');
+  const colPassword = document.getElementById('colPassword');
+  const btnMsLogin = document.getElementById('btnMsLogin');
+
+  // Presets
+  const presets = {
+    gmail:   { host:'imap.gmail.com', port:993, tls:'ssl' },
+    icloud:  { host:'imap.mail.me.com', port:993, tls:'ssl' },
+    yahoo:   { host:'imap.mail.yahoo.com', port:993, tls:'ssl' },
+    zoho:    { host:'imap.zoho.com', port:993, tls:'ssl' },
+    outlook: { host:'outlook.office365.com', port:993, tls:'ssl' },
+    generic: { host:'', port:993, tls:'ssl' }
+  };
+
+  providerSel.onchange = onProviderChange;
+  tlsSel.onchange = onTlsChange;
+
+  function onProviderChange(){
+    const v = providerSel.value;
+    const p = presets[v] || presets.generic;
+    if (!val('host')) host.value = p.host;
+    port.value = p.port;
+    tlsSel.value = p.tls;
+
+    const isMs = v === 'outlook';
+    btnMsLogin.style.display = isMs ? 'inline-block' : 'none';
+    colPassword.style.display = isMs ? 'none' : 'flex';
+
+    if (isMs) {
+      showMsg(msStatus.loggedIn ? `Microsoft connected as ${msStatus.email || 'account'}.` : 'Sign in with Microsoft to enable fetching.', msStatus.loggedIn?'ok':'err');
+    } else {
+      msg.innerHTML = '';
+    }
+  }
+
+  function onTlsChange(){
+    if (tlsSel.value === 'starttls') {
+      if (Number(port.value) !== 143) port.value = 143;
+    } else if (tlsSel.value === 'ssl') {
+      if (Number(port.value) !== 993) port.value = 993;
+    }
+  }
+
+  // Microsoft OAuth
+  btnMsLogin.onclick = () => {
+    // bounce through server which handles OAuth; on success it should redirect back here
+    const returnTo = window.location.pathname + window.location.search;
+    window.location.href = `/api/imap/ms/login?return=${encodeURIComponent(returnTo)}`;
+  };
+
+  // Check token status (server should read cookie/session)
+  async function checkMsStatus(){
+    try {
+      const res = await fetch('/api/imap/ms/token-status');
+      if (res.ok) msStatus = await res.json();
+      else msStatus = { loggedIn:false };
+    } catch { msStatus = { loggedIn:false }; }
+  }
+
+  document.getElementById('btnFetch').onclick = fetchEmails;
+  document.getElementById('btnRefresh').onclick = fetchEmails;
+  document.getElementById('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
+  document.getElementById('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
+  document.getElementById('btnExportJson').onclick = () => exportJson(getSelected());
+  document.getElementById('btnExportCsv').onclick = () => exportCsv(getSelected());
+  document.getElementById('btnSendSelected').onclick = sendSelectedToGenerator;
+  document.getElementById('prev').onclick = () => { if (page>1){ page--; render(); } };
+  document.getElementById('next').onclick = () => { if (page < Math.max(1, Math.ceil(view.length/pageSize))){ page++; render(); } };
+  pageSizeSel.onchange = () => { pageSize = Number(pageSizeSel.value||20); page=1; render(); };
+
+  init();
+  async function init(){
+    await checkMsStatus();
+    onProviderChange();
+  }
+
+  function showMsg(text, type='err'){
+    msg.innerHTML = `<div class="alert ${type==='err'?'err':'ok'}">${escapeHtml(text)}</div>`;
+    setTimeout(() => { msg.innerHTML=''; }, 6000);
+  }
+
+  function skeleton(count=5){
+    list.setAttribute('aria-busy','true');
+    list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
+  }
+
+  async function fetchEmails(){
+    const email = val('email'), password = val('password'), hostVal = val('host'),
+          portVal = Number(val('port')), provider = providerSel.value, tlsMode = tlsSel.value,
+          days = Number(document.getElementById('range').value || 2);
+
+    if (!email || !hostVal || !portVal){ showMsg('Please fill Email, Host and Port.'); return; }
+    if (provider !== 'outlook' && !password){ showMsg('Please enter your App Password.'); return; }
+    if (provider === 'outlook' && !msStatus.loggedIn){ showMsg('Sign in with Microsoft first.'); return; }
+
+    skeleton(6);
+    toggleDisabled(true);
+
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 90000);
+      const body = {
+        email, host:hostVal, port:portVal, limit: 200,
+        rangeDays: days,
+        tls: tlsMode,               // 'ssl' | 'starttls' | 'off'
+        provider
+      };
+      if (provider === 'outlook') {
+        body.oauthProvider = 'microsoft';     // server should use session token
+      } else {
+        body.password = password;
+      }
+
+      const res = await fetch(`${API}/fetch`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(t);
+
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || !data || data.success === false){
+        throw new Error(data?.error || `Server error (${res.status})`);
+      }
+
+      const items = Array.isArray(data.emails) ? data.emails : (Array.isArray(data) ? data : []);
+      cache = items.map(normalizeEmail);
+      view = cache.slice();
+      page = 1;
+      render();
+      list.setAttribute('aria-busy','false');
+      showMsg(`Fetched ${cache.length} email(s).`, 'ok');
+    } catch (e){
+      list.setAttribute('aria-busy','false');
+      list.innerHTML = '';
+      showMsg(e.name === 'AbortError' ? 'Request timed out. Please try again.' : (e.message || 'Fetch failed.'));
+    } finally {
+      toggleDisabled(false);
+    }
+  }
+
+  function normalizeEmail(e){
+    return {
+      id: e.id || e.uid || cryptoRandomId(),
+      from: e.from || '',
+      subject: e.subject || '(no subject)',
+      text: e.text || '',
+      html: e.html || '',
+      date: e.date || e.internalDate || '',
+      importance: e.importance || 'unclassified',
+      fromEmail: (() => { const m=(e.from||'').match(/<([^>]+)>/); return (m && m[1]) || (e.from||''); })(),
+      fromDomain: (() => { const fe=(e.fromEmail || ((e.from||'').match(/<([^>]+)>/)||[,''])[1] || e.from||''); return (fe.split('@')[1]||'').trim(); })()
+    };
+  }
+
+  function cryptoRandomId(){
+    if (window.crypto?.getRandomValues){
+      const a = new Uint32Array(3); window.crypto.getRandomValues(a);
+      return [...a].map(n=>n.toString(16)).join('');
+    }
+    return String(Date.now())+Math.random().toString(16).slice(2);
+  }
+
+  function render(){
+    const total = view.length;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    if (page > pages) page = pages;
+
+    const start = (page-1)*pageSize;
+    const slice = view.slice(start, start+pageSize);
+
+    list.innerHTML = slice.map(cardHtml).join('') || `<div class="alert ok">No emails to show.</div>`;
+    pageInfo.textContent = `Page ${page} / ${pages}`;
+    countInfo.textContent = `${total} email(s) • showing ${slice.length}`;
+  }
+
+  function cardHtml(e){
+    const fromText = e.from || '';
+    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
+    const fromDomain = (e.fromDomain || (fromEmail.split('@')[1] || '')).trim();
+    const dateStr = e.date ? new Date(e.date).toLocaleString() : '';
+    const pill = (e.importance||'unclassified').toLowerCase()==='important' ? 'tag imp' : 'tag';
+
+    return `
+      <div class="email" data-id="${escapeHtml(e.id)}">
+        <div class="email-header">
+          <input class="sel" type="checkbox" aria-label="select email">
+          <div>
+            <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+            <div class="from">
+              ${escapeHtml(fromText)}
+              ${fromDomain ? ` • <b>${escapeHtml(fromDomain)}</b>` : ''}
+              ${dateStr ? ` • ${escapeHtml(dateStr)}` : ''}
+            </div>
+          </div>
+          <div class="meta">
+            <span class="${pill}">${escapeHtml(e.importance||'unclassified')}</span>
+            <button class="btn ghost" onclick="sendOneToGenerator('${encodeURIComponent(e.id)}')">Send →</button>
+          </div>
+        </div>
+        <details>
+          <summary>Preview</summary>
+          <div style="white-space:pre-wrap;margin-top:6px" class="preview">${escapeHtml(e.text || stripHtml(e.html))}</div>
+        </details>
+      </div>
+    `;
+  }
+
+  function getSelected(){
+    const nodes = [...list.querySelectorAll('.email')];
+    return nodes
+      .filter(n => n.querySelector('.sel').checked)
+      .map(n => view.find(e => String(e.id) === String(n.getAttribute('data-id'))))
+      .filter(Boolean);
+  }
+
+  function exportJson(rows){
+    const data = rows && rows.length ? rows : view;
+    if (!data.length){ showMsg('Nothing to export.'); return; }
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    download(blob, `emails_${ts()}.json`);
+  }
+
+  function exportCsv(rows){
+    const data = rows && rows.length ? rows : view;
+    if (!data.length){ showMsg('Nothing to export.'); return; }
+    const cols = ['id','from','subject','date','importance','text'];
+    const csv = [cols.join(',')]
+      .concat(data.map(e => cols.map(c => csvCell(e[c] ?? '')).join(',')))
+      .join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    download(blob, `emails_${ts()}.csv`);
+  }
+
+  function csvCell(v){
+    const s = String(v).replace(/"/g,'""').replace(/\r?\n/g,' ');
+    return `"${s}"`;
+  }
+
+  function download(blob, name){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }
+
+  function ts(){ return new Date().toISOString().replace(/[:.]/g,'-'); }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
+  function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize','provider','tls','range'].includes(el.id)); }
+  function val(id){ return document.getElementById(id)?.value?.trim(); }
+
+  // expose single-send for per-card button
+  window.sendOneToGenerator = (idEnc) => {
+    const id = decodeURIComponent(idEnc);
+    const e = view.find(x => String(x.id) === String(id));
+    if (!e) return showMsg('Email not found.');
+    navigateToGenerator(e);
+  };
+
+  function sendSelectedToGenerator(){
+    const chosen = getSelected();
+    if (!chosen.length) return showMsg('Select at least one email.');
+    navigateToGenerator(chosen[0]); // first for now
+  }
+
+  function navigateToGenerator(e){
+    const fromText = e.from || '';
+    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
+    const fromName = (fromText.replace(/<[^>]*>/g,'').trim() || fromEmail).trim();
+
+    const params = new URLSearchParams({
+      from: fromName || fromEmail,
+      subject: (e.subject||'').slice(0,180),
+      body: (e.text || stripHtml(e.html) || '').slice(0,8000)
+    });
+    window.location.href = `/${params.toString() ? '?' + params.toString() : ''}`;
+  }
+})();
+</script>
+</body>
+</html>
