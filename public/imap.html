@@ -114,19 +114,17 @@
 <script>
 (() => {
   const API = '/api/imap';
-  let cache = [];        // full result from server
-  let view = [];         // filtered (e.g., important)
-  let page = 1;          // 1-based
+  let cache = [];
+  let view = [];
+  let page = 1;
   let pageSize = 20;
 
-  // UI refs
   const list = document.getElementById('list');
   const msg = document.getElementById('msg');
   const pageInfo = document.getElementById('pageInfo');
   const countInfo = document.getElementById('countInfo');
   const pageSizeSel = document.getElementById('pageSize');
 
-  // Wire events
   document.getElementById('btnFetch').onclick = fetchEmails;
   document.getElementById('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
   document.getElementById('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
@@ -156,7 +154,7 @@
 
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      const t = setTimeout(() => controller.abort(), 60000); // ⬆︎ was 30000 (60s)
       const res = await fetch(`${API}/fetch`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -285,18 +283,9 @@
   }
 
   function ts(){ return new Date().toISOString().replace(/[:.]/g,'-'); }
-
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-  function stripHtml(html){
-    const tmp = document.createElement('div'); tmp.innerHTML = html || '';
-    return tmp.textContent || tmp.innerText || '';
-  }
-
-  function toggleDisabled(state){
-    document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id));
-  }
-
+  function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
+  function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id)); }
   function val(id){ return document.getElementById(id)?.value?.trim(); }
 
   // expose single-send for per-card button
