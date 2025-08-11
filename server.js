@@ -330,7 +330,7 @@ app.get('/validate-license', async (req, res) => {
 // Serve the IMAP HTML UI here:
 // app.get('/imap', (req, res) => {
 // res.sendFile(path.join(__dirname, 'public', 'imap.html'));
-});
+// });
 
 // Mount IMAP API under /api/imap/*
 // import imapRoutes from './imapRoutes.js'; // Disabled for SmartEmail-only deploy
