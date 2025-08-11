@@ -11,9 +11,8 @@ import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ✅ MINIMAL ADD: import IMAP routes
-import imapRoutes from './imapRoutes.js';
-
+// ✅ MINIMAL ADD: import IMAP routes (matches your /imap-reader/ folder)
+import imapRoutes from './imap-reader/imapRoutes.js';
 
 // ✅ Load env
 dotenv.config();
@@ -93,7 +92,6 @@ async function checkLicense(email) {
     .maybeSingle();
 
   if (error || !data) {
-    // auto-upsert free
     await supabase
       .from('licenses')
       .upsert(
@@ -113,7 +111,7 @@ async function checkLicense(email) {
   };
 }
 
-// ---------- GENERATE / ENHANCE (unchanged logic, compact) ----------
+// ---------- GENERATE / ENHANCE ----------
 app.post('/generate', async (req, res) => {
   const {
     email, email_type, emailType,
@@ -245,7 +243,7 @@ ${enhance_request}`.trim();
   }
 });
 
-// ---------- Free user registration + config (unchanged) ----------
+// ---------- Free user registration + config ----------
 app.post('/api/register-free-user', async (req, res) => {
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
@@ -274,7 +272,7 @@ app.get('/config', (req, res) => {
   });
 });
 
-// ---------- LICENSE VALIDATION (unchanged) ----------
+// ---------- LICENSE VALIDATION ----------
 app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
@@ -330,13 +328,12 @@ app.get('/validate-license', async (req, res) => {
 });
 
 // ---------- IMAP UI + API split ----------
-
-// ✅ MINIMAL ADD: Serve the IMAP HTML UI
+// Serve the IMAP HTML UI
 app.get('/imap', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
 
-// ✅ MINIMAL ADD: Mount IMAP API under /api/imap/*
+// Mount IMAP API under /api/imap/*
 app.use('/api/imap', imapRoutes);
 
 // ---------- Start ----------
