@@ -6,16 +6,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{
-    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb;
-    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --line:#e5e7eb; --ink:#0f172a;
+    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb; --brand-weak:#e5efff;
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --line:#e5e7eb;
     --radius:14px;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial;color:var(--text)}
+  body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
   .wrap{max-width:1120px;margin:28px auto;padding:0 16px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-  header h1{font-size:22px;margin:0;color:var(--ink)}
-  .pill{font-size:12px;background:#eef2ff;color:#1e3a8a;padding:6px 10px;border-radius:999px}
+  header h1{font-size:22px;margin:0}
+  .badge{margin-left:8px;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px;border:1px solid #dbeafe}
   .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
   .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
   .row > .col{display:flex;flex-direction:column}
@@ -27,34 +27,39 @@
   .btn{background:var(--brand);color:#fff}
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
-  .btn.warn{background:#fff7ed;color:#9a3412}
   .btn:disabled{opacity:.6;cursor:not-allowed}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
-  .alert.ok{background:#dcfce7;color:#065f46;border:1px solid #bbf7d0}
-  .tip{background:#f8fafc;border:1px dashed #cbd5e1;color:#334155;border-radius:12px;padding:10px 12px;margin-top:8px}
+  .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
+  .tip{background:#f8fafc;border:1px dashed #dbeafe;color:#334155;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
   .list{margin-top:14px}
   .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
   .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
   .from{color:var(--muted);font-size:12px}
   .subject{font-weight:600}
-  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
+  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff;text-transform:lowercase}
   .tag.imp{background:#fff7ed;border-color:#fed7aa}
   details{margin-top:8px}
   summary{cursor:pointer;color:#374151}
   .meta{display:flex;gap:8px;align-items:center}
   .sel{margin-right:6px}
-  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
+  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);background-size:300% 100%}
   .sk-card{height:86px;border-radius:12px;margin:10px 0}
   @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
-  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid #e6e9f0}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
   .pager{display:flex;gap:6px;align-items:center}
   .pager button{padding:8px 12px}
   .hint{font-size:12px;color:var(--muted)}
-  .stack{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-  .right-buttons{display:flex;gap:8px}
-  @media (max-width:980px){.row,.stack{grid-template-columns:1fr 1fr}}
-  @media (max-width:640px){.row,.stack{grid-template-columns:1fr}}
+  .right{margin-left:auto}
+  .stack{display:flex;gap:10px;flex-wrap:wrap}
+  .tiny{font-size:11px;color:#64748b;margin-left:6px}
+  .sideButtons{display:flex;gap:8px;align-items:flex-end}
+  .pill{padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#f8fafc;font-size:12px}
+  @media (max-width:900px){
+    .row{grid-template-columns:1fr 1fr}
+    .email-header{grid-template-columns:1fr auto}
+    .footer{flex-direction:column;align-items:flex-start}
+  }
 </style>
 </head>
 <body>
@@ -66,10 +71,10 @@
         <path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <h1>IMAP Reader & Classifier</h1>
-      <span class="pill">Universal IMAP</span>
+      <span class="badge">Universal IMAP</span>
     </header>
 
-    <section class="card" style="padding:16px 16px 8px">
+    <section class="card" style="padding:16px 16px 10px">
       <div class="row">
         <div class="col">
           <label for="email">Email</label>
@@ -89,21 +94,18 @@
         </div>
       </div>
 
-      <div class="stack" style="margin-top:8px">
+      <div class="row" style="margin-top:6px">
         <div class="col">
-          <label for="provider">Provider</label>
+          <label for="provider">Provider <span class="tiny">(sets host automatically)</span></label>
           <select id="provider">
             <option value="gmail">Gmail</option>
-            <option value="office365">Outlook / Office 365</option>
+            <option value="outlook">Outlook / Office 365</option>
             <option value="yahoo">Yahoo</option>
-            <option value="icloud">iCloud</option>
-            <option value="zoho">Zoho</option>
+            <option value="icloud">iCloud (Apple)</option>
             <option value="aol">AOL</option>
+            <option value="zoho">Zoho</option>
             <option value="proton">Proton (Bridge)</option>
-            <option value="fastmail">Fastmail</option>
-            <option value="gmx">GMX</option>
-            <option value="yandex">Yandex</option>
-            <option value="custom">Custom</option>
+            <option value="custom" selected>Custom</option>
           </select>
         </div>
         <div class="col">
@@ -114,38 +116,45 @@
           </select>
         </div>
         <div class="col">
-          <label for="range">Range</label>
-          <select id="range">
-            <option value="2">Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="14">Last 14 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="0">All</option>
-          </select>
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <div class="right-buttons">
-            <button class="btn warn" id="btnSave" title="Save these settings for this email locally">Save</button>
-            <button class="btn ghost" id="btnUse" title="Load saved settings for this email">Use</button>
-            <button class="btn ghost" id="btnDelete" title="Delete saved settings for this email">Delete</button>
+          <label for="saved">Saved Accounts</label>
+          <div class="stack">
+            <select id="saved" style="flex:1;min-width:200px"></select>
           </div>
+        </div>
+        <div class="col sideButtons">
+          <button class="btn ghost" id="btnSave" title="Save to this browser">Save</button>
+          <button class="btn ghost" id="btnUse">Use</button>
+          <button class="btn ghost" id="btnDelete">Delete</button>
         </div>
       </div>
 
       <div class="toolbar">
         <button class="btn" id="btnFetch">Fetch & Classify</button>
         <button class="btn ghost" id="btnRefresh">Refresh</button>
+
+        <label class="pill">
+          Range
+          <select id="range" style="border:none;background:transparent;margin-left:6px">
+            <option value="1">Last 1 day</option>
+            <option value="2" selected>Last 2 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+        </label>
+
         <button class="btn secondary" id="btnImportant">Filter: Important</button>
         <button class="btn ghost" id="btnAll">Show All</button>
         <button class="btn ghost" id="btnExportJson">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv">Export CSV</button>
         <button class="btn secondary" id="btnSendSelected">Send Selected → Generator</button>
-        <span class="hint">Tip: Many providers require an <b>App Password</b> for IMAP.</span>
+        <span class="hint right" id="syncInfo"></span>
       </div>
 
-      <div id="providerTip" class="tip">Gmail: enable 2-Step Verification → create an <i>App Password</i> for “Mail”.</div>
+      <div class="tip" id="providerTip">
+        Tip: Most providers require an <b>App Password</b> for IMAP. For Gmail and iCloud, enable 2FA and create an app-specific password.
+      </div>
+
       <div id="msg"></div>
     </section>
 
@@ -173,31 +182,106 @@
   let page = 1;
   let pageSize = 20;
 
-  const PROVIDERS = {
-    gmail:      { host:'imap.gmail.com',        port:993, tls:'on', tip:'Gmail: enable 2-Step Verification and create an App Password for “Mail”.' },
-    office365:  { host:'outlook.office365.com', port:993, tls:'on', tip:'Microsoft 365/Outlook: use your account password or an app password if policy requires it.' },
-    yahoo:      { host:'imap.mail.yahoo.com',   port:993, tls:'on', tip:'Yahoo: enable 2-Step Verification → create an App Password for “Mail”.' },
-    icloud:     { host:'imap.mail.me.com',      port:993, tls:'on', tip:'iCloud: enable 2-factor → create an app-specific password at appleid.apple.com.' },
-    zoho:       { host:'imap.zoho.com',         port:993, tls:'on', tip:'Zoho: enable IMAP; with MFA use an app password.' },
-    aol:        { host:'imap.aol.com',          port:993, tls:'on', tip:'AOL: enable 2-Step Verification → app password.' },
-    proton:     { host:'127.0.0.1',             port:1143, tls:'off', tip:'ProtonMail requires Proton Bridge. Use its local IMAP port (1143/993).' },
-    fastmail:   { host:'imap.fastmail.com',     port:993, tls:'on', tip:'Fastmail: normal or app password (with 2FA).' },
-    gmx:        { host:'imap.gmx.com',          port:993, tls:'on', tip:'GMX: enable IMAP in settings; use account password.' },
-    yandex:     { host:'imap.yandex.com',       port:993, tls:'on', tip:'Yandex: enable IMAP; with 2FA use an app password.' },
-    custom:     { host:'',                      port:993, tls:'on', tip:'Custom: enter host/port/TLS from your provider.' }
-  };
-
-  // DOM refs
   const list = document.getElementById('list');
   const msg = document.getElementById('msg');
-  const tip = document.getElementById('providerTip');
   const pageInfo = document.getElementById('pageInfo');
   const countInfo = document.getElementById('countInfo');
   const pageSizeSel = document.getElementById('pageSize');
+  const syncInfo = document.getElementById('syncInfo');
 
-  // Wire up actions
-  document.getElementById('btnFetch').onclick = fetchEmails;
-  document.getElementById('btnRefresh').onclick = () => { if (cache.length) { render(); showMsg('Refreshed view.','ok'); } else fetchEmails(); };
+  // Provider presets
+  const PRESETS = {
+    gmail:   { host:'imap.gmail.com', port:993, tls:'on',
+               tip:'Gmail requires 2-Step Verification + an App Password for IMAP.' },
+    outlook: { host:'outlook.office365.com', port:993, tls:'on',
+               tip:'Microsoft 365/Outlook: if basic auth is disabled, use an App Password (with 2FA) or switch to OAuth2.' },
+    yahoo:   { host:'imap.mail.yahoo.com', port:993, tls:'on',
+               tip:'Yahoo requires an App Password when 2FA is enabled.' },
+    icloud:  { host:'imap.mail.me.com', port:993, tls:'on',
+               tip:'iCloud requires an App-specific password (Apple ID → Security → App Passwords).' },
+    aol:     { host:'imap.aol.com', port:993, tls:'on',
+               tip:'AOL typically requires an App Password.' },
+    zoho:    { host:'imap.zoho.com', port:993, tls:'on',
+               tip:'Zoho Mail: IMAP must be enabled in settings; app passwords may be required.' },
+    proton:  { host:'127.0.0.1', port:1143, tls:'off',
+               tip:'Proton requires the Proton Mail Bridge app; set host/port from the Bridge and use your Bridge password.' },
+    custom:  { host:'', port:993, tls:'on',
+               tip:'Enter host and port provided by your email provider.' }
+  };
+
+  // Saved accounts (browser only)
+  const savedSel = document.getElementById('saved');
+  const btnSave = document.getElementById('btnSave');
+  const btnUse = document.getElementById('btnUse');
+  const btnDelete = document.getElementById('btnDelete');
+
+  function loadSaved() {
+    const saved = JSON.parse(localStorage.getItem('imapSaved')||'[]');
+    savedSel.innerHTML = `<option value="">— none —</option>` + saved.map((s,i)=>`<option value="${i}">${escapeHtml(s.label||s.email||('acc '+(i+1)))}</option>`).join('');
+    return saved;
+  }
+  function saveCurrent() {
+    const saved = loadSaved();
+    const item = {
+      label: val('email'),
+      email: val('email'),
+      password: val('password'),
+      host: val('host'),
+      port: Number(val('port'))||993,
+      provider: document.getElementById('provider').value,
+      tls: document.getElementById('tls').value
+    };
+    saved.push(item);
+    localStorage.setItem('imapSaved', JSON.stringify(saved));
+    loadSaved();
+    showMsg('Saved.', 'ok');
+  }
+  function useSaved() {
+    const saved = loadSaved();
+    const idx = Number(savedSel.value);
+    if (Number.isNaN(idx)) return;
+    const s = saved[idx];
+    if (!s) return;
+    id('email').value = s.email||'';
+    id('password').value = s.password||'';
+    id('host').value = s.host||'';
+    id('port').value = s.port||993;
+    id('provider').value = s.provider||'custom';
+    id('tls').value = s.tls||'on';
+    applyProviderPreset();
+  }
+  function deleteSaved() {
+    const saved = loadSaved();
+    const idx = Number(savedSel.value);
+    if (Number.isNaN(idx)) return;
+    if (!saved[idx]) return;
+    saved.splice(idx,1);
+    localStorage.setItem('imapSaved', JSON.stringify(saved));
+    loadSaved();
+    showMsg('Deleted.', 'ok');
+  }
+  loadSaved();
+
+  // Provider preset change
+  document.getElementById('provider').addEventListener('change', applyProviderPreset);
+  function applyProviderPreset(){
+    const p = document.getElementById('provider').value;
+    const preset = PRESETS[p] || PRESETS.custom;
+    const showTip = preset.tip || '';
+    document.getElementById('providerTip').innerHTML = showTip ? `<b>${escapeHtml(cap(p))}:</b> ${escapeHtml(showTip)}` :
+      'Tip: Most providers require an App Password for IMAP.';
+    if (preset.host) id('host').value = preset.host;
+    id('port').value = preset.port;
+    id('tls').value = preset.tls;
+  }
+
+  btnSave.onclick = saveCurrent;
+  btnUse.onclick = useSaved;
+  btnDelete.onclick = deleteSaved;
+
+  // Toolbar actions
+  document.getElementById('btnFetch').onclick = () => fetchEmails(true);
+  document.getElementById('btnRefresh').onclick = () => fetchEmails(false);
   document.getElementById('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
   document.getElementById('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
   document.getElementById('btnExportJson').onclick = () => exportJson(getSelected());
@@ -207,78 +291,22 @@
   document.getElementById('next').onclick = () => { if (page < Math.max(1, Math.ceil(view.length/pageSize))){ page++; render(); } };
   pageSizeSel.onchange = () => { pageSize = Number(pageSizeSel.value||20); page=1; render(); };
 
-  // Provider preset behavior
-  const providerSel = document.getElementById('provider');
-  const hostInput = document.getElementById('host');
-  const portInput = document.getElementById('port');
-  const tlsSel = document.getElementById('tls');
+  function id(x){ return document.getElementById(x); }
+  function val(x){ return id(x)?.value?.trim(); }
+  function cap(s){ return (s||'').charAt(0).toUpperCase()+ (s||'').slice(1); }
 
-  providerSel.onchange = () => {
-    const p = PROVIDERS[providerSel.value] || PROVIDERS.custom;
-    if (p.host) hostInput.value = p.host;
-    if (p.port) portInput.value = p.port;
-    if (p.tls)  tlsSel.value  = p.tls;
-    tip.textContent = p.tip || '';
-  };
-  // initialize defaults
-  providerSel.dispatchEvent(new Event('change'));
-
-  // Save/Use/Delete presets in localStorage
-  const KEY = 'imapSavedAccounts';
-  document.getElementById('btnSave').onclick = () => {
-    const email = val('email');
-    if (!email) return showMsg('Enter an email to save this account.');
-    const store = loadSaved();
-    store[email] = {
-      email,
-      host: val('host'),
-      port: Number(val('port'))||993,
-      tls: tlsSel.value,
-      provider: providerSel.value
-    };
-    saveSaved(store);
-    showMsg('Saved account preset.','ok');
-  };
-  document.getElementById('btnUse').onclick = () => {
-    const email = val('email');
-    const store = loadSaved();
-    const row = store[email];
-    if (!row) return showMsg('No saved preset for this email.');
-    hostInput.value = row.host || '';
-    portInput.value = row.port || 993;
-    tlsSel.value = row.tls || 'on';
-    providerSel.value = row.provider || 'custom';
-    providerSel.dispatchEvent(new Event('change'));
-    showMsg('Loaded saved preset.','ok');
-  };
-  document.getElementById('btnDelete').onclick = () => {
-    const email = val('email');
-    const store = loadSaved();
-    if (!store[email]) return showMsg('Nothing to delete for this email.');
-    delete store[email];
-    saveSaved(store);
-    showMsg('Deleted saved preset.','ok');
-  };
-
-  function loadSaved(){ try{ return JSON.parse(localStorage.getItem(KEY)||'{}'); }catch{ return {}; } }
-  function saveSaved(obj){ localStorage.setItem(KEY, JSON.stringify(obj)); }
-
-  // Helpers
   function showMsg(text, type='err'){
     msg.innerHTML = `<div class="alert ${type==='err'?'err':'ok'}">${escapeHtml(text)}</div>`;
-    setTimeout(() => { msg.innerHTML=''; }, 5000);
+    setTimeout(() => { msg.innerHTML=''; }, 6000);
   }
+
   function skeleton(count=5){
     list.setAttribute('aria-busy','true');
     list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
   }
 
-  async function fetchEmails(){
+  async function fetchEmails(firstLoad){
     const email = val('email'), password = val('password'), host = val('host'), port = Number(val('port'));
-    const tls = tlsSel.value !== 'off';
-    const days = Number(document.getElementById('range').value||2);
-    const since = days>0 ? new Date(Date.now()-days*864e5).toISOString() : null;
-
     if (!email || !password || !host || !port){ showMsg('Please fill Email, Password/App Password, Host and Port.'); return; }
 
     skeleton(6);
@@ -286,14 +314,14 @@
 
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 60000);
-      const body = { email, password, host, port, tls, limit: 200 };
-      if (since) body.since = since;
+      const t = setTimeout(() => controller.abort(), 70000);
+      const sinceDays = Number(id('range').value||2);
+      const tls = id('tls').value;
 
       const res = await fetch(`${API}/fetch`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body),
+        body: JSON.stringify({ email, password, host, port, limit: 200, sinceDays, tls }),
         signal: controller.signal
       });
       clearTimeout(t);
@@ -309,14 +337,31 @@
       page = 1;
       render();
       list.setAttribute('aria-busy','false');
+      syncInfo.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
       showMsg(`Fetched ${cache.length} email(s).`, 'ok');
     } catch (e){
       list.setAttribute('aria-busy','false');
       list.innerHTML = '';
-      showMsg(e.name === 'AbortError' ? 'Request timed out. Please try again.' : (e.message || 'Fetch failed.'));
+      showMsg(humanizeError(e.message||String(e)), 'err');
     } finally {
       toggleDisabled(false);
     }
+  }
+
+  function humanizeError(m){
+    const p = document.getElementById('provider').value;
+    const low = (m||'').toLowerCase();
+    if (low.includes('authentication') || low.includes('auth') || low.includes('login')){
+      if (p==='gmail')  return 'Authentication failed. For Gmail enable 2-Step Verification and use an App Password.';
+      if (p==='icloud') return 'Authentication failed. iCloud requires an app-specific password.';
+      if (p==='outlook')return 'Authentication failed. Microsoft 365 may require an App Password (with 2FA) or OAuth2.';
+      return 'Authentication failed. Check your password/app password.';
+    }
+    if (low.includes('enotfound') || low.includes('getaddrinfo')) return 'Host not found. Check the IMAP host (DNS).';
+    if (low.includes('self-signed') || low.includes('certificate') || low.includes('tls'))
+      return 'TLS handshake failed. Ensure TLS is enabled and host is correct. If using Proton Bridge, set TLS Off and the Bridge port.';
+    if (low.includes('timeout')) return 'Connection timed out. Server may be blocking IMAP or is slow.';
+    return m;
   }
 
   function normalizeEmail(e){
@@ -431,9 +476,8 @@
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
   function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id)); }
-  function val(id){ return document.getElementById(id)?.value?.trim(); }
 
-  // expose single-send for per-card button
+  // Send to generator
   window.sendOneToGenerator = (idEnc) => {
     const id = decodeURIComponent(idEnc);
     const e = view.find(x => String(x.id) === String(id));
@@ -459,6 +503,9 @@
     });
     window.location.href = `/${params.toString() ? '?' + params.toString() : ''}`;
   }
+
+  // initial UI
+  applyProviderPreset();
 })();
 </script>
 </body>
