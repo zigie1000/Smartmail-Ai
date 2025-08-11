@@ -328,13 +328,13 @@ app.get('/validate-license', async (req, res) => {
 // ---------- IMAP UI + API split ----------
 
 // Serve the IMAP HTML UI here:
-app.get('/imap', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'imap.html'));
+// app.get('/imap', (req, res) => {
+// res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
 
 // Mount IMAP API under /api/imap/*
 // import imapRoutes from './imapRoutes.js'; // Disabled for SmartEmail-only deploy
-app.use('/api/imap', imapRoutes);
+// app.use('/api/imap', imapRoutes);
 
 // ---------- Start ----------
 app.listen(PORT, () => {
