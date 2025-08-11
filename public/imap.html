@@ -12,10 +12,10 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
-  .wrap{max-width:1120px;margin:28px auto;padding:0 16px}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
   header h1{font-size:22px;margin:0}
-  .badge{margin-left:8px;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px;border:1px solid #dbeafe}
+  .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
   .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
   .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
   .row > .col{display:flex;flex-direction:column}
@@ -31,13 +31,12 @@
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
-  .tip{background:#f8fafc;border:1px dashed #dbeafe;color:#334155;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:13px}
   .list{margin-top:14px}
   .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
   .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
   .from{color:var(--muted);font-size:12px}
   .subject{font-weight:600}
-  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff;text-transform:lowercase}
+  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
   .tag.imp{background:#fff7ed;border-color:#fed7aa}
   details{margin-top:8px}
   summary{cursor:pointer;color:#374151}
@@ -50,11 +49,6 @@
   .pager{display:flex;gap:6px;align-items:center}
   .pager button{padding:8px 12px}
   .hint{font-size:12px;color:var(--muted)}
-  .right{margin-left:auto}
-  .stack{display:flex;gap:10px;flex-wrap:wrap}
-  .tiny{font-size:11px;color:#64748b;margin-left:6px}
-  .sideButtons{display:flex;gap:8px;align-items:flex-end}
-  .pill{padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#f8fafc;font-size:12px}
   @media (max-width:900px){
     .row{grid-template-columns:1fr 1fr}
     .email-header{grid-template-columns:1fr auto}
@@ -65,16 +59,12 @@
 <body>
   <div class="wrap">
     <header>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h1>IMAP Reader & Classifier</h1>
       <span class="badge">Universal IMAP</span>
     </header>
 
-    <section class="card" style="padding:16px 16px 10px">
+    <section class="card" style="padding:16px 16px 8px">
       <div class="row">
         <div class="col">
           <label for="email">Email</label>
@@ -96,16 +86,13 @@
 
       <div class="row" style="margin-top:6px">
         <div class="col">
-          <label for="provider">Provider <span class="tiny">(sets host automatically)</span></label>
+          <label for="provider">Provider</label>
           <select id="provider">
+            <option value="custom">— custom —</option>
             <option value="gmail">Gmail</option>
             <option value="outlook">Outlook / Office 365</option>
             <option value="yahoo">Yahoo</option>
-            <option value="icloud">iCloud (Apple)</option>
-            <option value="aol">AOL</option>
-            <option value="zoho">Zoho</option>
-            <option value="proton">Proton (Bridge)</option>
-            <option value="custom" selected>Custom</option>
+            <option value="icloud">iCloud</option>
           </select>
         </div>
         <div class="col">
@@ -116,43 +103,46 @@
           </select>
         </div>
         <div class="col">
-          <label for="saved">Saved Accounts</label>
-          <div class="stack">
-            <select id="saved" style="flex:1;min-width:200px"></select>
-          </div>
+          <label for="range">Range</label>
+          <select id="range">
+            <option value="2" selected>Last 2 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="0">All</option>
+          </select>
         </div>
-        <div class="col sideButtons">
-          <button class="btn ghost" id="btnSave" title="Save to this browser">Save</button>
-          <button class="btn ghost" id="btnUse">Use</button>
-          <button class="btn ghost" id="btnDelete">Delete</button>
+        <div class="col">
+          <label for="authType">Auth</label>
+          <select id="authType">
+            <option value="password" selected>Password / App Password</option>
+            <option value="xoauth2">XOAUTH2 (access token)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row" id="xoRow" style="display:none;margin-top:6px">
+        <div class="col" style="grid-column:span 2">
+          <label for="accessToken">Access Token (OAuth)</label>
+          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
+        </div>
+        <div class="col">
+          <label>&nbsp;</label>
+          <button class="btn secondary" id="btnMicrosoft">Sign in with Microsoft</button>
         </div>
       </div>
 
       <div class="toolbar">
         <button class="btn" id="btnFetch">Fetch & Classify</button>
         <button class="btn ghost" id="btnRefresh">Refresh</button>
-
-        <label class="pill">
-          Range
-          <select id="range" style="border:none;background:transparent;margin-left:6px">
-            <option value="1">Last 1 day</option>
-            <option value="2" selected>Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="14">Last 14 days</option>
-            <option value="30">Last 30 days</option>
-          </select>
-        </label>
-
         <button class="btn secondary" id="btnImportant">Filter: Important</button>
         <button class="btn ghost" id="btnAll">Show All</button>
         <button class="btn ghost" id="btnExportJson">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv">Export CSV</button>
         <button class="btn secondary" id="btnSendSelected">Send Selected → Generator</button>
-        <span class="hint right" id="syncInfo"></span>
       </div>
 
-      <div class="tip" id="providerTip">
-        Tip: Most providers require an <b>App Password</b> for IMAP. For Gmail and iCloud, enable 2FA and create an app-specific password.
+      <div class="hint" style="margin-top:6px">
+        Tip: Many providers require an <b>App Password</b> for IMAP. For Gmail & iCloud, enable 2FA and create an app-specific password.
       </div>
 
       <div id="msg"></div>
@@ -182,122 +172,53 @@
   let page = 1;
   let pageSize = 20;
 
-  const list = document.getElementById('list');
-  const msg = document.getElementById('msg');
-  const pageInfo = document.getElementById('pageInfo');
-  const countInfo = document.getElementById('countInfo');
-  const pageSizeSel = document.getElementById('pageSize');
-  const syncInfo = document.getElementById('syncInfo');
+  const el = id => document.getElementById(id);
+  const list = el('list');
+  const msg = el('msg');
+  const pageInfo = el('pageInfo');
+  const countInfo = el('countInfo');
+  const pageSizeSel = el('pageSize');
 
   // Provider presets
-  const PRESETS = {
-    gmail:   { host:'imap.gmail.com', port:993, tls:'on',
-               tip:'Gmail requires 2-Step Verification + an App Password for IMAP.' },
-    outlook: { host:'outlook.office365.com', port:993, tls:'on',
-               tip:'Microsoft 365/Outlook: if basic auth is disabled, use an App Password (with 2FA) or switch to OAuth2.' },
-    yahoo:   { host:'imap.mail.yahoo.com', port:993, tls:'on',
-               tip:'Yahoo requires an App Password when 2FA is enabled.' },
-    icloud:  { host:'imap.mail.me.com', port:993, tls:'on',
-               tip:'iCloud requires an App-specific password (Apple ID → Security → App Passwords).' },
-    aol:     { host:'imap.aol.com', port:993, tls:'on',
-               tip:'AOL typically requires an App Password.' },
-    zoho:    { host:'imap.zoho.com', port:993, tls:'on',
-               tip:'Zoho Mail: IMAP must be enabled in settings; app passwords may be required.' },
-    proton:  { host:'127.0.0.1', port:1143, tls:'off',
-               tip:'Proton requires the Proton Mail Bridge app; set host/port from the Bridge and use your Bridge password.' },
-    custom:  { host:'', port:993, tls:'on',
-               tip:'Enter host and port provided by your email provider.' }
+  const providerHost = {
+    gmail:   { host: 'imap.gmail.com',   port: 993 },
+    outlook: { host: 'outlook.office365.com', port: 993 },
+    yahoo:   { host: 'imap.mail.yahoo.com', port: 993 },
+    icloud:  { host: 'imap.mail.me.com', port: 993 }
   };
 
-  // Saved accounts (browser only)
-  const savedSel = document.getElementById('saved');
-  const btnSave = document.getElementById('btnSave');
-  const btnUse = document.getElementById('btnUse');
-  const btnDelete = document.getElementById('btnDelete');
+  // Events
+  el('provider').onchange = () => {
+    const v = el('provider').value;
+    if (providerHost[v]) {
+      el('host').value = providerHost[v].host;
+      el('port').value = providerHost[v].port;
+    }
+  };
 
-  function loadSaved() {
-    const saved = JSON.parse(localStorage.getItem('imapSaved')||'[]');
-    savedSel.innerHTML = `<option value="">— none —</option>` + saved.map((s,i)=>`<option value="${i}">${escapeHtml(s.label||s.email||('acc '+(i+1)))}</option>`).join('');
-    return saved;
-  }
-  function saveCurrent() {
-    const saved = loadSaved();
-    const item = {
-      label: val('email'),
-      email: val('email'),
-      password: val('password'),
-      host: val('host'),
-      port: Number(val('port'))||993,
-      provider: document.getElementById('provider').value,
-      tls: document.getElementById('tls').value
-    };
-    saved.push(item);
-    localStorage.setItem('imapSaved', JSON.stringify(saved));
-    loadSaved();
-    showMsg('Saved.', 'ok');
-  }
-  function useSaved() {
-    const saved = loadSaved();
-    const idx = Number(savedSel.value);
-    if (Number.isNaN(idx)) return;
-    const s = saved[idx];
-    if (!s) return;
-    id('email').value = s.email||'';
-    id('password').value = s.password||'';
-    id('host').value = s.host||'';
-    id('port').value = s.port||993;
-    id('provider').value = s.provider||'custom';
-    id('tls').value = s.tls||'on';
-    applyProviderPreset();
-  }
-  function deleteSaved() {
-    const saved = loadSaved();
-    const idx = Number(savedSel.value);
-    if (Number.isNaN(idx)) return;
-    if (!saved[idx]) return;
-    saved.splice(idx,1);
-    localStorage.setItem('imapSaved', JSON.stringify(saved));
-    loadSaved();
-    showMsg('Deleted.', 'ok');
-  }
-  loadSaved();
+  el('authType').onchange = () => {
+    const v = el('authType').value;
+    el('xoRow').style.display = (v === 'xoauth2') ? 'grid' : 'none';
+  };
 
-  // Provider preset change
-  document.getElementById('provider').addEventListener('change', applyProviderPreset);
-  function applyProviderPreset(){
-    const p = document.getElementById('provider').value;
-    const preset = PRESETS[p] || PRESETS.custom;
-    const showTip = preset.tip || '';
-    document.getElementById('providerTip').innerHTML = showTip ? `<b>${escapeHtml(cap(p))}:</b> ${escapeHtml(showTip)}` :
-      'Tip: Most providers require an App Password for IMAP.';
-    if (preset.host) id('host').value = preset.host;
-    id('port').value = preset.port;
-    id('tls').value = preset.tls;
-  }
+  el('btnMicrosoft').onclick = async () => {
+    window.location.href = '/auth/microsoft';
+  };
 
-  btnSave.onclick = saveCurrent;
-  btnUse.onclick = useSaved;
-  btnDelete.onclick = deleteSaved;
-
-  // Toolbar actions
-  document.getElementById('btnFetch').onclick = () => fetchEmails(true);
-  document.getElementById('btnRefresh').onclick = () => fetchEmails(false);
-  document.getElementById('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
-  document.getElementById('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
-  document.getElementById('btnExportJson').onclick = () => exportJson(getSelected());
-  document.getElementById('btnExportCsv').onclick = () => exportCsv(getSelected());
-  document.getElementById('btnSendSelected').onclick = sendSelectedToGenerator;
-  document.getElementById('prev').onclick = () => { if (page>1){ page--; render(); } };
-  document.getElementById('next').onclick = () => { if (page < Math.max(1, Math.ceil(view.length/pageSize))){ page++; render(); } };
+  el('btnFetch').onclick = fetchEmails;
+  el('btnRefresh').onclick = fetchEmails;
+  el('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
+  el('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
+  el('btnExportJson').onclick = () => exportJson(getSelected());
+  el('btnExportCsv').onclick = () => exportCsv(getSelected());
+  el('btnSendSelected').onclick = sendSelectedToGenerator;
+  el('prev').onclick = () => { if (page>1){ page--; render(); } };
+  el('next').onclick = () => { if (page < Math.max(1, Math.ceil(view.length/pageSize))){ page++; render(); } };
   pageSizeSel.onchange = () => { pageSize = Number(pageSizeSel.value||20); page=1; render(); };
-
-  function id(x){ return document.getElementById(x); }
-  function val(x){ return id(x)?.value?.trim(); }
-  function cap(s){ return (s||'').charAt(0).toUpperCase()+ (s||'').slice(1); }
 
   function showMsg(text, type='err'){
     msg.innerHTML = `<div class="alert ${type==='err'?'err':'ok'}">${escapeHtml(text)}</div>`;
-    setTimeout(() => { msg.innerHTML=''; }, 6000);
+    setTimeout(() => { msg.innerHTML=''; }, 5000);
   }
 
   function skeleton(count=5){
@@ -305,23 +226,31 @@
     list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
   }
 
-  async function fetchEmails(firstLoad){
+  async function fetchEmails(){
     const email = val('email'), password = val('password'), host = val('host'), port = Number(val('port'));
-    if (!email || !password || !host || !port){ showMsg('Please fill Email, Password/App Password, Host and Port.'); return; }
+    const tls = el('tls').value === 'on';
+    const rangeDays = Number(el('range').value || 2);
+    const authType = el('authType').value;
+    const accessToken = val('accessToken');
+
+    if (!email || !host || !port){ showMsg('Please fill Email, Host and Port.'); return; }
+    if (authType === 'password' && !password) { showMsg('Password/App Password required.'); return; }
+    if (authType === 'xoauth2' && !accessToken) { showMsg('Access token required for XOAUTH2.'); return; }
 
     skeleton(6);
     toggleDisabled(true);
 
     try {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 70000);
-      const sinceDays = Number(id('range').value||2);
-      const tls = id('tls').value;
-
+      const t = setTimeout(() => controller.abort(), 60000);
       const res = await fetch(`${API}/fetch`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ email, password, host, port, limit: 200, sinceDays, tls }),
+        body: JSON.stringify({
+          email, password, host, port, tls,
+          rangeDays, limit: 50,
+          authType, accessToken
+        }),
         signal: controller.signal
       });
       clearTimeout(t);
@@ -337,31 +266,14 @@
       page = 1;
       render();
       list.setAttribute('aria-busy','false');
-      syncInfo.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
       showMsg(`Fetched ${cache.length} email(s).`, 'ok');
     } catch (e){
       list.setAttribute('aria-busy','false');
       list.innerHTML = '';
-      showMsg(humanizeError(e.message||String(e)), 'err');
+      showMsg(e.name === 'AbortError' ? 'Request timed out. Please try again.' : (e.message || 'Fetch failed.'));
     } finally {
       toggleDisabled(false);
     }
-  }
-
-  function humanizeError(m){
-    const p = document.getElementById('provider').value;
-    const low = (m||'').toLowerCase();
-    if (low.includes('authentication') || low.includes('auth') || low.includes('login')){
-      if (p==='gmail')  return 'Authentication failed. For Gmail enable 2-Step Verification and use an App Password.';
-      if (p==='icloud') return 'Authentication failed. iCloud requires an app-specific password.';
-      if (p==='outlook')return 'Authentication failed. Microsoft 365 may require an App Password (with 2FA) or OAuth2.';
-      return 'Authentication failed. Check your password/app password.';
-    }
-    if (low.includes('enotfound') || low.includes('getaddrinfo')) return 'Host not found. Check the IMAP host (DNS).';
-    if (low.includes('self-signed') || low.includes('certificate') || low.includes('tls'))
-      return 'TLS handshake failed. Ensure TLS is enabled and host is correct. If using Proton Bridge, set TLS Off and the Bridge port.';
-    if (low.includes('timeout')) return 'Connection timed out. Server may be blocking IMAP or is slow.';
-    return m;
   }
 
   function normalizeEmail(e){
@@ -476,8 +388,9 @@
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
   function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id)); }
+  function val(id){ return el(id)?.value?.trim(); }
 
-  // Send to generator
+  // expose single-send for per-card button
   window.sendOneToGenerator = (idEnc) => {
     const id = decodeURIComponent(idEnc);
     const e = view.find(x => String(x.id) === String(id));
@@ -503,9 +416,6 @@
     });
     window.location.href = `/${params.toString() ? '?' + params.toString() : ''}`;
   }
-
-  // initial UI
-  applyProviderPreset();
 })();
 </script>
 </body>
