@@ -1044,6 +1044,37 @@ function updateTierUI(tier) {
     }
   });
 </script>
+
+<script>
+  (function prefillFromIMAP(){
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const subj = qs.get('prefill_subject') || '';
+      const from = qs.get('prefill_from') || '';
+      const body = qs.get('prefill_body') || '';
+
+      // Robust element lookup (keeps your IDs intact)
+      const byId = id => document.getElementById(id);
+      const pick = (...ids) => ids.map(byId).find(Boolean);
+
+      const subjectEl = pick('subject','emailSubject'); // if you have one
+      const contentEl = pick('email_content','emailContent','content','emailText','message');
+      const audienceEl = pick('target_audience','audience');
+      const typeEl = pick('email_type','emailType');
+
+      if (subjectEl && subj) subjectEl.value = subj;
+      if (contentEl && (body || from)) {
+        const header = from ? `From: ${from}\n\n` : '';
+        contentEl.value = header + body;
+        contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (audienceEl && !audienceEl.value) audienceEl.value = 'Original sender';
+      if (typeEl && !typeEl.value) typeEl.value = 'Reply';
+    } catch(e) {
+      console.warn('Prefill skipped:', e);
+    }
+  })();
+</script>
   
 </body>
 </html>
