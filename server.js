@@ -10,7 +10,7 @@ import Stripe from 'stripe';
 import stripeWebHook from './stripeWebHook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto';
+import crypto from 'crypto';                 // ✅ keep only this one
 
 // ✅ IMAP REST routes
 import imapRoutes from './imap-reader/imapRoutes.js';
@@ -21,10 +21,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
-const USE_MS_AUTH = (process.env.USE_MS_AUTH || 'true') === 'true';
+const USE_MS_AUTH     = (process.env.USE_MS_AUTH || 'true') === 'true';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
 // Core middleware
 app.use(cors());
@@ -73,29 +73,28 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ----- MICROSOFT OAUTH (Graph, tenant-specific) -----
-import crypto from 'crypto';
-
+// ===== MICROSOFT OAUTH (Graph) — minimal add =====
 const {
   AZURE_CLIENT_ID,
   AZURE_CLIENT_SECRET,
-  AZURE_TENANT_ID,            // e.g. 4947982e-43d7-4453-97dc-031a1260f515
-  AZURE_REDIRECT_URI,         // e.g. https://smartemail.onrender.com/auth/microsoft/callback
-  AZURE_SCOPES                // e.g. "openid profile email offline_access https://graph.microsoft.com/Mail.Read"
+  AZURE_TENANT_ID,       // if absent we'll use "common"
+  AZURE_REDIRECT_URI,    // e.g. https://smartemail.onrender.com/auth/microsoft/callback
+  AZURE_SCOPES           // optional override
 } = process.env;
 
-// sensible defaults if you didn’t add to .env yet
-const MS_SCOPES = (AZURE_SCOPES && AZURE_SCOPES.trim())
+const TENANT     = (AZURE_TENANT_ID && AZURE_TENANT_ID.trim()) || 'common';
+const MS_SCOPES  = (AZURE_SCOPES && AZURE_SCOPES.trim())
   || 'openid profile email offline_access https://graph.microsoft.com/Mail.Read';
 
-const MS_AUTH = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize`;
-const MS_TOKEN = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+const MS_AUTH  = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`;
+const MS_TOKEN = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
 const GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
 
-// start login
+// Start login
 app.get('/auth/microsoft', (req, res) => {
-  if (!AZURE_CLIENT_ID || !AZURE_REDIRECT_URI || !AZURE_TENANT_ID) {
-    return res.status(500).send('Microsoft OAuth is not configured (check .env).');
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
+  if (!AZURE_CLIENT_ID || !AZURE_REDIRECT_URI) {
+    return res.status(500).send('Microsoft OAuth not configured (.env).');
   }
   const state = crypto.randomBytes(16).toString('hex');
   const params = new URLSearchParams({
@@ -110,13 +109,13 @@ app.get('/auth/microsoft', (req, res) => {
   res.redirect(`${MS_AUTH}?${params.toString()}`);
 });
 
-// callback -> exchange code -> fetch profile -> save tokens -> bounce to /imap
+// Callback -> exchange code -> fetch profile -> save tokens -> back to /imap
 app.get('/auth/microsoft/callback', async (req, res) => {
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
   try {
     const code = String(req.query.code || '');
     if (!code) return res.status(400).send('Missing authorization code');
 
-    // Exchange code for tokens
     const tokenRes = await fetch(MS_TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -136,7 +135,6 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       return res.status(500).json({ error: 'Failed to exchange token', detail: tokens });
     }
 
-    // Fetch user profile (to know which email to save against)
     const meRes = await fetch(GRAPH_ME, {
       headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
@@ -146,15 +144,8 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch profile from Graph' });
     }
 
-    // Determine an email identifier
-    const email =
-      me.mail ||
-      me.userPrincipalName ||
-      me.user?.mail ||
-      me.user?.userPrincipalName ||
-      null;
+    const email = (me.mail || me.userPrincipalName || '').toLowerCase();
 
-    // Persist (or upsert) tokens keyed by email in Supabase
     if (email) {
       try {
         await supabase
@@ -162,10 +153,12 @@ app.get('/auth/microsoft/callback', async (req, res) => {
           .upsert(
             {
               provider: 'microsoft',
-              email: String(email).toLowerCase(),
+              email,
               access_token: tokens.access_token || null,
               refresh_token: tokens.refresh_token || null,
-              expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
+              expires_at: tokens.expires_in
+                ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+                : null,
               scope: MS_SCOPES
             },
             { onConflict: 'provider,email' }
@@ -175,8 +168,6 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       }
     }
 
-    // Simple redirect back to the IMAP UI (no secrets in URL)
-    // The UI can call /api/imap/providers to show “Microsoft connected” if you want.
     res.redirect('/imap?ms=ok');
   } catch (err) {
     console.error('Microsoft OAuth Error:', err);
@@ -248,13 +239,13 @@ app.post('/generate', async (req, res) => {
     action
   } = req.body;
 
-  const finalEmail = email;
+  const finalEmail     = email;
   const finalEmailType = email_type || emailType;
-  const finalTone = tone;
-  const finalLanguage = language;
-  const finalAudience = target_audience || audience;
-  const finalContent = email_content || content;
-  const finalAgent = sender_details || agent;
+  const finalTone      = tone;
+  const finalLanguage  = language;
+  const finalAudience  = target_audience || audience;
+  const finalContent   = email_content || content;
+  const finalAgent     = sender_details || agent;
 
   if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
     return res.status(400).json({ error: 'Missing required fields.' });
