@@ -4,7 +4,7 @@ import { fetchEmails } from './imapService.js';
 
 const router = express.Router();
 
-/** Format Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
+/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
 function toImapSince(dateObj) {
   const d = String(dateObj.getUTCDate()).padStart(2, '0');
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
@@ -21,7 +21,6 @@ router.post('/fetch', async (req, res) => {
       port = 993,
       limit = 50,
       rangeDays = 2,
-      // present for future use (XOAUTH2/TLS handled client-side/imapService later)
       authType = 'password',
       accessToken,
       tls = true
@@ -37,7 +36,7 @@ router.post('/fetch', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Access token required for XOAUTH2.' });
     }
 
-    // Build IMAP search criteria safely
+    // Build criteria safely (avoid "Incorrect number of arguments for search option: SINCE")
     let criteria = ['ALL'];
     const days = Number(rangeDays);
     if (Number.isFinite(days) && days > 0) {
@@ -46,8 +45,6 @@ router.post('/fetch', async (req, res) => {
       criteria = ['SINCE', toImapSince(since)];
     }
 
-    // NOTE: imapService currently uses username/password TLS.
-    // If you later wire XOAUTH2, pass the token and update imapService accordingly.
     const emails = await fetchEmails({
       email,
       password,
@@ -55,11 +52,11 @@ router.post('/fetch', async (req, res) => {
       port: Number(port) || 993,
       criteria,
       limit: Number(limit) || 50
+      // NOTE: imapService currently uses user/pass TLS. XOAUTH2 wiring can be added later.
     });
 
     return res.json({ success: true, emails });
   } catch (err) {
-    // Surface the real reason to the client (helps avoid generic 502s)
     const message = err?.message || 'IMAP fetch failed';
     console.error('IMAP /fetch error:', message);
     return res.status(502).json({ success: false, error: message });
