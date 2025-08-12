@@ -10,7 +10,7 @@ rootCas.inject(); // also updates the global https agent
 
 dotenv.config();
 
-/** IMAP "SINCE" needs DD-Mon-YYYY (UTC) */
+/** Date -> DD-Mon-YYYY (UTC) */
 function toImapSince(dateObj) {
   const day = String(dateObj.getUTCDate()).padStart(2, '0');
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
@@ -18,51 +18,49 @@ function toImapSince(dateObj) {
   return `${day}-${mon}-${year}`;
 }
 
-/** Normalize criteria:
- *  - ['SINCE', Date]  -> ['SINCE', 'DD-Mon-YYYY']
- *  - undefined + sinceDays -> ['SINCE', 'DD-Mon-YYYY'] (computed)
- *  - otherwise pass through or default to ['ALL']
- */
-function normalizeCriteria(criteria, sinceDays) {
-  if (Array.isArray(criteria) && criteria.length) {
-    if (criteria[0] === 'SINCE' && criteria[1] instanceof Date) {
-      return ['SINCE', toImapSince(criteria[1])];
-    }
-    return criteria;
-  }
-  if (sinceDays && Number(sinceDays) > 0) {
-    const d = new Date(Date.now() - Number(sinceDays) * 24 * 60 * 60 * 1000);
-    return ['SINCE', toImapSince(d)];
-  }
-  return ['ALL'];
-}
-
-/** Build XOAUTH2 string for node-imap when using OAuth access tokens */
-function buildXOAuth2(user, accessToken) {
-  // Format: base64("user=<email>\x01auth=Bearer <token>\x01\x01")
-  const raw = `user=${user}\x01auth=Bearer ${accessToken}\x01\x01`;
-  return Buffer.from(raw, 'utf8').toString('base64');
-}
-
 /**
- * Fetch emails over IMAP
- * Supports:
- *  - Password/App Password auth (default)
- *  - XOAUTH2 (accessToken) for Microsoft/Gmail OAuth
- *  - TLS on/off
- *  - Date range via sinceDays OR custom criteria
+ * Normalize/validate IMAP search criteria.
+ * Guarantees a safe array for the imap lib.
  */
+function normalizeCriteria(raw) {
+  let criteria = Array.isArray(raw) ? raw.slice() : ['ALL'];
+
+  // Empty / bad -> ALL
+  if (!criteria.length) return ['ALL'];
+
+  // If SINCE, ensure there are exactly 2 args and the 2nd is a DD-Mon-YYYY string
+  if (String(criteria[0]).toUpperCase() === 'SINCE') {
+    if (criteria.length < 2 || criteria[1] == null || criteria[1] === '') {
+      return ['ALL']; // 🔒 avoid "Incorrect number of arguments for SINCE"
+    }
+    const v = criteria[1];
+    if (v instanceof Date) {
+      criteria[1] = toImapSince(v);
+    } else if (typeof v === 'string') {
+      // Accept DD-Mon-YYYY; if not, try to parse as Date and reformat
+      const ddMonYYYY = /^\d{2}-[A-Z][a-z]{2}-\d{4}$/;
+      if (!ddMonYYYY.test(v)) {
+        const d = new Date(v);
+        if (isNaN(d.getTime())) return ['ALL'];
+        criteria[1] = toImapSince(d);
+      }
+    } else {
+      return ['ALL'];
+    }
+    // Ensure only two args for SINCE
+    criteria = ['SINCE', criteria[1]];
+  }
+
+  return criteria;
+}
+
 export async function fetchEmails({
   email,
   password,
   host,
   port = 993,
-  criteria,           // optional IMAP criteria array
-  sinceDays,          // optional number of days for SINCE
-  limit = 20,
-  tls = true,         // boolean
-  authType = 'password',   // 'password' | 'xoauth2'
-  accessToken = ''    // required when authType === 'xoauth2'
+  criteria = ['ALL'],
+  limit = 20
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -73,36 +71,24 @@ export async function fetchEmails({
       else resolve(data || []);
     };
 
-    const searchCriteria = normalizeCriteria(criteria, sinceDays);
+    // ✅ Ensure criteria is always valid for the imap lib
+    criteria = normalizeCriteria(criteria);
 
-    // ---- Build IMAP connection config ----
-    const imapConfig = {
+    const imap = new Imap({
       user: email,
+      password,                               // in-memory only; never logged
       host,
       port: Number(port) || 993,
-      tls: !!tls,
-      connTimeout: 30000,  // generous for cold starts/providers
+      tls: true,
+      tlsOptions: {
+        rejectUnauthorized: true,             // strict
+        servername: host,                     // SNI
+        ca: rootCas                           // ✅ local trusted CA bundle
+      },
+      connTimeout: 30000,
       authTimeout: 30000
-      // debug: (/*msg*/) => {}  // keep off to avoid leaking
-    };
-
-    if (imapConfig.tls) {
-      imapConfig.tlsOptions = {
-        rejectUnauthorized: true, // keep validation strict
-        servername: host,         // SNI
-        ca: rootCas               // ✅ local trusted CA bundle
-      };
-    }
-
-    if (authType === 'xoauth2') {
-      if (!accessToken) return finish(new Error('Missing access token for XOAUTH2'));
-      imapConfig.xoauth2 = buildXOAuth2(email, accessToken);
-    } else {
-      // default: password/app-password
-      imapConfig.password = password;
-    }
-
-    const imap = new Imap(imapConfig);
+      // debug: (/*msg*/) => {}
+    });
 
     const emails = [];
     const parsers = [];
@@ -117,12 +103,15 @@ export async function fetchEmails({
       imap.openBox('INBOX', true, (err) => {
         if (err) { clearTimeout(watchdog); return finish(err); }
 
-        imap.search(searchCriteria, (err, results = []) => {
+        // 🔎 tiny debug to verify final criteria in logs
+        console.log('IMAP search criteria =>', criteria);
+
+        imap.search(criteria, (err, results = []) => {
           if (err) { clearTimeout(watchdog); return finish(err); }
           if (!Array.isArray(results) || results.length === 0) {
             clearTimeout(watchdog);
             try { imap.end(); } catch {}
-            return; // 'end' will resolve with []
+            return; // 'end' resolves with []
           }
 
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
@@ -134,6 +123,7 @@ export async function fetchEmails({
             let currentUid = null;
             let internalDate = null;
 
+            // capture UID & internal date early
             msg.once('attributes', (attrs) => {
               currentUid = attrs?.uid ?? null;
               internalDate = attrs?.date ?? null;
@@ -145,7 +135,7 @@ export async function fetchEmails({
                   if (!err && parsed) {
                     emails.push({
                       uid: currentUid,
-                      internalDate: internalDate,
+                      internalDate,
                       subject: parsed.subject || '(no subject)',
                       from: parsed.from?.text || '',
                       date: parsed.date || internalDate || null,
@@ -153,7 +143,7 @@ export async function fetchEmails({
                       html: parsed.html || ''
                     });
                   }
-                  res(); // never block whole batch on one message
+                  res(); // never let one bad message hang the batch
                 });
               });
               parsers.push(p);
@@ -176,11 +166,6 @@ export async function fetchEmails({
 
     imap.once('error', (err) => {
       clearTimeout(watchdog);
-      // Normalize a couple of common errors for better UX (optional)
-      const m = (err?.message || '').toLowerCase();
-      if (m.includes('authentication') || m.includes('auth')) {
-        return finish(new Error('Authentication failed (check password/app password or token).'));
-      }
       finish(new Error(err?.message || 'IMAP error'));
     });
 
