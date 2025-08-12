@@ -73,75 +73,114 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ----- MICROSOFT OAUTH (for Outlook/Office 365 IMAP) -----
-const MS_SCOPES = [
-  'offline_access',
-  'https://outlook.office.com/IMAP.AccessAsUser.All',
-  'https://outlook.office.com/SMTP.Send'
-].join(' ');
+// ----- MICROSOFT OAUTH (Graph, tenant-specific) -----
+import crypto from 'crypto';
 
+const {
+  AZURE_CLIENT_ID,
+  AZURE_CLIENT_SECRET,
+  AZURE_TENANT_ID,            // e.g. 4947982e-43d7-4453-97dc-031a1260f515
+  AZURE_REDIRECT_URI,         // e.g. https://smartemail.onrender.com/auth/microsoft/callback
+  AZURE_SCOPES                // e.g. "openid profile email offline_access https://graph.microsoft.com/Mail.Read"
+} = process.env;
+
+// sensible defaults if you didn’t add to .env yet
+const MS_SCOPES = (AZURE_SCOPES && AZURE_SCOPES.trim())
+  || 'openid profile email offline_access https://graph.microsoft.com/Mail.Read';
+
+const MS_AUTH = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize`;
+const MS_TOKEN = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+const GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
+
+// start login
 app.get('/auth/microsoft', (req, res) => {
-  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
-
+  if (!AZURE_CLIENT_ID || !AZURE_REDIRECT_URI || !AZURE_TENANT_ID) {
+    return res.status(500).send('Microsoft OAuth is not configured (check .env).');
+  }
   const state = crypto.randomBytes(16).toString('hex');
-  const nonce = crypto.randomBytes(16).toString('hex');
-
   const params = new URLSearchParams({
-    client_id: process.env.MS_CLIENT_ID || '',
+    client_id: AZURE_CLIENT_ID,
     response_type: 'code',
-    redirect_uri: process.env.MS_REDIRECT_URI || '',
+    redirect_uri: AZURE_REDIRECT_URI,
     response_mode: 'query',
     scope: MS_SCOPES,
     state,
-    nonce,
     prompt: 'select_account'
   });
-
-  res.redirect(
-    'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' +
-      params.toString()
-  );
+  res.redirect(`${MS_AUTH}?${params.toString()}`);
 });
 
+// callback -> exchange code -> fetch profile -> save tokens -> bounce to /imap
 app.get('/auth/microsoft/callback', async (req, res) => {
-  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
-
-  const code = String(req.query.code || '');
-  if (!code) return res.status(400).send('Missing authorization code');
-
   try {
-    const tokenRes = await fetch(
-      'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: process.env.MS_CLIENT_ID || '',
-          client_secret: process.env.MS_CLIENT_SECRET || '',
-          grant_type: 'authorization_code',
-          code,
-          redirect_uri: process.env.MS_REDIRECT_URI || '',
-          scope: MS_SCOPES
-        })
-      }
-    );
+    const code = String(req.query.code || '');
+    if (!code) return res.status(400).send('Missing authorization code');
+
+    // Exchange code for tokens
+    const tokenRes = await fetch(MS_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: AZURE_CLIENT_ID,
+        client_secret: AZURE_CLIENT_SECRET || '',
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: AZURE_REDIRECT_URI,
+        scope: MS_SCOPES
+      })
+    });
 
     const tokens = await tokenRes.json();
     if (!tokenRes.ok) {
       console.error('MS token error:', tokens);
-      return res
-        .status(500)
-        .json({ error: 'Failed to exchange Microsoft token', detail: tokens });
+      return res.status(500).json({ error: 'Failed to exchange token', detail: tokens });
     }
 
-    return res.json({
-      provider: 'microsoft',
-      message: 'Microsoft OAuth successful',
-      tokens
+    // Fetch user profile (to know which email to save against)
+    const meRes = await fetch(GRAPH_ME, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
+    const me = await meRes.json();
+    if (!meRes.ok) {
+      console.error('Graph /me error:', me);
+      return res.status(500).json({ error: 'Failed to fetch profile from Graph' });
+    }
+
+    // Determine an email identifier
+    const email =
+      me.mail ||
+      me.userPrincipalName ||
+      me.user?.mail ||
+      me.user?.userPrincipalName ||
+      null;
+
+    // Persist (or upsert) tokens keyed by email in Supabase
+    if (email) {
+      try {
+        await supabase
+          .from('oauth_tokens')
+          .upsert(
+            {
+              provider: 'microsoft',
+              email: String(email).toLowerCase(),
+              access_token: tokens.access_token || null,
+              refresh_token: tokens.refresh_token || null,
+              expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
+              scope: MS_SCOPES
+            },
+            { onConflict: 'provider,email' }
+          );
+      } catch (dbErr) {
+        console.error('Supabase save error:', dbErr);
+      }
+    }
+
+    // Simple redirect back to the IMAP UI (no secrets in URL)
+    // The UI can call /api/imap/providers to show “Microsoft connected” if you want.
+    res.redirect('/imap?ms=ok');
   } catch (err) {
     console.error('Microsoft OAuth Error:', err);
-    return res.status(500).json({ error: 'Microsoft OAuth exchange failed' });
+    res.status(500).send('Microsoft OAuth failed.');
   }
 });
 
