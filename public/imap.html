@@ -1,422 +1,425 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>SmartEmail | IMAP Reader</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  :root{
-    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb; --brand-weak:#e5efff;
-    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --line:#e5e7eb;
-    --radius:14px;
+// server.js — SmartEmail + IMAP UI/API + Google & Microsoft OAuth
+
+import express from 'express';
+import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import { google } from 'googleapis';
+import Stripe from 'stripe';
+import stripeWebHook from './stripeWebHook.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+
+// ✅ IMAP REST routes
+import imapRoutes from './imap-reader/imapRoutes.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
+const USE_MS_AUTH = (process.env.USE_MS_AUTH || 'true') === 'true';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Core middleware
+app.use(cors());
+app.use(express.json());
+
+// Static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ----- SUPABASE -----
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+// ----- GOOGLE OAUTH (optional) -----
+let googleClient;
+if (USE_GOOGLE_AUTH) {
+  googleClient = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID || '',
+    process.env.GOOGLE_CLIENT_SECRET || '',
+    process.env.GOOGLE_REDIRECT_URI || ''
+  );
+}
+
+app.get('/auth/google', (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  const url = googleClient.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['profile', 'email'],
+    prompt: 'consent'
+  });
+  res.redirect(url);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  if (!USE_GOOGLE_AUTH) return res.status(403).send('Google login is disabled.');
+  try {
+    const { tokens } = await googleClient.getToken(String(req.query.code || ''));
+    googleClient.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth: googleClient });
+    const user = await oauth2.userinfo.get();
+    res.json({ provider: 'google', user: user.data, tokens });
+  } catch (e) {
+    console.error('OAuth error:', e);
+    res.status(500).send('Google authentication failed.');
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
-  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
-  header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-  header h1{font-size:22px;margin:0}
-  .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
-  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
-  .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-  .row > .col{display:flex;flex-direction:column}
-  label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
-  input,select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
-  input[type="number"]{max-width:140px}
-  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
-  button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
-  .btn{background:var(--brand);color:#fff}
-  .btn.secondary{background:#eef2ff;color:#1e3a8a}
-  .btn.ghost{background:#f3f4f6;color:#374151}
-  .btn:disabled{opacity:.6;cursor:not-allowed}
-  .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
-  .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
-  .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
-  .list{margin-top:14px}
-  .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
-  .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
-  .from{color:var(--muted);font-size:12px}
-  .subject{font-weight:600}
-  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
-  .tag.imp{background:#fff7ed;border-color:#fed7aa}
-  details{margin-top:8px}
-  summary{cursor:pointer;color:#374151}
-  .meta{display:flex;gap:8px;align-items:center}
-  .sel{margin-right:6px}
-  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);background-size:300% 100%}
-  .sk-card{height:86px;border-radius:12px;margin:10px 0}
-  @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
-  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
-  .pager{display:flex;gap:6px;align-items:center}
-  .pager button{padding:8px 12px}
-  .hint{font-size:12px;color:var(--muted)}
-  @media (max-width:900px){
-    .row{grid-template-columns:1fr 1fr}
-    .email-header{grid-template-columns:1fr auto}
-    .footer{flex-direction:column;align-items:flex-start}
-  }
-</style>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h1>IMAP Reader & Classifier</h1>
-      <span class="badge">Universal IMAP</span>
-    </header>
+});
 
-    <section class="card" style="padding:16px 16px 8px">
-      <div class="row">
-        <div class="col">
-          <label for="email">Email</label>
-          <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
-        </div>
-        <div class="col">
-          <label for="password">App Password / Password</label>
-          <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
-        </div>
-        <div class="col">
-          <label for="host">IMAP Host</label>
-          <input id="host" placeholder="imap.gmail.com" />
-        </div>
-        <div class="col">
-          <label for="port">Port</label>
-          <input id="port" type="number" value="993" min="1" />
-        </div>
-      </div>
+// ----- MICROSOFT OAUTH (for Outlook/Office 365 IMAP) -----
+const MS_SCOPES = [
+  'offline_access',
+  'https://outlook.office.com/IMAP.AccessAsUser.All',
+  'https://outlook.office.com/SMTP.Send'
+].join(' ');
 
-      <div class="row" style="margin-top:6px">
-        <div class="col">
-          <label for="provider">Provider</label>
-          <select id="provider">
-            <option value="custom">— custom —</option>
-            <option value="gmail">Gmail</option>
-            <option value="outlook">Outlook / Office 365</option>
-            <option value="yahoo">Yahoo</option>
-            <option value="icloud">iCloud</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="tls">TLS</label>
-          <select id="tls">
-            <option value="on" selected>On (recommended)</option>
-            <option value="off">Off</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="range">Range</label>
-          <select id="range">
-            <option value="2" selected>Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="0">All</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="authType">Auth</label>
-          <select id="authType">
-            <option value="password" selected>Password / App Password</option>
-            <option value="xoauth2">XOAUTH2 (access token)</option>
-          </select>
-        </div>
-      </div>
+app.get('/auth/microsoft', (req, res) => {
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
 
-      <div class="row" id="xoRow" style="display:none;margin-top:6px">
-        <div class="col" style="grid-column:span 2">
-          <label for="accessToken">Access Token (OAuth)</label>
-          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <button class="btn secondary" id="btnMicrosoft">Sign in with Microsoft</button>
-        </div>
-      </div>
+  const state = crypto.randomBytes(16).toString('hex');
+  const nonce = crypto.randomBytes(16).toString('hex');
 
-      <div class="toolbar">
-        <button class="btn" id="btnFetch">Fetch & Classify</button>
-        <button class="btn ghost" id="btnRefresh">Refresh</button>
-        <button class="btn secondary" id="btnImportant">Filter: Important</button>
-        <button class="btn ghost" id="btnAll">Show All</button>
-        <button class="btn ghost" id="btnExportJson">Export JSON</button>
-        <button class="btn ghost" id="btnExportCsv">Export CSV</button>
-        <button class="btn secondary" id="btnSendSelected">Send Selected → Generator</button>
-      </div>
+  const params = new URLSearchParams({
+    client_id: process.env.MS_CLIENT_ID || '',
+    response_type: 'code',
+    redirect_uri: process.env.MS_REDIRECT_URI || '',
+    response_mode: 'query',
+    scope: MS_SCOPES,
+    state,
+    nonce,
+    prompt: 'select_account'
+  });
 
-      <div class="hint" style="margin-top:6px">
-        Tip: Many providers require an <b>App Password</b> for IMAP. For Gmail & iCloud, enable 2FA and create an app-specific password.
-      </div>
+  res.redirect(
+    'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' +
+      params.toString()
+  );
+});
 
-      <div id="msg"></div>
-    </section>
+app.get('/auth/microsoft/callback', async (req, res) => {
+  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
 
-    <section class="card list" id="list" aria-live="polite" aria-busy="false" style="padding:6px 12px 0"></section>
+  const code = String(req.query.code || '');
+  if (!code) return res.status(400).send('Missing authorization code');
 
-    <div class="card footer">
-      <div class="pager">
-        <button id="prev">&larr; Prev</button>
-        <span class="hint" id="pageInfo">Page 1</span>
-        <button id="next">Next &rarr;</button>
-        <span class="hint">Page size</span>
-        <select id="pageSize">
-          <option>10</option><option selected>20</option><option>50</option>
-        </select>
-      </div>
-      <div class="hint" id="countInfo"></div>
-    </div>
-  </div>
+  try {
+    const tokenRes = await fetch(
+      'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.MS_CLIENT_ID || '',
+          client_secret: process.env.MS_CLIENT_SECRET || '',
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: process.env.MS_REDIRECT_URI || '',
+          scope: MS_SCOPES
+        })
+      }
+    );
 
-<script>
-(() => {
-  const API = '/api/imap';
-  let cache = [];
-  let view = [];
-  let page = 1;
-  let pageSize = 20;
-
-  const el = id => document.getElementById(id);
-  const list = el('list');
-  const msg = el('msg');
-  const pageInfo = el('pageInfo');
-  const countInfo = el('countInfo');
-  const pageSizeSel = el('pageSize');
-
-  // Provider presets
-  const providerHost = {
-    gmail:   { host: 'imap.gmail.com',   port: 993 },
-    outlook: { host: 'outlook.office365.com', port: 993 },
-    yahoo:   { host: 'imap.mail.yahoo.com', port: 993 },
-    icloud:  { host: 'imap.mail.me.com', port: 993 }
-  };
-
-  // Events
-  el('provider').onchange = () => {
-    const v = el('provider').value;
-    if (providerHost[v]) {
-      el('host').value = providerHost[v].host;
-      el('port').value = providerHost[v].port;
+    const tokens = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error('MS token error:', tokens);
+      return res
+        .status(500)
+        .json({ error: 'Failed to exchange Microsoft token', detail: tokens });
     }
-  };
 
-  el('authType').onchange = () => {
-    const v = el('authType').value;
-    el('xoRow').style.display = (v === 'xoauth2') ? 'grid' : 'none';
-  };
+    return res.json({
+      provider: 'microsoft',
+      message: 'Microsoft OAuth successful',
+      tokens
+    });
+  } catch (err) {
+    console.error('Microsoft OAuth Error:', err);
+    return res.status(500).json({ error: 'Microsoft OAuth exchange failed' });
+  }
+});
 
-  el('btnMicrosoft').onclick = async () => {
-    window.location.href = '/auth/microsoft';
-  };
+// Helper for clients: which providers are enabled
+app.get('/auth/providers', (req, res) => {
+  res.json({
+    google_enabled: USE_GOOGLE_AUTH,
+    microsoft_enabled: USE_MS_AUTH,
+    google_url: USE_GOOGLE_AUTH ? '/auth/google' : null,
+    microsoft_url: USE_MS_AUTH ? '/auth/microsoft' : null
+  });
+});
 
-  el('btnFetch').onclick = fetchEmails;
-  el('btnRefresh').onclick = fetchEmails;
-  el('btnImportant').onclick = () => { view = cache.filter(e => (e.importance||'').toLowerCase()==='important'); page=1; render(); };
-  el('btnAll').onclick = () => { view = cache.slice(); page=1; render(); };
-  el('btnExportJson').onclick = () => exportJson(getSelected());
-  el('btnExportCsv').onclick = () => exportCsv(getSelected());
-  el('btnSendSelected').onclick = sendSelectedToGenerator;
-  el('prev').onclick = () => { if (page>1){ page--; render(); } };
-  el('next').onclick = () => { if (page < Math.max(1, Math.ceil(view.length/pageSize))){ page++; render(); } };
-  pageSizeSel.onchange = () => { pageSize = Number(pageSizeSel.value||20); page=1; render(); };
+// ----- HOME (SmartEmail UI) -----
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-  function showMsg(text, type='err'){
-    msg.innerHTML = `<div class="alert ${type==='err'?'err':'ok'}">${escapeHtml(text)}</div>`;
-    setTimeout(() => { msg.innerHTML=''; }, 5000);
+// ----- STATUS -----
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    googleLogin: USE_GOOGLE_AUTH,
+    microsoftLogin: USE_MS_AUTH,
+    mode: 'SmartEmail'
+  });
+});
+
+// ---------- LICENSE HELPERS ----------
+async function checkLicense(email) {
+  const { data, error } = await supabase
+    .from('licenses')
+    .select('smartemail_tier, smartemail_expires')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error || !data) {
+    await supabase
+      .from('licenses')
+      .upsert(
+        {
+          email: String(email || '').trim().toLowerCase(),
+          smartemail_tier: 'free',
+          smartemail_expires: null
+        },
+        { onConflict: 'email' }
+      );
+    return { tier: 'free', expires: null, reason: 'inserted-free' };
   }
 
-  function skeleton(count=5){
-    list.setAttribute('aria-busy','true');
-    list.innerHTML = Array.from({length:count}).map(()=>`<div class="sk-card skeleton"></div>`).join('');
+  return {
+    tier: data.smartemail_tier || 'free',
+    expires: data.smartemail_expires || null
+  };
+}
+
+// ---------- GENERATE ----------
+app.post('/generate', async (req, res) => {
+  const {
+    email, email_type, emailType,
+    tone, language,
+    target_audience, audience,
+    email_content, content,
+    sender_details, agent,
+    action
+  } = req.body;
+
+  const finalEmail = email;
+  const finalEmailType = email_type || emailType;
+  const finalTone = tone;
+  const finalLanguage = language;
+  const finalAudience = target_audience || audience;
+  const finalContent = email_content || content;
+  const finalAgent = sender_details || agent;
+
+  if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
+    return res.status(400).json({ error: 'Missing required fields.' });
   }
 
-  async function fetchEmails(){
-    const email = val('email'), password = val('password'), host = val('host'), port = Number(val('port'));
-    const tls = el('tls').value === 'on';
-    const rangeDays = Number(el('range').value || 2);
-    const authType = el('authType').value;
-    const accessToken = val('accessToken');
+  const prompt = `
+You are a senior email copywriter helping a user write a reply email.
 
-    if (!email || !host || !port){ showMsg('Please fill Email, Host and Port.'); return; }
-    if (authType === 'password' && !password) { showMsg('Password/App Password required.'); return; }
-    if (authType === 'xoauth2' && !accessToken) { showMsg('Access token required for XOAUTH2.'); return; }
+The user received this message and wants to respond to it:
+"""
+${finalContent}
+"""
 
-    skeleton(6);
-    toggleDisabled(true);
+Write a professional reply email using the following creative brief:
+
+- Email Type: ${finalEmailType}
+- Tone and Style: ${finalTone}
+- Target Audience: ${finalAudience}
+- Primary Goal / Call-to-Action: ${action || ''}
+- Language: ${finalLanguage}
+
+Include greeting, body, and closing with a strong sign-off.
+${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4-1106-preview',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+      }),
+    });
+    const result = await response.json();
+    const reply = (result.choices?.[0]?.message?.content || '').trim();
+    if (!reply) return res.status(500).json({ error: 'AI failed to generate a response.' });
 
     try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 60000);
-      const res = await fetch(`${API}/fetch`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          email, password, host, port, tls,
-          rangeDays, limit: 50,
-          authType, accessToken
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(t);
+      await supabase.from('leads').insert([{
+        email: finalEmail,
+        original_message: finalContent,
+        generated_reply: reply,
+        product: 'SmartEmail',
+      }]);
+    } catch {}
 
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok || !data || data.success === false){
-        throw new Error(data?.error || `Server error (${res.status})`);
-      }
-
-      const items = Array.isArray(data.emails) ? data.emails : (Array.isArray(data) ? data : []);
-      cache = items.map(normalizeEmail);
-      view = cache.slice();
-      page = 1;
-      render();
-      list.setAttribute('aria-busy','false');
-      showMsg(`Fetched ${cache.length} email(s).`, 'ok');
-    } catch (e){
-      list.setAttribute('aria-busy','false');
-      list.innerHTML = '';
-      showMsg(e.name === 'AbortError' ? 'Request timed out. Please try again.' : (e.message || 'Fetch failed.'));
-    } finally {
-      toggleDisabled(false);
-    }
+    const lic = await checkLicense(finalEmail);
+    res.json({ generatedEmail: reply, tier: lic.tier });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
   }
+});
 
-  function normalizeEmail(e){
-    return {
-      id: e.id || e.uid || cryptoRandomId(),
-      from: e.from || '',
-      subject: e.subject || '(no subject)',
-      text: e.text || '',
-      html: e.html || '',
-      date: e.date || e.internalDate || '',
-      importance: e.importance || 'unclassified',
-      fromEmail: (() => { const m=(e.from||'').match(/<([^>]+)>/); return (m && m[1]) || (e.from||''); })(),
-      fromDomain: (() => { const fe=(e.fromEmail || ((e.from||'').match(/<([^>]+)>/)||[,''])[1] || e.from||''); return (fe.split('@')[1]||'').trim(); })()
-    };
+// ---------- ENHANCE ----------
+app.post('/enhance', async (req, res) => {
+  const { email, enhance_request, enhance_content } = req.body;
+  if (!email || !enhance_request || !enhance_content) {
+    return res.status(400).json({ error: 'Missing required fields.' });
   }
+  const lic = await checkLicense(email);
+  if (lic.tier === 'free') return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
 
-  function cryptoRandomId(){
-    if (window.crypto?.getRandomValues){
-      const a = new Uint32Array(3); window.crypto.getRandomValues(a);
-      return [...a].map(n=>n.toString(16)).join('');
-    }
-    return String(Date.now())+Math.random().toString(16).slice(2);
-  }
+  const enhancePrompt = `
+Rewrite the email based on the user's request. Keep it professional.
 
-  function render(){
-    const total = view.length;
-    const pages = Math.max(1, Math.ceil(total / pageSize));
-    if (page > pages) page = pages;
+Original:
+${enhance_content}
 
-    const start = (page-1)*pageSize;
-    const slice = view.slice(start, start+pageSize);
+User request:
+${enhance_request}`.trim();
 
-    list.innerHTML = slice.map(cardHtml).join('') || `<div class="alert ok">No emails to show.</div>`;
-    pageInfo.textContent = `Page ${page} / ${pages}`;
-    countInfo.textContent = `${total} email(s) • showing ${slice.length}`;
-  }
-
-  function cardHtml(e){
-    const fromText = e.from || '';
-    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
-    const fromDomain = (e.fromDomain || (fromEmail.split('@')[1] || '')).trim();
-    const dateStr = e.date ? new Date(e.date).toLocaleString() : '';
-    const pill = (e.importance||'unclassified').toLowerCase()==='important' ? 'tag imp' : 'tag';
-
-    return `
-      <div class="email" data-id="${escapeHtml(e.id)}">
-        <div class="email-header">
-          <input class="sel" type="checkbox" aria-label="select email">
-          <div>
-            <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
-            <div class="from">
-              ${escapeHtml(fromText)}
-              ${fromDomain ? ` • <b>${escapeHtml(fromDomain)}</b>` : ''}
-              ${dateStr ? ` • ${escapeHtml(dateStr)}` : ''}
-            </div>
-          </div>
-          <div class="meta">
-            <span class="${pill}">${escapeHtml(e.importance||'unclassified')}</span>
-            <button class="btn ghost" onclick="sendOneToGenerator('${encodeURIComponent(e.id)}')">Send →</button>
-          </div>
-        </div>
-        <details>
-          <summary>Preview</summary>
-          <div style="white-space:pre-wrap;margin-top:6px" class="preview">${escapeHtml(e.text || stripHtml(e.html))}</div>
-        </details>
-      </div>
-    `;
-  }
-
-  function getSelected(){
-    const nodes = [...list.querySelectorAll('.email')];
-    return nodes
-      .filter(n => n.querySelector('.sel').checked)
-      .map(n => view.find(e => String(e.id) === String(n.getAttribute('data-id'))))
-      .filter(Boolean);
-  }
-
-  function exportJson(rows){
-    const data = rows && rows.length ? rows : view;
-    if (!data.length){ showMsg('Nothing to export.'); return; }
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-    download(blob, `emails_${ts()}.json`);
-  }
-
-  function exportCsv(rows){
-    const data = rows && rows.length ? rows : view;
-    if (!data.length){ showMsg('Nothing to export.'); return; }
-    const cols = ['id','from','subject','date','importance','text'];
-    const csv = [cols.join(',')]
-      .concat(data.map(e => cols.map(c => csvCell(e[c] ?? '')).join(',')))
-      .join('\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-    download(blob, `emails_${ts()}.csv`);
-  }
-
-  function csvCell(v){
-    const s = String(v).replace(/"/g,'""').replace(/\r?\n/g,' ');
-    return `"${s}"`;
-  }
-
-  function download(blob, name){
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    URL.revokeObjectURL(a.href);
-    a.remove();
-  }
-
-  function ts(){ return new Date().toISOString().replace(/[:.]/g,'-'); }
-  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-  function stripHtml(html){ const d=document.createElement('div'); d.innerHTML = html || ''; return d.textContent || d.innerText || ''; }
-  function toggleDisabled(state){ document.querySelectorAll('button,input,select').forEach(el => el.disabled = state && !['prev','next','pageSize'].includes(el.id)); }
-  function val(id){ return el(id)?.value?.trim(); }
-
-  // expose single-send for per-card button
-  window.sendOneToGenerator = (idEnc) => {
-    const id = decodeURIComponent(idEnc);
-    const e = view.find(x => String(x.id) === String(id));
-    if (!e) return showMsg('Email not found.');
-    navigateToGenerator(e);
-  };
-
-  function sendSelectedToGenerator(){
-    const chosen = getSelected();
-    if (!chosen.length) return showMsg('Select at least one email.');
-    navigateToGenerator(chosen[0]); // first for now
-  }
-
-  function navigateToGenerator(e){
-    const fromText = e.from || '';
-    const fromEmail = e.fromEmail || ((fromText.match(/<([^>]+)>/) || [,''])[1] || fromText);
-    const fromName = (fromText.replace(/<[^>]*>/g,'').trim() || fromEmail).trim();
-
-    const params = new URLSearchParams({
-      from: fromName || fromEmail,
-      subject: (e.subject||'').slice(0,180),
-      body: (e.text || stripHtml(e.html) || '').slice(0,8000)
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4-1106-preview',
+        messages: [{ role: 'user', content: enhancePrompt }],
+        max_tokens: 400,
+      }),
     });
-    window.location.href = `/${params.toString() ? '?' + params.toString() : ''}`;
+    const result = await response.json();
+    const reply = (result.choices?.[0]?.message?.content || '').trim();
+    if (!reply) return res.status(500).json({ error: 'AI failed to enhance.' });
+
+    try {
+      await supabase.from('enhancements').insert([{
+        email,
+        original_text: enhance_content,
+        enhancement_prompt: enhance_request,
+        enhanced_result: reply,
+        product: 'SmartEmail',
+      }]);
+    } catch {}
+
+    res.status(200).json({ generatedEmail: reply, tier: lic.tier });
+  } catch (err) {
+    console.error('Enhance error:', err);
+    res.status(500).json({ error: 'Something went wrong while enhancing.' });
   }
-})();
-</script>
-</body>
-</html>
+});
+
+// ---------- FREE USER & CONFIG ----------
+app.post('/api/register-free-user', async (req, res) => {
+  try {
+    const email = (req.body?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'Email required' });
+
+    const { data, error } = await supabase
+      .from('licenses')
+      .upsert(
+        { email, smartemail_tier: 'free', smartemail_expires: null },
+        { onConflict: ['email'] }
+      )
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: 'DB error', detail: error.message });
+    res.json({ status: data ? 'inserted' : 'exists' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Unknown error' });
+  }
+});
+
+app.get('/config', (req, res) => {
+  res.json({
+    PRO_URL: process.env.PRO_URL || '',
+    PREMIUM_URL: process.env.PREMIUM_URL || ''
+  });
+});
+
+// ---------- LICENSE VALIDATION ----------
+app.get('/validate-license', async (req, res) => {
+  try {
+    const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
+    const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
+    if (!email && !licenseKeyRaw) return res.status(400).json({ error: 'Missing email or licenseKey' });
+
+    let row = null;
+    if (licenseKeyRaw) {
+      const { data, error } = await supabase
+        .from('licenses')
+        .select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      if (error) throw error;
+      row = data;
+    } else {
+      const { data, error } = await supabase
+        .from('licenses')
+        .select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('email', email)
+        .maybeSingle();
+      if (error) throw error;
+      row = data;
+    }
+
+    if (!row && email) {
+      const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
+      const { data: inserted, error: insertError } = await supabase
+        .from('licenses')
+        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
+        .select()
+        .maybeSingle();
+      if (insertError) throw insertError;
+      row = inserted;
+    }
+
+    const now = new Date();
+    const tier = row.smartemail_tier || 'free';
+    const expiresAt = row.smartemail_expires || null;
+    const active = tier === 'free' ? true : !!(expiresAt && new Date(expiresAt) >= now);
+
+    return res.status(200).json({
+      status: active ? 'active' : 'expired',
+      tier,
+      email: row.email || null,
+      licenseKey: row.license_key || null,
+      expiresAt
+    });
+  } catch (err) {
+    console.error('validate-license error:', err?.message || err);
+    return res.status(500).json({ error: 'Validation failed' });
+  }
+});
+
+// ---------- IMAP UI + API ----------
+// UI
+app.get('/imap', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'imap.html'));
+});
+
+// API
+app.use('/api/imap', imapRoutes);
+
+// ---------- START ----------
+app.listen(PORT, () => {
+  console.log(`SmartEmail backend running on port ${PORT}`);
+});
