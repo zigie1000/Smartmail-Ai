@@ -10,7 +10,7 @@ rootCas.inject(); // also updates the global https agent
 
 dotenv.config();
 
-/** Format Date to IMAP SINCE: DD-Mon-YYYY (UTC) */
+/** IMAP "SINCE" needs DD-Mon-YYYY (UTC) */
 function toImapSince(dateObj) {
   const day = String(dateObj.getUTCDate()).padStart(2, '0');
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
@@ -18,25 +18,51 @@ function toImapSince(dateObj) {
   return `${day}-${mon}-${year}`;
 }
 
-/** Normalize criteria */
-function normalizeCriteria(criteria) {
-  if (!Array.isArray(criteria) || criteria.length === 0) return ['ALL'];
-  if (criteria[0] === 'SINCE' && criteria[1] instanceof Date) {
-    return ['SINCE', toImapSince(criteria[1])];
+/** Normalize criteria:
+ *  - ['SINCE', Date]  -> ['SINCE', 'DD-Mon-YYYY']
+ *  - undefined + sinceDays -> ['SINCE', 'DD-Mon-YYYY'] (computed)
+ *  - otherwise pass through or default to ['ALL']
+ */
+function normalizeCriteria(criteria, sinceDays) {
+  if (Array.isArray(criteria) && criteria.length) {
+    if (criteria[0] === 'SINCE' && criteria[1] instanceof Date) {
+      return ['SINCE', toImapSince(criteria[1])];
+    }
+    return criteria;
   }
-  return criteria;
+  if (sinceDays && Number(sinceDays) > 0) {
+    const d = new Date(Date.now() - Number(sinceDays) * 24 * 60 * 60 * 1000);
+    return ['SINCE', toImapSince(d)];
+  }
+  return ['ALL'];
 }
 
+/** Build XOAUTH2 string for node-imap when using OAuth access tokens */
+function buildXOAuth2(user, accessToken) {
+  // Format: base64("user=<email>\x01auth=Bearer <token>\x01\x01")
+  const raw = `user=${user}\x01auth=Bearer ${accessToken}\x01\x01`;
+  return Buffer.from(raw, 'utf8').toString('base64');
+}
+
+/**
+ * Fetch emails over IMAP
+ * Supports:
+ *  - Password/App Password auth (default)
+ *  - XOAUTH2 (accessToken) for Microsoft/Gmail OAuth
+ *  - TLS on/off
+ *  - Date range via sinceDays OR custom criteria
+ */
 export async function fetchEmails({
   email,
   password,
   host,
   port = 993,
-  criteria = ['ALL'],
+  criteria,           // optional IMAP criteria array
+  sinceDays,          // optional number of days for SINCE
   limit = 20,
-  tls = true,
-  authType = 'password',       // 'password' | 'xoauth2'
-  accessToken                   // OAuth access token for XOAUTH2
+  tls = true,         // boolean
+  authType = 'password',   // 'password' | 'xoauth2'
+  accessToken = ''    // required when authType === 'xoauth2'
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -47,31 +73,33 @@ export async function fetchEmails({
       else resolve(data || []);
     };
 
-    criteria = normalizeCriteria(criteria);
+    const searchCriteria = normalizeCriteria(criteria, sinceDays);
 
-    // Base config
+    // ---- Build IMAP connection config ----
     const imapConfig = {
       user: email,
       host,
       port: Number(port) || 993,
       tls: !!tls,
-      tlsOptions: {
-        rejectUnauthorized: true,
-        servername: host,
-        ca: rootCas
-      },
-      connTimeout: 30000,
+      connTimeout: 30000,  // generous for cold starts/providers
       authTimeout: 30000
-      // debug: (/*msg*/) => {}
+      // debug: (/*msg*/) => {}  // keep off to avoid leaking
     };
 
-    // Auth mode
-    if (String(authType).toLowerCase() === 'xoauth2') {
-      // For XOAUTH2, node-imap accepts a raw XOAUTH2 token string.
-      // Most providers accept just the OAuth access token as the xoauth2 value.
-      imapConfig.xoauth2 = accessToken;
+    if (imapConfig.tls) {
+      imapConfig.tlsOptions = {
+        rejectUnauthorized: true, // keep validation strict
+        servername: host,         // SNI
+        ca: rootCas               // ✅ local trusted CA bundle
+      };
+    }
+
+    if (authType === 'xoauth2') {
+      if (!accessToken) return finish(new Error('Missing access token for XOAUTH2'));
+      imapConfig.xoauth2 = buildXOAuth2(email, accessToken);
     } else {
-      imapConfig.password = password; // App Password / normal password
+      // default: password/app-password
+      imapConfig.password = password;
     }
 
     const imap = new Imap(imapConfig);
@@ -79,6 +107,7 @@ export async function fetchEmails({
     const emails = [];
     const parsers = [];
 
+    // Safety watchdog (allow slow handshakes)
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
@@ -88,17 +117,18 @@ export async function fetchEmails({
       imap.openBox('INBOX', true, (err) => {
         if (err) { clearTimeout(watchdog); return finish(err); }
 
-        imap.search(criteria, (err, results = []) => {
+        imap.search(searchCriteria, (err, results = []) => {
           if (err) { clearTimeout(watchdog); return finish(err); }
           if (!Array.isArray(results) || results.length === 0) {
             clearTimeout(watchdog);
             try { imap.end(); } catch {}
-            return;
+            return; // 'end' will resolve with []
           }
 
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
           const uids = results.slice(-n);
-          const fetcher = imap.fetch(uids, { bodies: '', struct: false });
+
+          const fetcher = imap.fetch(uids, { bodies: '' /* full */, struct: false });
 
           fetcher.on('message', (msg) => {
             let currentUid = null;
@@ -123,7 +153,7 @@ export async function fetchEmails({
                       html: parsed.html || ''
                     });
                   }
-                  res();
+                  res(); // never block whole batch on one message
                 });
               });
               parsers.push(p);
@@ -146,6 +176,11 @@ export async function fetchEmails({
 
     imap.once('error', (err) => {
       clearTimeout(watchdog);
+      // Normalize a couple of common errors for better UX (optional)
+      const m = (err?.message || '').toLowerCase();
+      if (m.includes('authentication') || m.includes('auth')) {
+        return finish(new Error('Authentication failed (check password/app password or token).'));
+      }
       finish(new Error(err?.message || 'IMAP error'));
     });
 
