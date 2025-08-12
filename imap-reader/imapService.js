@@ -22,30 +22,45 @@ function toImapSince(dateObj) {
  * Normalize/validate IMAP search criteria.
  * Guarantees a safe array for the imap lib.
  */
+// --- replace your normalizeCriteria with this version ---
+
 function normalizeCriteria(raw) {
-  let criteria = Array.isArray(raw) ? raw.slice() : ['ALL'];
+  // Default
+  if (!raw) return ['ALL'];
 
-  // Empty / bad -> ALL
-  if (!criteria.length) return ['ALL'];
-
-  // If SINCE, ensure there are exactly 2 args and the 2nd is a DD-Mon-YYYY string
-  if (String(criteria[0]).toUpperCase() === 'SINCE') {
-    if (criteria.length < 2 || criteria[1] == null || criteria[1] === '') {
-      return ['ALL']; // 🔒 avoid "Incorrect number of arguments for SINCE"
-    }
-    const v = criteria[1];
-    if (v instanceof Date) {
-      criteria[1] = toImapSince(v);
-    } else if (typeof v === 'string') {
-      // Accept DD-Mon-YYYY; if not, try to parse as Date and reformat
-      const ddMonYYYY = /^\d{2}-[A-Z][a-z]{2}-\d{4}$/;
-      if (!ddMonYYYY.test(v)) {
-        const d = new Date(v);
-        if (isNaN(d.getTime())) return ['ALL'];
-        criteria[1] = toImapSince(d);
+  // If already an array of criteria (e.g., ['ALL', ['SINCE', Date]])
+  // and looks valid, keep it.
+  if (Array.isArray(raw)) {
+    // Convert ["SINCE", "string"] -> ["SINCE", Date] and nest if needed
+    if (String(raw[0]).toUpperCase() === 'SINCE') {
+      let v = raw[1];
+      if (!(v instanceof Date)) {
+        v = new Date(v);
+        if (isNaN(v.getTime())) return ['ALL'];
       }
-    } else {
-      return ['ALL'];
+      // MUST be nested: [ ['SINCE', Date] ]
+      return [['SINCE', v]];
+    }
+
+    // If it’s already an array of multiple criteria, make sure any SINCE inside is Date
+    const fixed = raw.map(c => {
+      if (Array.isArray(c) && String(c[0]).toUpperCase() === 'SINCE') {
+        let v = c[1];
+        if (!(v instanceof Date)) {
+          v = new Date(v);
+          if (isNaN(v.getTime())) return null;
+        }
+        return ['SINCE', v];
+      }
+      return c;
+    }).filter(Boolean);
+
+    return fixed.length ? fixed : ['ALL'];
+  }
+
+  // Anything else -> ALL
+  return ['ALL'];
+}
     }
     // Ensure only two args for SINCE
     criteria = ['SINCE', criteria[1]];
