@@ -10,50 +10,39 @@ rootCas.inject(); // also updates the global https agent
 
 dotenv.config();
 
-/** Date -> DD-Mon-YYYY (UTC) */
-function toImapSince(dateObj) {
-  const day = String(dateObj.getUTCDate()).padStart(2, '0');
-  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
-  const year = dateObj.getUTCFullYear();
-  return `${day}-${mon}-${year}`;
-}
-
 /**
- * Normalize/validate IMAP search criteria.
- * Guarantees a safe array for the imap lib.
+ * Normalize/validate IMAP search criteria so the `imap` library
+ * always receives the correct nested shape:
+ *   - Good: [ ['SINCE', Date] ]
+ *   - Also OK: ['ALL', ['SINCE', Date]]
+ *   - BAD (what caused your crash): ['SINCE', '10-Aug-2025']  // string date, not nested
  */
-// --- replace your normalizeCriteria with this version ---
-
 function normalizeCriteria(raw) {
   // Default
   if (!raw) return ['ALL'];
 
-  // If already an array of criteria (e.g., ['ALL', ['SINCE', Date]])
-  // and looks valid, keep it.
-  if (Array.isArray(raw)) {
-    // Convert ["SINCE", "string"] -> ["SINCE", Date] and nest if needed
-    if (String(raw[0]).toUpperCase() === 'SINCE') {
-      let v = raw[1];
-      if (!(v instanceof Date)) {
-        v = new Date(v);
-        if (isNaN(v.getTime())) return ['ALL'];
-      }
-      // MUST be nested: [ ['SINCE', Date] ]
-      return [['SINCE', v]];
-    }
+  // If user passed a single pair like ['SINCE', <something>]
+  if (Array.isArray(raw) && String(raw[0]).toUpperCase() === 'SINCE') {
+    let v = raw[1];
+    if (!(v instanceof Date)) v = new Date(v);
+    if (isNaN(v.getTime())) return ['ALL'];
+    return [['SINCE', v]];
+  }
 
-    // If it’s already an array of multiple criteria, make sure any SINCE inside is Date
-    const fixed = raw.map(c => {
-      if (Array.isArray(c) && String(c[0]).toUpperCase() === 'SINCE') {
-        let v = c[1];
-        if (!(v instanceof Date)) {
-          v = new Date(v);
+  // If user passed an array of multiple criteria,
+  // ensure any SINCE item inside it is nested and uses a Date.
+  if (Array.isArray(raw)) {
+    const fixed = raw
+      .map((c) => {
+        if (Array.isArray(c) && String(c[0]).toUpperCase() === 'SINCE') {
+          let v = c[1];
+          if (!(v instanceof Date)) v = new Date(v);
           if (isNaN(v.getTime())) return null;
+          return ['SINCE', v];
         }
-        return ['SINCE', v];
-      }
-      return c;
-    }).filter(Boolean);
+        return c;
+      })
+      .filter(Boolean);
 
     return fixed.length ? fixed : ['ALL'];
   }
@@ -61,21 +50,17 @@ function normalizeCriteria(raw) {
   // Anything else -> ALL
   return ['ALL'];
 }
-    }
-    // Ensure only two args for SINCE
-    criteria = ['SINCE', criteria[1]];
-  }
-
-  return criteria;
-}
 
 export async function fetchEmails({
   email,
-  password,
+  password,          // for password/app password OR XOAUTH2 access token (see authType)
   host,
   port = 993,
   criteria = ['ALL'],
-  limit = 20
+  limit = 20,
+  tls = true,
+  authType = 'password', // 'password' | 'xoauth2'
+  accessToken = ''       // required if authType === 'xoauth2'
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -86,24 +71,34 @@ export async function fetchEmails({
       else resolve(data || []);
     };
 
-    // ✅ Ensure criteria is always valid for the imap lib
+    // Ensure criteria is IMAP-ready right before search
     criteria = normalizeCriteria(criteria);
 
-    const imap = new Imap({
+    // Build IMAP config
+    const imapConfig = {
       user: email,
-      password,                               // in-memory only; never logged
       host,
       port: Number(port) || 993,
-      tls: true,
+      tls: !!tls,
       tlsOptions: {
-        rejectUnauthorized: true,             // strict
-        servername: host,                     // SNI
-        ca: rootCas                           // ✅ local trusted CA bundle
+        rejectUnauthorized: true,     // keep validation strict
+        servername: host,             // SNI
+        ca: rootCas                   // ✅ local trusted CA bundle
       },
-      connTimeout: 30000,
+      connTimeout: 30000,             // generous for cold starts
       authTimeout: 30000
-      // debug: (/*msg*/) => {}
-    });
+      // debug: (/*msg*/) => {}       // keep off to avoid leaking
+    };
+
+    if (authType === 'xoauth2') {
+      // XOAUTH2: supply the access token
+      imapConfig.xoauth2 = accessToken || password || '';
+    } else {
+      // Password/App Password
+      imapConfig.password = password;
+    }
+
+    const imap = new Imap(imapConfig);
 
     const emails = [];
     const parsers = [];
@@ -118,15 +113,18 @@ export async function fetchEmails({
       imap.openBox('INBOX', true, (err) => {
         if (err) { clearTimeout(watchdog); return finish(err); }
 
-        // 🔎 tiny debug to verify final criteria in logs
-        console.log('IMAP search criteria =>', criteria);
+        // 🔎 Final criteria (keep this log until you confirm it’s fixed)
+        try {
+          console.log('IMAP search criteria (final) =>', JSON.stringify(criteria));
+        } catch {}
 
         imap.search(criteria, (err, results = []) => {
           if (err) { clearTimeout(watchdog); return finish(err); }
+
           if (!Array.isArray(results) || results.length === 0) {
             clearTimeout(watchdog);
             try { imap.end(); } catch {}
-            return; // 'end' resolves with []
+            return; // 'end' will resolve with []
           }
 
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
@@ -138,7 +136,6 @@ export async function fetchEmails({
             let currentUid = null;
             let internalDate = null;
 
-            // capture UID & internal date early
             msg.once('attributes', (attrs) => {
               currentUid = attrs?.uid ?? null;
               internalDate = attrs?.date ?? null;
@@ -150,7 +147,7 @@ export async function fetchEmails({
                   if (!err && parsed) {
                     emails.push({
                       uid: currentUid,
-                      internalDate,
+                      internalDate: internalDate,
                       subject: parsed.subject || '(no subject)',
                       from: parsed.from?.text || '',
                       date: parsed.date || internalDate || null,
@@ -158,7 +155,8 @@ export async function fetchEmails({
                       html: parsed.html || ''
                     });
                   }
-                  res(); // never let one bad message hang the batch
+                  // Always resolve so one bad message doesn't hang the batch
+                  res();
                 });
               });
               parsers.push(p);
