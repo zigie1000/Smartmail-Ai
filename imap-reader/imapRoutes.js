@@ -4,33 +4,31 @@ import { fetchEmails } from './imapService.js';
 
 const router = express.Router();
 
-/**
- * POST /api/imap/fetch
- * Body: {
- *   email, password, host, port,
- *   tls=true|false,
- *   rangeDays=2,         // number of days back; 0 or missing => ALL
- *   limit=200,
- *   authType='password', // or 'xoauth2'
- *   accessToken          // required if authType==='xoauth2'
- * }
- */
+/** Format Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
+function toImapSince(dateObj) {
+  const d = String(dateObj.getUTCDate()).padStart(2, '0');
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
+  const y = dateObj.getUTCFullYear();
+  return `${d}-${mon}-${y}`;
+}
+
 router.post('/fetch', async (req, res) => {
   try {
     const {
-      email = '',
-      password = '',
-      host = '',
+      email,
+      password,
+      host,
       port = 993,
-      tls = true,
+      limit = 50,
       rangeDays = 2,
-      limit = 200,
+      // present for future use (XOAUTH2/TLS handled client-side/imapService later)
       authType = 'password',
-      accessToken = ''
+      accessToken,
+      tls = true
     } = req.body || {};
 
     if (!email || !host || !port) {
-      return res.status(400).json({ success: false, error: 'Missing email, host or port.' });
+      return res.status(400).json({ success: false, error: 'Email, host and port are required.' });
     }
     if (authType === 'password' && !password) {
       return res.status(400).json({ success: false, error: 'Password/App Password required.' });
@@ -39,41 +37,33 @@ router.post('/fetch', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Access token required for XOAUTH2.' });
     }
 
-    // Build IMAP search criteria
+    // Build IMAP search criteria safely
     let criteria = ['ALL'];
-    const nDays = Number(rangeDays);
-    if (!Number.isNaN(nDays) && nDays > 0) {
+    const days = Number(rangeDays);
+    if (Number.isFinite(days) && days > 0) {
       const since = new Date();
-      since.setDate(since.getDate() - nDays);
-      criteria = ['SINCE', since]; // imapService will normalize Date → "DD-Mon-YYYY"
+      since.setUTCDate(since.getUTCDate() - days);
+      criteria = ['SINCE', toImapSince(since)];
     }
 
+    // NOTE: imapService currently uses username/password TLS.
+    // If you later wire XOAUTH2, pass the token and update imapService accordingly.
     const emails = await fetchEmails({
       email,
       password,
       host,
-      port,
-      tls,
+      port: Number(port) || 993,
       criteria,
-      limit,
-      authType,
-      accessToken
+      limit: Number(limit) || 50
     });
 
     return res.json({ success: true, emails });
   } catch (err) {
-    const message = err?.message || String(err);
-    console.error('IMAP fetch failed:', message);
-    // ⬇️ Return the real reason so the UI can show it instead of a generic 502.
-    return res.status(502).json({
-      success: false,
-      error: message,
-      code: 'IMAP_FETCH_FAILED'
-    });
+    // Surface the real reason to the client (helps avoid generic 502s)
+    const message = err?.message || 'IMAP fetch failed';
+    console.error('IMAP /fetch error:', message);
+    return res.status(502).json({ success: false, error: message });
   }
 });
-
-// Optional: quick health probe for your logs/monitoring
-router.get('/health', (_req, res) => res.json({ ok: true }));
 
 export default router;
