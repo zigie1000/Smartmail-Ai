@@ -10,7 +10,7 @@ rootCas.inject(); // also updates the global https agent
 
 dotenv.config();
 
-/** Format a Date to IMAP SINCE format: DD-Mon-YYYY (UTC) */
+/** Format Date to IMAP SINCE: DD-Mon-YYYY (UTC) */
 function toImapSince(dateObj) {
   const day = String(dateObj.getUTCDate()).padStart(2, '0');
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
@@ -18,20 +18,13 @@ function toImapSince(dateObj) {
   return `${day}-${mon}-${year}`;
 }
 
-/** Criteria normalizer (accepts ['SINCE', Date]) */
+/** Normalize criteria */
 function normalizeCriteria(criteria) {
   if (!Array.isArray(criteria) || criteria.length === 0) return ['ALL'];
   if (criteria[0] === 'SINCE' && criteria[1] instanceof Date) {
     return ['SINCE', toImapSince(criteria[1])];
   }
   return criteria;
-}
-
-/** Build XOAUTH2 token (RFC 7628 style) */
-function buildXoauth2(user, accessToken) {
-  // "user=<email>\x01auth=Bearer <token>\x01\x01" then base64
-  const raw = `user=${user}\x01auth=Bearer ${accessToken}\x01\x01`;
-  return Buffer.from(raw, 'utf8').toString('base64');
 }
 
 export async function fetchEmails({
@@ -43,7 +36,7 @@ export async function fetchEmails({
   limit = 20,
   tls = true,
   authType = 'password',       // 'password' | 'xoauth2'
-  accessToken = ''             // if authType === 'xoauth2'
+  accessToken                   // OAuth access token for XOAUTH2
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -54,30 +47,31 @@ export async function fetchEmails({
       else resolve(data || []);
     };
 
-    // Ensure criteria is IMAP-ready
     criteria = normalizeCriteria(criteria);
 
-    // Base IMAP config
+    // Base config
     const imapConfig = {
       user: email,
       host,
       port: Number(port) || 993,
       tls: !!tls,
-      tlsOptions: !!tls ? {
+      tlsOptions: {
         rejectUnauthorized: true,
         servername: host,
         ca: rootCas
-      } : undefined,
+      },
       connTimeout: 30000,
       authTimeout: 30000
-      // debug: (msg) => console.log('[imap]', msg)
+      // debug: (/*msg*/) => {}
     };
 
-    if (authType === 'xoauth2') {
-      if (!accessToken) return finish(new Error('Missing access token for XOAUTH2'));
-      imapConfig.xoauth2 = buildXoauth2(email, accessToken);
+    // Auth mode
+    if (String(authType).toLowerCase() === 'xoauth2') {
+      // For XOAUTH2, node-imap accepts a raw XOAUTH2 token string.
+      // Most providers accept just the OAuth access token as the xoauth2 value.
+      imapConfig.xoauth2 = accessToken;
     } else {
-      imapConfig.password = password;
+      imapConfig.password = password; // App Password / normal password
     }
 
     const imap = new Imap(imapConfig);
@@ -85,7 +79,6 @@ export async function fetchEmails({
     const emails = [];
     const parsers = [];
 
-    // Safety watchdog
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
@@ -100,12 +93,11 @@ export async function fetchEmails({
           if (!Array.isArray(results) || results.length === 0) {
             clearTimeout(watchdog);
             try { imap.end(); } catch {}
-            return; // 'end' will resolve with []
+            return;
           }
 
           const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
           const uids = results.slice(-n);
-
           const fetcher = imap.fetch(uids, { bodies: '', struct: false });
 
           fetcher.on('message', (msg) => {
