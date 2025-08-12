@@ -134,7 +134,6 @@ app.get('/auth/microsoft/callback', async (req, res) => {
         .json({ error: 'Failed to exchange Microsoft token', detail: tokens });
     }
 
-    // You can persist tokens in Supabase keyed by email if desired.
     return res.json({
       provider: 'microsoft',
       message: 'Microsoft OAuth successful',
