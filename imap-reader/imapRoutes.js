@@ -1,42 +1,36 @@
 // imap-reader/imapRoutes.js
-import { Router } from 'express';
+import express from 'express';
 import { fetchEmails } from './imapService.js';
 
-const router = Router();
+const router = express.Router();
 
-/**
- * POST /api/imap/fetch
- * Body: { email, password, host, port, tls, rangeDays, limit, authType, accessToken }
- */
 router.post('/fetch', async (req, res) => {
   try {
     const {
-      email, password, host,
-      port = 993,
+      email, password, host, port,
       tls = true,
       rangeDays = 2,
       limit = 50,
       authType = 'password',
-      accessToken = ''
+      accessToken
     } = req.body || {};
 
     if (!email || !host || !port) {
-      return res.status(400).json({ success: false, error: 'Missing email, host or port' });
+      return res.status(400).json({ success: false, error: 'Missing email, host, or port' });
     }
     if (authType === 'password' && !password) {
-      return res.status(400).json({ success: false, error: 'Missing password/app password' });
+      return res.status(400).json({ success: false, error: 'Password/App Password required' });
     }
     if (authType === 'xoauth2' && !accessToken) {
-      return res.status(400).json({ success: false, error: 'Missing access token for XOAUTH2' });
+      return res.status(400).json({ success: false, error: 'Access token required for XOAUTH2' });
     }
 
-    // Build IMAP criteria: last N days or ALL
+    // Build IMAP criteria (SINCE N days) — 0 means ALL
     let criteria = ['ALL'];
-    const days = Number(rangeDays);
-    if (Number.isFinite(days) && days > 0) {
-      const since = new Date();
-      since.setUTCDate(since.getUTCDate() - days);
-      criteria = ['SINCE', since]; // imapService normalizes to DD-Mon-YYYY
+    const n = Number(rangeDays);
+    if (Number.isFinite(n) && n > 0) {
+      const since = new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+      criteria = ['SINCE', since];
     }
 
     const emails = await fetchEmails({
@@ -53,8 +47,8 @@ router.post('/fetch', async (req, res) => {
 
     return res.json({ success: true, emails });
   } catch (err) {
-    console.error('IMAP fetch error:', err?.message || err);
-    return res.status(500).json({ success: false, error: err?.message || 'IMAP error' });
+    console.error('IMAP fetch failed:', err?.message || err);
+    return res.status(500).json({ success: false, error: err?.message || 'IMAP fetch failed' });
   }
 });
 
