@@ -1,17 +1,19 @@
-// imap-reader/imapRoutes.js (fixed & backward-compatible)
-// NOTE: emailClassifier.js is in the SAME folder as this file.
+// imap-reader/imapRoutes.js — caps, login probe, clear errors
 import express from 'express';
-import { fetchEmails } from './imapService.js';
+import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
 
 const router = express.Router();
 
-/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE (kept for reference if needed) */
-function toImapSince(dateObj) {
-  const d = String(dateObj.getUTCDate()).padStart(2, '0');
-  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
-  const y = dateObj.getUTCFullYear();
-  return `${d}-${mon}-${y}`;
+// ---- Defaults & caps (keep requests small/fast) ----
+const DEFAULT_RANGE_DAYS = 2;
+const DEFAULT_LIMIT      = 20;
+const MAX_RANGE_DAYS     = 7;   // cap to 1 week unless user explicitly changes
+const MAX_LIMIT          = 50;
+
+function clamp(n, lo, hi){
+  const x = Number(n);
+  return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
 }
 
 /** Build IMAP search criteria safely */
@@ -20,21 +22,44 @@ function buildCriteria(rangeDays){
   if (Number.isFinite(days) && days > 0) {
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - days);
-    // imapService.js normalizes Date objects for SINCE
+    // imapService will normalize Date in search() call
     return ['SINCE', since];
   }
   return ['ALL'];
 }
 
-/** Existing endpoint (kept exactly) */
-router.post('/fetch', async (req, res) => {
+/** POST /api/imap/test — attempts login only and returns exact reason */
+router.post('/test', async (req, res) => {
   try {
     const {
       email, password, host, port = 993,
-      limit = 50, rangeDays = 2,
+      authType = 'password', accessToken = '', tls = true
+    } = req.body || {};
+
+    if (!email || !host) return res.status(400).json({ ok:false, error:'Email and host required' });
+    if (authType === 'password' && !password) return res.status(400).json({ ok:false, error:'Password/App Password required' });
+    if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok:false, error:'Access token required for XOAUTH2' });
+
+    await testLogin({ email, password, host, port: Number(port)||993, tls: !!tls, authType, accessToken });
+    return res.json({ ok:true, message:'Login OK' });
+  } catch (e) {
+    return res.status(401).json({ ok:false, error: e?.message || 'Auth failed' });
+  }
+});
+
+/** POST /api/imap/fetch — main fetch (uses caps) */
+router.post('/fetch', async (req, res) => {
+  try {
+    let {
+      email, password, host, port = 993,
+      limit = DEFAULT_LIMIT, rangeDays = DEFAULT_RANGE_DAYS,
       authType = 'password', accessToken = '',
       tls = true
     } = req.body || {};
+
+    // clamp user input
+    limit = clamp(limit, 1, MAX_LIMIT);
+    rangeDays = clamp(rangeDays, 0, MAX_RANGE_DAYS);
 
     if (!email || !host || !port) return res.status(400).json({ success:false, error:'Email, host and port are required.' });
     if (authType === 'password' && !password) return res.status(400).json({ success:false, error:'Password/App Password required.' });
@@ -44,8 +69,7 @@ router.post('/fetch', async (req, res) => {
 
     const emails = await fetchEmails({
       email, password, host, port: Number(port)||993,
-      criteria, limit: Number(limit)||50, tls: !!tls,
-      authType, accessToken
+      criteria, limit, tls: !!tls, authType, accessToken
     });
 
     return res.json({ success:true, emails });
@@ -55,27 +79,29 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
-/** New: GET /list to match UI */
+/** GET /api/imap/list — for clients that still use GET (also capped) */
 router.get('/list', async (req, res) => {
   try {
-    const {
+    let {
       email, password, host,
-      port = '993', limit = '50',
-      range = '2', authType = 'password',
+      port = '993', limit = String(DEFAULT_LIMIT),
+      range = String(DEFAULT_RANGE_DAYS), authType = 'password',
       accessToken = '', tls = 'on'
     } = req.query || {};
+
+    const limitNum = clamp(limit, 1, MAX_LIMIT);
+    const rangeNum = clamp(range, 0, MAX_RANGE_DAYS);
 
     if (!email || !host || !port) return res.status(400).json({ success:false, error:'Email, host and port are required.' });
     if (authType === 'password' && !password) return res.status(400).json({ success:false, error:'Password/App Password required.' });
     if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ success:false, error:'Access token required for XOAUTH2.' });
 
-    const criteria = buildCriteria(range);
+    const criteria = buildCriteria(rangeNum);
     const tlsOn = String(tls).toLowerCase() !== 'off';
 
     const emails = await fetchEmails({
       email, password, host, port: Number(port)||993,
-      criteria, limit: Number(limit)||50, tls: tlsOn,
-      authType, accessToken
+      criteria, limit: limitNum, tls: tlsOn, authType, accessToken
     });
 
     const out = (emails||[]).map((m, i) => ({
@@ -99,12 +125,13 @@ router.get('/list', async (req, res) => {
   }
 });
 
-/** New: POST /classify runs the classifier */
+/** POST /api/imap/classify — runs the classifier */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.json([]);
 
+    // truncate snippet defensively before model
     const normalized = items.map(e => ({
       subject: e.subject || '',
       from: e.from || '',
@@ -113,7 +140,7 @@ router.post('/classify', async (req, res) => {
       to: e.to || '',
       cc: e.cc || '',
       date: e.date || '',
-      snippet: e.snippet || ''
+      snippet: (e.snippet || e.text || '').slice(0, 500)
     }));
 
     const results = await classifyEmails(normalized);
