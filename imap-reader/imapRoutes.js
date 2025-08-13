@@ -50,6 +50,7 @@ router.post('/fetch', async (req, res) => {
       accessToken
     });
 
+    // Normalize so filters have something to work with
     const out = (emails || []).map((m, i) => ({
       id: m.uid || m.id || String(i + 1),
       from: m.from || '',
@@ -58,7 +59,10 @@ router.post('/fetch', async (req, res) => {
       date: m.date || m.internalDate || null,
       text: m.text || '',
       html: m.html || '',
-      importance: m.importance || 'unclassified'
+      // 👇 default anything unknown to "unimportant" (so Filter: Important works)
+      importance: (m.importance && String(m.importance).toLowerCase() === 'important')
+        ? 'important'
+        : 'unimportant'
     }));
 
     return res.json({ success: true, emails: out });
