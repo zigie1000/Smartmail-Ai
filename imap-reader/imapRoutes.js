@@ -1,98 +1,116 @@
-// imap-reader/imapRoutes.js
+// imap-reader/imapRoutes.js (FINAL)
 import express from 'express';
 import { fetchEmails } from './imapService.js';
-import { classifyEmails } from '../emailClassifier.js';
+import { classifyEmails } from './emailClassifier.js'; // <- correct relative path
 
 const router = express.Router();
 
-/** Build IMAP search criteria safely (Date object, not string) */
-function buildCriteria(rangeDays) {
-  const n = Number(rangeDays);
-  if (Number.isFinite(n) && n > 0) {
+/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
+function toImapSince(dateObj) {
+  const d = String(dateObj.getUTCDate()).padStart(2, '0');
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
+  const y = dateObj.getUTCFullYear();
+  return `${d}-${mon}-${y}`;
+}
+
+/** Build IMAP search criteria safely (uses Date object for SINCE) */
+function buildCriteria(rangeDays){
+  const days = Number(rangeDays);
+  if (Number.isFinite(days) && days > 0) {
     const since = new Date();
-    since.setUTCDate(since.getUTCDate() - n);
+    since.setUTCDate(since.getUTCDate() - days);
     return ['SINCE', since];
   }
   return ['ALL'];
 }
 
-/** Common input checks (no provider-specific gating) */
-function validateCommon(body = {}) {
-  const { email, password, host, port, authType = 'password', accessToken = '' } = body;
-  if (!email || !host || !port) return 'Email, host and port are required.';
-  if (authType === 'password' && !password) return 'Password/App Password required.';
-  if (authType === 'xoauth2' && !accessToken) return 'Access token required for XOAUTH2.';
-  return null;
-}
-
-/** POST /api/imap/fetch — fetch + parse emails */
+/** POST /fetch — fetch messages (default: last 2 days, limit 50) */
 router.post('/fetch', async (req, res) => {
   try {
-    const err = validateCommon(req.body);
-    if (err) return res.status(400).json({ success: false, error: err });
-
     const {
       email, password, host,
-      port = 993, tls = true,
-      rangeDays = 2, limit = 50,
-      authType = 'password', accessToken = ''
-    } = req.body;
+      port = 993, limit = 50, rangeDays = 2,
+      authType = 'password', accessToken = '',
+      tls = true
+    } = req.body || {};
+
+    if (!email || !host || !port) {
+      return res.status(400).json({ success:false, error:'Email, host and port are required.' });
+    }
+    if (authType === 'password' && !password) {
+      return res.status(400).json({ success:false, error:'Password/App Password required.' });
+    }
+    if (authType === 'xoauth2' && !accessToken) {
+      return res.status(400).json({ success:false, error:'Access token required for XOAUTH2.' });
+    }
+
+    const criteria = buildCriteria(rangeDays);
 
     const emails = await fetchEmails({
       email,
       password,
       host,
       port: Number(port) || 993,
-      tls: !!tls,
-      criteria: buildCriteria(rangeDays),
+      criteria,
       limit: Number(limit) || 50,
+      tls: !!tls,
       authType,
       accessToken
     });
 
-    return res.json({ success: true, emails });
-  } catch (e) {
-    const message = e?.message || 'IMAP fetch failed';
+    // minimal normalization (keeps UI happy even if IMAP lacks fields)
+    const out = (emails || []).map((m, i) => ({
+      id: m.uid || m.id || String(i + 1),
+      from: m.from || '',
+      to: m.to || '',
+      subject: m.subject || '(no subject)',
+      date: m.date || m.internalDate || null,
+      text: m.text || '',
+      html: m.html || '',
+      importance: m.importance || 'unclassified'
+    }));
+
+    return res.json({ success:true, emails: out });
+  } catch (err) {
+    const message = err?.message || 'IMAP fetch failed';
     console.error('IMAP /fetch error:', message);
-    return res.status(502).json({ success: false, error: message });
+    return res.status(502).json({ success:false, error: message });
   }
 });
 
-/** POST /api/imap/test — fast handshake check (login + openBox) */
+/** POST /test — light “can I login & open INBOX” check (no fetch) */
 router.post('/test', async (req, res) => {
   try {
-    const err = validateCommon(req.body);
-    if (err) return res.status(400).json({ ok: false, error: err });
-
     const {
       email, password, host,
-      port = 993, tls = true,
-      authType = 'password', accessToken = ''
-    } = req.body;
+      port = 993, authType = 'password',
+      accessToken = '', tls = true
+    } = req.body || {};
 
-    // Do a tiny search (1 msg) to validate everything works end-to-end.
+    if (!email || !host || !port) return res.status(400).json({ ok:false, error:'Email, host and port are required.' });
+    if (authType === 'password' && !password) return res.status(400).json({ ok:false, error:'Password/App Password required.' });
+    if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok:false, error:'Access token required for XOAUTH2.' });
+
+    // reuse fetchEmails with limit 1 & ALL to exercise auth/open
     await fetchEmails({
       email,
       password,
       host,
       port: Number(port) || 993,
-      tls: !!tls,
       criteria: ['ALL'],
       limit: 1,
+      tls: !!tls,
       authType,
       accessToken
     });
 
-    return res.json({ ok: true });
+    return res.json({ ok:true });
   } catch (e) {
-    const message = e?.message || 'Login failed';
-    console.error('IMAP /test error:', message);
-    // 200 with ok:false lets the UI show the exact server message without throwing.
-    return res.status(200).json({ ok: false, error: message });
+    return res.status(401).json({ ok:false, error: e?.message || 'Login failed' });
   }
 });
 
-/** POST /api/imap/classify — run the lightweight classifier on items */
+/** POST /classify — run LLM classifier on client-provided items */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
