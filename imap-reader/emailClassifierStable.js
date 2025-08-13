@@ -1,4 +1,4 @@
-// emailClassifier.js — upgraded, backward-compatible classifier
+// emailClassifier.js
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -6,18 +6,8 @@ dotenv.config();
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * Input:  [{ subject, from, fromEmail, fromDomain, to, cc, date, snippet }]
- * Output: [{
- *   importance: "important" | "unimportant",
- *   intent?: "billing"|"meeting"|"sales"|"support"|"hr"|"legal"|"security"|"newsletter"|"social"|"other",
- *   urgency?: 0|1|2|3,
- *   action_required?: boolean,
- *   entities?: { amount?: string, dateTime?: string, company?: string, thread?: boolean },
- *   confidence?: number,   // 0..1
- *   reasons?: string[]     // short why-explanations
- * }]
- *
- * If the model returns bad JSON, we gracefully fall back to { importance } only.
+ * Input: [{ subject, from, fromEmail, fromDomain, to, cc, date, snippet }]
+ * Output: [{ importance: "important" | "unimportant", intent?: string, urgency?: number, action_required?: boolean, entities?: object, confidence?: number, reasons?: string[] }]
  */
 export async function classifyEmails(items) {
   const input = items.map(e => ({
@@ -32,56 +22,71 @@ export async function classifyEmails(items) {
   }));
 
   const sys = `
-You are an email triager. For each input email, return a single JSON array of objects (one per input) with:
-
-- importance: "important" | "unimportant"
+You label emails as "important" or "unimportant". Also (optionally) provide:
 - intent: one of ["billing","meeting","sales","support","hr","legal","security","newsletter","social","other"]
-- urgency: integer 0..3  (0 none, 1 low, 2 medium, 3 urgent)
-- action_required: true|false
+- urgency: 0..3 (0 none, 3 urgent)
+- action_required: true/false
 - entities: { amount?: string, dateTime?: string, company?: string, thread?: boolean }
-- confidence: number 0..1
-- reasons: string[] (1–3 short bullets that explain the decision)
+- confidence: 0..1
+- reasons: 1-3 short bullets
 
-Heuristics (apply in this order):
-1) OTP/verification codes, password resets, calendar invites within 24h, invoices/refunds/contracts ⇒ important (urgency ≥2).
-2) Direct replies/threads ("Re:", "Fwd:") from known/ongoing correspondents ⇒ important (entities.thread=true).
-3) Bulk promos/digests/unsubscribe-heavy ⇒ unimportant unless a thread exists in last 7 days.
+Heuristics:
+- IMPORTANT if: time-sensitive (deadlines, interviews, meetings, calendar invites in <24h), legal/security (contracts, verification codes, password reset), finance (invoice, refund, payment), direct reply in an active thread.
+- UNIMPORTANT if: bulk promotions/newsletters/digests unless part of an active thread.
 
-Prefer IMPORTANT when unsure. Return ONLY the JSON array.`.trim();
+Always return a JSON array with the same length as the input. Prefer IMPORTANT when unsure.`.trim();
 
-  const user = `Emails:\n${JSON.stringify(input)}`;
+  const userContent = `Classify the following emails:\n${JSON.stringify(input)}`;
 
-  const resp = await client.chat.completions.create({
-    model: process.env.SMARTEMAIL_CLASSIFIER_MODEL || 'gpt-4o-mini',
-    temperature: 0,
-    max_tokens: 512,
-    messages: [
-      { role: 'system', content: sys },
-      { role: 'user', content: user }
-    ]
-  });
-
-  // Parse with safe fallback to your previous single-field shape
-  let parsed = [];
   try {
+    const resp = await client.chat.completions.create({
+      model: process.env.SMARTEMAIL_CLASSIFIER_MODEL || 'gpt-4o-mini',
+      temperature: 0,
+      max_tokens: 256,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: userContent }
+      ]
+    });
+
     const text = resp.choices?.[0]?.message?.content?.trim() || '[]';
-    parsed = JSON.parse(text);
-  } catch {
-    parsed = [];
-  }
+    const parsed = JSON.parse(text);
 
-  if (!Array.isArray(parsed) || parsed.length !== items.length) {
-    // Back-compat: if anything goes wrong, only return importance (default unclassified)
-    return items.map(() => ({ importance: 'unimportant' }));
-  }
+    if (Array.isArray(parsed) && parsed.length === items.length) {
+      return parsed.map(x => ({
+        importance: /important/i.test(x?.importance) ? 'important' : 'unimportant',
+        intent: x?.intent || undefined,
+        urgency: typeof x?.urgency === 'number' ? x.urgency : undefined,
+        action_required: typeof x?.action_required === 'boolean' ? x.action_required : undefined,
+        entities: x?.entities || undefined,
+        confidence: typeof x?.confidence === 'number' ? x.confidence : undefined,
+        reasons: Array.isArray(x?.reasons) ? x.reasons : undefined
+      }));
+    }
 
-  return parsed.map(x => ({
-    importance: /important/i.test(x?.importance) ? 'important' : 'unimportant',
-    intent: x?.intent || 'other',
-    urgency: Number.isInteger(x?.urgency) ? x.urgency : 0,
-    action_required: !!x?.action_required,
-    entities: x?.entities && typeof x.entities === 'object' ? x.entities : {},
-    confidence: typeof x?.confidence === 'number' ? x.confidence : 0.6,
-    reasons: Array.isArray(x?.reasons) ? x.reasons.slice(0, 3) : []
-  }));
+    // Fallback if parse failed or lengths mismatch
+    return items.map(e => fallbackHeuristic(e));
+  } catch (err) {
+    console.error('Classifier error:', err?.message || err);
+    // Fallback if API fails
+    return items.map(e => fallbackHeuristic(e));
+  }
+}
+
+function fallbackHeuristic(e){
+  const s = `${e.subject||''} ${e.snippet||''}`.toLowerCase();
+  const isImportant = /\b(invoice|payment|refund|meeting|calendar|interview|contract|2fa|verification|password|reset|security)\b/.test(s);
+  const intent =
+    /invoice|payment|refund/.test(s) ? 'billing' :
+    /meeting|calendar|interview/.test(s) ? 'meeting' :
+    /contract|nda|legal/.test(s) ? 'legal' :
+    /password|2fa|verification|security/.test(s) ? 'security' :
+    undefined;
+
+  return {
+    importance: isImportant ? 'important' : 'unimportant',
+    intent,
+    urgency: /\burgent|asap|today|tomorrow\b/.test(s) ? 2 : 0,
+    action_required: !!isImportant
+  };
 }
