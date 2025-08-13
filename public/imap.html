@@ -35,17 +35,9 @@
   .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
   .tag.imp{background:#fff7ed;border-color:#fed7aa}
   .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;margin-left:6px;color:#334155}
-  .chip.u0{opacity:.6}
-  .chip.u1{border-color:#bfdbfe;background:#eff6ff}
-  .chip.u2{border-color:#fde68a;background:#fff7ed}
-  .chip.u3{border-color:#fecaca;background:#fee2e2}
-  .chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2}
-  .chip.pri-High{border-color:#fde68a;background:#fff7ed}
-  .chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff}
-  .chip.pri-Low{opacity:.6}
-  .chip[title]{cursor:help}
-  details{margin-top:8px}
-  summary{cursor:pointer;color:#374151}
+  .chip.u0{opacity:.6}.chip.u1{border-color:#bfdbfe;background:#eff6ff}.chip.u2{border-color:#fde68a;background:#fff7ed}.chip.u3{border-color:#fecaca;background:#fee2e2}
+  .chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2}.chip.pri-High{border-color:#fde68a;background:#fff7ed}.chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff}.chip.pri-Low{opacity:.6}
+  details{margin-top:8px} summary{cursor:pointer;color:#374151}
   .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .sel{margin-right:6px}
   .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
@@ -168,10 +160,7 @@
           <label for="fPriority">Priority</label>
           <select id="fPriority">
             <option value="">All</option>
-            <option>Urgent</option>
-            <option>High</option>
-            <option>Normal</option>
-            <option>Low</option>
+            <option>Urgent</option><option>High</option><option>Normal</option><option>Low</option>
           </select>
         </div>
         <div class="col">
@@ -183,7 +172,7 @@
           </select>
         </div>
         <div class="col">
-          <label for="fAction">Action</</label>
+          <label for="fAction">Action</label>
           <select id="fAction">
             <option value="">All</option>
             <option value="needs">Needs action</option>
@@ -242,7 +231,7 @@
   const msg = $("msg");
   const state = { emails: [], view: [], page: 1, perPage: 20, filter: "all" };
 
-  // Provider presets
+  // Provider presets (host/port only)
   const PROVIDERS = {
     gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
     outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
@@ -250,22 +239,17 @@
     icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
   };
 
-  // ---- Persistence ----
+  // Persistence
   const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
   function saveForm(){ KEYS.forEach(k => localStorage.setItem("imap."+k, $(k).value)); }
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
   // Helpers
-  function escapeHtml(s) {
-  s = (s == null ? '' : String(s));
-  return s.replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
-}
-  function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 5000); }
+  function escapeHtml(s){ s = (s == null ? '' : String(s)); return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind==='ok'?'ok':'err'}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 5000); }
   function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
 
-  // ---- Priority mapping ----
+  // Priority for chips
   function priorityOf(e){
     const imp = String(e.importance||"unimportant").toLowerCase();
     const urg = Number.isFinite(+e.urgency) ? +e.urgency : 0;
@@ -276,7 +260,7 @@
     return "Low";
   }
 
-  // ---- Rendering ----
+  // Render
   function render(){
     const start = (state.page-1)*state.perPage;
     const items = state.view.slice(start, start+state.perPage);
@@ -314,7 +298,7 @@
     </div>`;
   }
 
-  // ---- Filtering ----
+  // Filters
   function applyFilters(){
     let filtered = [...state.emails];
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
@@ -365,7 +349,7 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
-  // ---- Networking ----
+  // Networking
   async function fetchAndClassify(){
     skeleton(6);
     try{
@@ -395,8 +379,8 @@
       if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
       const data = await resp.json();
       const emails = Array.isArray(data?.emails)?data.emails:[];
-
       let enriched = emails;
+
       const hasImportance = enriched.some(e => typeof e.importance !== "undefined");
       if(!hasImportance && emails.length){
         const clf = await fetch("/api/imap/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:emails})});
@@ -425,7 +409,7 @@
         accessToken: $("accessToken")?.value||""
       };
       const resp = await fetch("/api/imap/test",{
-        method:"POST", headers:{"Content-Type":"application/json"},
+        method:"POST", headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(payload)
       });
       const data = await resp.json().catch(()=>null);
@@ -436,7 +420,7 @@
     }
   }
 
-  // ---- Provider preset + events ----
+  // Provider preset + events
   function applyProviderPreset(){
     const p = $("provider").value;
     const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
@@ -467,7 +451,7 @@
   $("fTime").addEventListener("change", applyFilters);
   $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
 
-  // ---- Init ----
+  // Init
   loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
   state.view = []; render();
