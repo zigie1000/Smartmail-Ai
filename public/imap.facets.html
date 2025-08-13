@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SmartEmail | IMAP Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb; --line:#e5e7eb;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  header h1{font-size:22px;margin:0}
+  .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
+  .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .row > .col{display:flex;flex-direction:column}
+  label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
+  input,select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
+  input[type="number"]{max-width:140px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
+  .btn{background:var(--brand);color:#fff}
+  .btn.secondary{background:#eef2ff;color:#1e3a8a}
+  .btn.ghost{background:#f3f4f6;color:#374151}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
+  .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
+  .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
+  .list{margin-top:14px}
+  .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
+  .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+  .from{color:var(--muted);font-size:12px}
+  .subject{font-weight:600}
+  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
+  .tag.imp{background:#fff7ed;border-color:#fed7aa}
+  .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;margin-left:6px;color:#334155}
+  .chip.u0{opacity:.6}
+  .chip.u1{border-color:#bfdbfe;background:#eff6ff}
+  .chip.u2{border-color:#fde68a;background:#fff7ed}
+  .chip.u3{border-color:#fecaca;background:#fee2e2}
+  .chip[title]{cursor:help}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:#374151}
+  .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sel{margin-right:6px}
+  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);background-size:300% 100%}
+  .sk-card{height:86px;border-radius:12px;margin:10px 0}
+  @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+  .pager{display:flex;gap:6px;align-items:center}
+  .pager button{padding:8px 12px}
+  .hint{font-size:12px;color:var(--muted)}
+  .switch{position:fixed;top:10px;right:10px;text-decoration:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px}
+  /* facets */
+  .facets{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:10px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#fbfdff}
+  .facets .col{display:flex;flex-direction:column}
+  .facets label{font-size:11px;margin:6px 2px}
+  .facets .actions{display:flex;gap:8px;align-items:end}
+  @media (max-width:900px){
+    .row{grid-template-columns:1fr 1fr}
+    .email-header{grid-template-columns:1fr auto}
+    .footer{flex-direction:column;align-items:flex-start}
+    .facets{grid-template-columns:1fr 1fr}
+  }
+</style>
+</head>
+<body>
+  <a href="/index.html" class="switch">Switch to SmartEmail</a>
+  <div class="wrap">
+    <header>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>IMAP Reader & Classifier</h1>
+      <span class="badge">Facets + Chips</span>
+    </header>
+
+    <section class="card" style="padding:16px 16px 8px">
+      <div class="row">
+        <div class="col">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
+        </div>
+        <div class="col">
+          <label for="password">App Password / Password</label>
+          <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
+        </div>
+        <div class="col">
+          <label for="host">IMAP Host</label>
+          <input id="host" placeholder="imap.gmail.com" />
+        </div>
+        <div class="col">
+          <label for="port">Port</label>
+          <input id="port" type="number" value="993" min="1" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:6px">
+        <div class="col">
+          <label for="provider">Provider</label>
+          <select id="provider">
+            <option value="custom">— custom —</option>
+            <option value="gmail">Gmail</option>
+            <option value="outlook">Outlook / Office 365</option>
+            <option value="yahoo">Yahoo</option>
+            <option value="icloud">iCloud</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="tls">TLS</label>
+          <select id="tls">
+            <option value="on" selected>On (recommended)</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="range">Range</label>
+          <select id="range">
+            <option value="2" selected>Last 2 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="0">All</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="authType">Auth</label>
+          <select id="authType">
+            <option value="password" selected>Password / App Password</option>
+            <option value="xoauth2">XOAUTH2 (access token)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row" id="xoRow" style="display:none;margin-top:6px">
+        <div class="col" style="grid-column:span 2">
+          <label for="accessToken">Access Token (OAuth)</label>
+          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
+        </div>
+        <div class="col">
+          <label>&nbsp;</label>
+          <button class="btn secondary" id="btnMicrosoft" type="button">Sign in with Microsoft</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
+        <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
+        <button class="btn secondary" id="btnImportant" type="button">Filter: Important</button>
+        <button class="btn ghost" id="btnAll" type="button">Show All</button>
+        <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
+        <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
+        <button class="btn secondary" id="btnSendSelected" type="button">Send Selected → Generator</button>
+      </div>
+
+      <!-- Facet bar -->
+      <div class="facets">
+        <div class="col">
+          <label for="facetPriority">Priority</label>
+          <select id="facetPriority">
+            <option value="all" selected>All</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="facetIntent">Intent</label>
+          <select id="facetIntent">
+            <option value="all" selected>All</option>
+            <option>billing</option>
+            <option>meeting</option>
+            <option>sales</option>
+            <option>support</option>
+            <option>hr</option>
+            <option>legal</option>
+            <option>security</option>
+            <option>newsletter</option>
+            <option>social</option>
+            <option>other</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="facetAction">Action</label>
+          <select id="facetAction">
+            <option value="all" selected>All</option>
+            <option value="needsAction">Needs action</option>
+            <option value="awaitingReply">Awaiting reply</option>
+            <option value="fyi">FYI</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="facetTime">Time</label>
+          <select id="facetTime">
+            <option value="all" selected>All</option>
+            <option value="today">Today</option>
+            <option value="2">Last 2 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+        </div>
+        <div class="col actions">
+          <div style="display:flex;gap:8px;align-items:center">
+            <label for="smartView" style="margin:0;font-size:12px;color:#6b7280">Smart View</label>
+            <select id="smartView">
+              <option value="">— select —</option>
+              <option value="needs_action">Needs Action</option>
+              <option value="awaiting_reply">Awaiting Reply</option>
+              <option value="meetings_48h">Meetings (Next 48h)</option>
+              <option value="billing">Billing & Invoices</option>
+              <option value="security_legal">Security & Legal</option>
+              <option value="newsletters">Newsletters</option>
+              <option value="today">Today</option>
+            </select>
+            <button class="btn ghost" id="clearFacets" type="button">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint" style="margin-top:6px">
+        Tip: Many providers require an <b>App Password</b> for IMAP. For Gmail &amp; iCloud, enable 2FA and create an app-specific password.
+      </div>
+
+      <div id="msg"></div>
+    </section>
+
+    <section class="card list" id="list" aria-live="polite" style="padding:10px 12px"></section>
+
+    <div class="footer card" style="margin-top:12px;">
+      <div class="pager" style="padding:8px 10px">
+        <button id="prev" class="btn ghost" type="button">Prev</button>
+        <span id="pageInfo" class="hint">Page 1</span>
+        <button id="next" class="btn ghost" type="button">Next</button>
+      </div>
+      <div class="hint" style="padding:8px 10px">Select emails and click <b>Send Selected → Generator</b> to prefill the reply screen.</div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
+  const list = $("list");
+  const msg = $("msg");
+  const state = { emails: [], view: [], page: 1, perPage: 20, filter: "all", facets: {} };
+
+  const PROVIDERS = {
+    gmail:   { host: "imap.gmail.com", port: 993, tls: "on" },
+    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
+    yahoo:   { host: "imap.mail.yahoo.com", port: 993, tls: "on" },
+    icloud:  { host: "imap.mail.me.com", port: 993, tls: "on" }
+  };
+
+  function savePrefs(){
+    const prefs = {
+      email: $("email").value, host: $("host").value, port: $("port").value,
+      provider: $("provider").value, tls: $("tls").value, range: $("range").value,
+      authType: $("authType").value
+    };
+    localStorage.setItem("imapPrefs", JSON.stringify(prefs));
+  }
+  function loadPrefs(){
+    try{
+      const p = JSON.parse(localStorage.getItem("imapPrefs")||"{}");
+      if(p.email) $("email").value = p.email;
+      if(p.host) $("host").value = p.host;
+      if(p.port) $("port").value = p.port;
+      if(p.provider) $("provider").value = p.provider;
+      if(p.tls) $("tls").value = p.tls;
+      if(p.range) $("range").value = p.range;
+      if(p.authType) $("authType").value = p.authType;
+      $("xoRow").style.display = (p.authType === "xoauth2") ? "grid" : "none";
+    }catch{}
+  }
+
+  function escapeHtml(s=""){
+    return s.replace(/[&<>"']/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+
+  function setMessage(kind, text){
+    msg.innerHTML = `<div class="alert ${kind}">${escapeHtml(text)}</div>`;
+    setTimeout(()=>{ msg.innerHTML = ""; }, 4000);
+  }
+
+  function skeleton(n=5){
+    list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join('');
+  }
+
+  // Priority mapping (derived from importance + urgency + confidence)
+  function priorityOf(e){
+    const importance = String(e.importance || "unimportant").toLowerCase();
+    const urgency = Number.isInteger(e.urgency) ? e.urgency : 0;
+    const conf = typeof e.confidence === "number" ? e.confidence : 0.6;
+    if(importance === "important" && urgency >= 3 && conf >= 0.5) return "urgent";
+    if(importance === "important" && urgency >= 1) return "high";
+    if(importance === "important" && urgency === 0) return "normal";
+    if(importance !== "important" && urgency >= 2) return "normal";
+    return "low";
+  }
+
+  function render(){
+    const start = (state.page-1)*state.perPage;
+    const items = state.view.slice(start, start+state.perPage);
+    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; return; }
+    list.innerHTML = items.map(cardHtml).join("");
+    $("pageInfo").textContent = `Page ${state.page}`;
+    attachRowHandlers();
+  }
+
+  function cardHtml(e){
+    const imp = (e.importance||"unimportant").toLowerCase();
+    const impClass = imp === "important" ? "imp" : "";
+    const intent = e.intent ? `<span class="chip" title="Intent">${escapeHtml(e.intent)}</span>` : "";
+    const reasons = Array.isArray(e.reasons) ? e.reasons.join(" • ") : "";
+    const urgVal = Number.isInteger(e.urgency) ? e.urgency : null;
+    const urgency = (urgVal !== null) ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>` : "";
+    const pr = priorityOf(e);
+    const pchip = `<span class="chip" title="Derived from importance, urgency, confidence">${pr.toUpperCase()}</span>`;
+    return `
+    <div class="email">
+      <div class="email-header">
+        <div class="meta">
+          <input type="checkbox" class="sel" data-id="${escapeHtml(String(e.id||''))}" />
+          <span class="from">${escapeHtml(e.from||'')}</span>
+        </div>
+        <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
+        <div><span class="tag ${impClass}">${escapeHtml(imp)}</span>${intent}${urgency}${pchip}</div>
+      </div>
+      <details>
+        <summary>Preview</summary>
+        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">${escapeHtml(e.snippet||'')}</div>
+      </details>
+      <div class="meta" style="margin-top:6px">
+        <span class="hint">${escapeHtml(new Date(e.date||Date.now()).toLocaleString())}</span>
+        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ""}
+      </div>
+    </div>`;
+  }
+
+  function attachRowHandlers(){}
+
+  function applyFacets(){
+    const f = state.facets;
+    const now = Date.now();
+    let list = state.emails.slice();
+
+    // Priority facet
+    if(f.priority && f.priority !== "all"){
+      list = list.filter(e => priorityOf(e) === f.priority);
+    }
+
+    // Intent facet
+    if(f.intent && f.intent !== "all"){
+      list = list.filter(e => String(e.intent||"other") === f.intent);
+    }
+
+    // Action facet
+    if(f.action && f.action !== "all"){
+      if(f.action === "needsAction"){
+        list = list.filter(e => !!e.action_required || (Number.isInteger(e.urgency) && e.urgency >= 2));
+      } else if(f.action === "awaitingReply"){
+        // heuristic: thread=true but action_required=false → likely awaiting reply
+        list = list.filter(e => e.entities && e.entities.thread && !e.action_required);
+      } else if(f.action === "fyi"){
+        list = list.filter(e => !e.action_required && (String(e.intent||"") === "newsletter" || String(e.importance||"") === "unimportant"));
+      }
+    }
+
+    // Time facet
+    if(f.time && f.time !== "all"){
+      let days = 0;
+      if(f.time === "today") days = 1;
+      else days = parseInt(f.time,10);
+      const cutoff = now - days*24*60*60*1000;
+      list = list.filter(e => {
+        const t = new Date(e.date || 0).getTime();
+        return isFinite(t) ? (days === 1 ? (t >= new Date().setHours(0,0,0,0)) : (t >= cutoff)) : true;
+      });
+    }
+
+    // Sort by priority desc, date desc when any facet active
+    const anyFacet = Object.values(f).some(v => v && v !== "all");
+    if(anyFacet){
+      const prWeight = { urgent:3, high:2, normal:1, low:0 };
+      list.sort((a,b)=>{
+        const pa = prWeight[priorityOf(a)] || 0;
+        const pb = prWeight[priorityOf(b)] || 0;
+        if(pb !== pa) return pb - pa;
+        const da = new Date(a.date||0).getTime();
+        const db = new Date(b.date||0).getTime();
+        return db - da;
+      });
+    }
+
+    state.view = list;
+    state.page = 1;
+    render();
+  }
+
+  function clearFacets(){
+    state.facets = { priority:"all", intent:"all", action:"all", time:"all" };
+    $("facetPriority").value = "all";
+    $("facetIntent").value   = "all";
+    $("facetAction").value   = "all";
+    $("facetTime").value     = "all";
+    $("smartView").value     = "";
+    applyFacets();
+  }
+
+  // Smart Views
+  function applySmartView(id){
+    clearFacets();
+    if(id === "needs_action"){
+      state.facets.action = "needsAction";
+      $("facetAction").value = "needsAction";
+    } else if(id === "awaiting_reply"){
+      state.facets.action = "awaitingReply";
+      $("facetAction").value = "awaitingReply";
+    } else if(id === "meetings_48h"){
+      state.facets.intent = "meeting";
+      $("facetIntent").value = "meeting";
+      state.facets.time = "2"; // last 2 days ~ next 48h proxy
+      $("facetTime").value = "2";
+    } else if(id === "billing"){
+      state.facets.intent = "billing";
+      $("facetIntent").value = "billing";
+    } else if(id === "security_legal"){
+      // simple: filter intents set
+      // we'll reuse intent facet and user can switch between
+      state.facets.intent = "security";
+      $("facetIntent").value = "security";
+    } else if(id === "newsletters"){
+      state.facets.intent = "newsletter";
+      $("facetIntent").value = "newsletter";
+    } else if(id === "today"){
+      state.facets.time = "today";
+      $("facetTime").value = "today";
+    }
+    applyFacets();
+  }
+
+  function filterImportant(){
+    state.facets = { priority:"all", intent:"all", action:"all", time:"all" };
+    state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important");
+    state.page = 1;
+    render();
+  }
+
+  // Export helpers
+  function exportJSON(){
+    const blob = new Blob([JSON.stringify(state.view, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "emails.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  function exportCSV(){
+    const cols = ["id","from","to","subject","date","importance","intent","urgency","priority"];
+    const rows = [cols.join(",")].concat(
+      state.view.map(e=>cols.map(c=>{
+        if(c === "priority") return JSON.stringify(priorityOf(e));
+        return JSON.stringify(e[c] ?? "");
+      }).join(","))
+    );
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "emails.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // Send selected → Generator (prefill)
+  function sendSelected(){
+    const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
+    if(!ids.length){ setMessage("err","Select at least one email."); return; }
+    const chosen = state.emails.filter(e => ids.includes(String(e.id||"")));
+    const first = chosen[0] || {};
+    const params = new URLSearchParams({
+      subject: first.subject || "",
+      body: (first.snippet || ""),
+      from: first.from || "",
+      date: first.date || "",
+      importance: String(first.importance||"")
+    });
+    window.location.href = "/index.html?" + params.toString();
+  }
+
+  // Networking
+  async function fetchAndClassify(){
+    skeleton(6);
+    try{
+      // Prefer your server's IMAP route if available
+      const q = new URLSearchParams({
+        email: $("email").value || "",
+        host: $("host").value || "",
+        port: $("port").value || "993",
+        provider: $("provider").value || "custom",
+        tls: $("tls").value || "on",
+        range: $("range").value || "2",
+        authType: $("authType").value || "password"
+      });
+      const resp = await fetch("/api/imap/list?"+q.toString());
+      if(!resp.ok){ throw new Error("IMAP list failed"); }
+      const data = await resp.json();
+      const emails = Array.isArray(data?.emails) ? data.emails : [];
+
+      // If server already returns classifications, use them; otherwise try classifying via /api/imap/classify
+      let enriched = emails;
+      const hasImportance = enriched.some(e => typeof e.importance !== "undefined");
+      if(!hasImportance){
+        const body = { items: emails, authType: $("authType").value, accessToken: $("accessToken").value || "" };
+        const clf = await fetch("/api/imap/classify", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+        if(clf.ok){
+          const out = await clf.json();
+          if(Array.isArray(out) && out.length === emails.length){
+            enriched = emails.map((e,i)=>Object.assign({}, e, out[i]));
+          }
+        }
+      }
+
+      // Normalize IDs
+      enriched = enriched.map((e, i)=>({ id: e.id ?? e.uid ?? String(i+1), ...e }));
+
+      state.emails = enriched;
+      clearFacets(); // reset facets on fresh fetch
+      setMessage("ok","Fetched "+enriched.length+" emails.");
+    }catch(err){
+      console.error(err);
+      list.innerHTML = "";
+      setMessage("err","Could not fetch/classify emails. Check server routes and credentials.");
+    }
+  }
+
+  // Provider presets
+  function applyProviderPreset(){
+    const p = $("provider").value;
+    if(p && p !== "custom" && PROVIDERS[p]){
+      $("host").value = PROVIDERS[p].host;
+      $("port").value = PROVIDERS[p].port;
+      $("tls").value  = PROVIDERS[p].tls;
+    }
+    savePrefs();
+  }
+
+  // Event hookups
+  $("btnFetch").addEventListener("click", fetchAndClassify);
+  $("btnRefresh").addEventListener("click", ()=>applyFacets());
+  $("btnImportant").addEventListener("click", filterImportant);
+  $("btnAll").addEventListener("click", ()=>{ clearFacets(); state.view = state.emails.slice(); render(); });
+  $("btnExportJson").addEventListener("click", exportJSON);
+  $("btnExportCsv").addEventListener("click", exportCSV);
+  $("btnSendSelected").addEventListener("click", sendSelected);
+  $("prev").addEventListener("click", ()=>{ if(state.page>1){ state.page--; render(); }});
+  $("next").addEventListener("click", ()=>{ const max = Math.ceil(state.view.length/state.perPage)||1; if(state.page<max){ state.page++; render(); }});
+
+  $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value === "xoauth2" ? "grid" : "none"; savePrefs(); });
+  ["email","password","host","port","provider","tls","range"].forEach(id => {
+    const el = $(id);
+    el.addEventListener("change", savePrefs);
+    el.addEventListener("input", savePrefs);
+  });
+  $("provider").addEventListener("change", applyProviderPreset);
+
+  // Facet handlers
+  $("facetPriority").addEventListener("change", (e)=>{ state.facets.priority = e.target.value; applyFacets(); });
+  $("facetIntent").addEventListener("change",   (e)=>{ state.facets.intent   = e.target.value; applyFacets(); });
+  $("facetAction").addEventListener("change",   (e)=>{ state.facets.action   = e.target.value; applyFacets(); });
+  $("facetTime").addEventListener("change",     (e)=>{ state.facets.time     = e.target.value; applyFacets(); });
+  $("clearFacets").addEventListener("click", clearFacets);
+  $("smartView").addEventListener("change", (e)=>{ const id=e.target.value; if(id) applySmartView(id); });
+
+  // Initial
+  loadPrefs();
+  clearFacets();
+  // If provider has a preset and fields empty, apply
+  if($("provider").value !== "custom" && (!$("host").value || !$("port").value)) applyProviderPreset();
+  // Pre-render
+  render();
+})();
+</script>
+</body>
+</html>
