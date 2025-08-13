@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>IMAP Reader & Classifier</title>
+<title>SmartEmail IMAP</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{--bg:#f6f8fc;--card:#fff;--muted:#6b7280;--text:#1f2937;--brand:#2563eb;--line:#e5e7eb;--radius:14px}
@@ -56,7 +56,7 @@
   .pager button{padding:8px 12px}
   .hint{font-size:12px;color:var(--muted)}
   .switch{position:fixed;top:10px;right:10px;text-decoration:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px}
-  .filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:8px 0 4px}
+  .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
   .filters .col{display:flex;flex-direction:column}
   @media (max-width:900px){
     .row{grid-template-columns:1fr 1fr}
@@ -67,12 +67,12 @@
 </style>
 </head>
 <body>
-  <a href="/index.html" class="switch">Switch to SmartEmail</a>
+  <a href="/index.html" class="switch">Back to SmartEmail</a>
   <div class="wrap">
     <header>
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h1>IMAP Reader & Classifier</h1>
-      <span class="badge">Facets + Chips</span>
+      <h1>SmartEmail IMAP</h1>
+      <span class="badge">Facets • Chips • Test Login</span>
     </header>
 
     <section class="card" style="padding:16px 16px 8px">
@@ -123,18 +123,20 @@
           </select>
         </div>
         <div class="col">
+          <label for="limit">Limit</label>
+          <select id="limit">
+            <option value="20" selected>20</option>
+            <option value="30">30</option>
+            <option value="40">40</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+        <div class="col">
           <label for="authType">Auth</label>
           <select id="authType">
             <option value="password" selected>Password / App Password</option>
             <option value="xoauth2">XOAUTH2 (access token)</option>
           </select>
-        </div>
-      </div>
-
-      <div class="row" id="xoRow" style="display:none;margin-top:6px">
-        <div class="col" style="grid-column:span 2">
-          <label for="accessToken">Access Token (OAuth)</label>
-          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
         </div>
         <div class="col">
           <label>&nbsp;</label>
@@ -142,14 +144,23 @@
         </div>
       </div>
 
+      <div class="row" id="xoRow" style="display:none;margin-top:6px">
+        <div class="col" style="grid-column:span 3">
+          <label for="accessToken">Access Token (OAuth)</label>
+          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
+        </div>
+      </div>
+
       <div class="toolbar">
         <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
+        <button class="btn ghost" id="btnTest" type="button">Test Login</button>
         <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
         <button class="btn secondary" id="btnImportant" type="button">Filter: Important</button>
         <button class="btn ghost" id="btnAll" type="button">Show All</button>
         <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
         <button class="btn secondary" id="btnSendSelected" type="button">Send Selected → Generator</button>
+        <button class="btn ghost" id="btnMore" type="button">More (30d)</button>
       </div>
 
       <div class="filters">
@@ -172,7 +183,7 @@
           </select>
         </div>
         <div class="col">
-          <label for="fAction">Action</label>
+          <label for="fAction">Action</</label>
           <select id="fAction">
             <option value="">All</option>
             <option value="needs">Needs action</option>
@@ -203,10 +214,10 @@
             <option value="today">Today</option>
           </select>
         </div>
-      </div>
-
-      <div class="hint" style="margin-top:6px">
-        Tip: Many providers require an <b>App Password</b> for IMAP. For Gmail &amp; iCloud, enable 2FA and create an app-specific password.
+        <div class="col">
+          <label>&nbsp;</label>
+          <div class="hint">Tip: Many providers require an <b>App Password</b> for IMAP (Gmail/iCloud).</div>
+        </div>
       </div>
 
       <div id="msg"></div>
@@ -231,18 +242,20 @@
   const msg = $("msg");
   const state = { emails: [], view: [], page: 1, perPage: 20, filter: "all" };
 
+  // Provider presets
   const PROVIDERS = {
-    gmail:   { host: "imap.gmail.com",            port: 993, tls: "on" },
-    outlook: { host: "outlook.office365.com",     port: 993, tls: "on" },
-    yahoo:   { host: "imap.mail.yahoo.com",       port: 993, tls: "on" },
-    icloud:  { host: "imap.mail.me.com",          port: 993, tls: "on" }
+    gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
+    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
+    yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
+    icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
   };
 
   // ---- Persistence ----
-  const KEYS = ["email","host","port","provider","tls","range","authType"];
+  const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
   function saveForm(){ KEYS.forEach(k => localStorage.setItem("imap."+k, $(k).value)); }
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
+  // Helpers
   function escapeHtml(s=""){ return s.replace(/[&<>"']/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c])); }
   function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 5000); }
   function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
@@ -337,7 +350,7 @@
 
   // Export helpers
   function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
-  function exportCSV(){ const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];const rows=[cols.join(",")].concat(state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(",")));const b=new Blob([rows.join("\\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.csv";a.click();URL.revokeObjectURL(a.href);}
+  function exportCSV(){ const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];const rows=[cols.join(",")].concat(state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(",")));const b=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.csv";a.click();URL.revokeObjectURL(a.href);}
 
   function sendSelected(){
     const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
@@ -352,14 +365,28 @@
     skeleton(6);
     try{
       const payload = {
-        email: $("email").value||"", password: $("password").value||"",
-        host: $("host").value||"", port: Number($("port").value||993),
-        tls: ($("tls").value||"on")!=="off", rangeDays: Number($("range").value||2),
-        authType: $("authType").value||"password", accessToken: $("accessToken")?.value||""
+        email: $("email").value||"",
+        password: $("password").value||"",
+        host: $("host").value||"",
+        port: Number($("port").value||993),
+        tls: ($("tls").value||"on")!=="off",
+        rangeDays: Number($("range").value||2),
+        limit: Number($("limit").value||20),
+        authType: $("authType").value||"password",
+        accessToken: $("accessToken")?.value||""
       };
       saveForm();
 
-      const resp = await fetch("/api/imap/fetch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      // client-side timeout (25s)
+      const controller = new AbortController();
+      const t = setTimeout(()=>controller.abort(), 25000);
+
+      const resp = await fetch("/api/imap/fetch",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(payload), signal: controller.signal
+      });
+      clearTimeout(t);
+
       if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
       const data = await resp.json();
       const emails = Array.isArray(data?.emails)?data.emails:[];
@@ -375,7 +402,32 @@
       state.view = state.emails.slice(); state.page=1; render();
       setMessage("ok","Fetched "+state.emails.length+" emails.");
     }catch(err){
-      console.error(err); list.innerHTML=""; setMessage("err", err.message || "Could not fetch/classify emails. Check server routes and credentials.");
+      console.error(err); list.innerHTML="";
+      const m = (err && err.name === "AbortError")
+        ? "Request timed out. Try a shorter range or check network."
+        : (err.message || "Could not fetch/classify emails.");
+      setMessage("err", m);
+    }
+  }
+
+  async function testLogin(){
+    try{
+      const payload = {
+        email: $("email").value||"", password: $("password").value||"",
+        host: $("host").value||"", port: Number($("port").value||993),
+        tls: ($("tls").value||"on")!=="off",
+        authType: $("authType").value||"password",
+        accessToken: $("accessToken")?.value||""
+      };
+      const resp = await fetch("/api/imap/test",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json().catch(()=>null);
+      if(resp.ok && data?.ok){ setMessage("ok","Login OK"); }
+      else { throw new Error((data && (data.error||data.message)) || `Login failed (${resp.status})`); }
+    }catch(e){
+      setMessage("err", e.message || "Login failed");
     }
   }
 
@@ -387,17 +439,20 @@
     saveForm();
   }
 
-  ["email","password","host","port","tls","range","authType"].forEach(id => $(id).addEventListener("change", saveForm));
+  ["email","password","host","port","tls","range","authType","limit"].forEach(id => $(id).addEventListener("change", saveForm));
   $("provider").addEventListener("change", applyProviderPreset);
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
 
   $("btnFetch").addEventListener("click", fetchAndClassify);
+  $("btnTest").addEventListener("click", testLogin);
   $("btnRefresh").addEventListener("click", ()=>render());
   $("btnImportant").addEventListener("click", ()=>{ state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important"); state.page=1; render(); });
   $("btnAll").addEventListener("click", ()=>{ state.view = state.emails.slice(); state.page=1; render(); });
   $("btnExportJson").addEventListener("click", exportJSON);
   $("btnExportCsv").addEventListener("click", exportCSV);
   $("btnSendSelected").addEventListener("click", sendSelected);
+  $("btnMore").addEventListener("click", ()=>{ $("range").value = "30"; setMessage("ok","Range set to 30 days. Click Fetch & Classify."); });
+
   $("prev").addEventListener("click", ()=>{ if(state.page>1){ state.page--; render(); }});
   $("next").addEventListener("click", ()=>{ const max=Math.ceil(state.view.length/state.perPage)||1; if(state.page<max){ state.page++; render(); }});
 
