@@ -35,9 +35,17 @@
   .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
   .tag.imp{background:#fff7ed;border-color:#fed7aa}
   .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;margin-left:6px;color:#334155}
-  .chip.u0{opacity:.6}.chip.u1{border-color:#bfdbfe;background:#eff6ff}.chip.u2{border-color:#fde68a;background:#fff7ed}.chip.u3{border-color:#fecaca;background:#fee2e2}
-  .chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2}.chip.pri-High{border-color:#fde68a;background:#fff7ed}.chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff}.chip.pri-Low{opacity:.6}
-  details{margin-top:8px} summary{cursor:pointer;color:#374151}
+  .chip.u0{opacity:.6}
+  .chip.u1{border-color:#bfdbfe;background:#eff6ff}
+  .chip.u2{border-color:#fde68a;background:#fff7ed}
+  .chip.u3{border-color:#fecaca;background:#fee2e2}
+  .chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2}
+  .chip.pri-High{border-color:#fde68a;background:#fff7ed}
+  .chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff}
+  .chip.pri-Low{opacity:.6}
+  .chip[title]{cursor:help}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:#374151}
   .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .sel{margin-right:6px}
   .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
@@ -160,7 +168,10 @@
           <label for="fPriority">Priority</label>
           <select id="fPriority">
             <option value="">All</option>
-            <option>Urgent</option><option>High</option><option>Normal</option><option>Low</option>
+            <option>Urgent</option>
+            <option>High</option>
+            <option>Normal</option>
+            <option>Low</option>
           </select>
         </div>
         <div class="col">
