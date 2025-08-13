@@ -15,7 +15,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-
 // ✅ IMAP REST routes (IMPORTANT: inside this file tree)
 import imapRoutes from './imap-reader/imapRoutes.js';
 // NOTE: inside imapRoutes.js, make sure it imports the classifier as:
@@ -36,8 +35,18 @@ const __dirname  = path.dirname(__filename);
 // ---------- Core middleware ----------
 app.set('trust proxy', 1);
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));           // JSON bodies (IMAP forms are small)
-app.use(express.urlencoded({ extended: false }));  // just in case
+
+// ⬆️ Increase body size limits (fixes PayloadTooLargeError from IMAP/classifier payloads)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+
+// Optional: friendlier response when someone exceeds the limit
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request too large. Try a shorter range/limit.' });
+  }
+  next(err);
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public'), {
