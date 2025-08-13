@@ -1,26 +1,22 @@
 // imap-reader/imapRoutes.js
 import express from 'express';
 import { fetchEmails } from './imapService.js';
-import { classifyEmails } from './emailClassifier.js'; // keep this path relative to this folder
+import { classifyEmails } from './emailClassifier.js'; // keep this relative path
 
 const router = express.Router();
 
-/** Build IMAP search criteria safely (use a real Date for SINCE) */
+/** Build IMAP search criteria safely */
 function buildCriteria(rangeDays) {
   const days = Number(rangeDays);
   if (Number.isFinite(days) && days > 0) {
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - days);
-    return ['SINCE', since]; // imapService will normalize to [['SINCE', Date]]
+    return ['SINCE', since];
   }
   return ['ALL'];
 }
 
-/**
- * POST /api/imap/fetch
- * Body: { email, password, host, port?, rangeDays?, limit?, tls?, authType?, accessToken? }
- * Defaults: port=993, rangeDays=2, limit=50, tls=true, authType='password'
- */
+/** POST /fetch — fetch messages (default: last 2 days, limit 50) */
 router.post('/fetch', async (req, res) => {
   try {
     const {
@@ -54,7 +50,9 @@ router.post('/fetch', async (req, res) => {
       accessToken
     });
 
-    // Normalize minimal shape expected by the UI
+    // IMPORTANT: do NOT set a default "unclassified" importance here.
+    // If we include an `importance` field (even as "unclassified"), the client
+    // thinks it's already labeled and skips the LLM.
     const out = (emails || []).map((m, i) => ({
       id: m.uid || m.id || String(i + 1),
       from: m.from || '',
@@ -62,13 +60,8 @@ router.post('/fetch', async (req, res) => {
       subject: m.subject || '(no subject)',
       date: m.date || m.internalDate || null,
       text: m.text || '',
-      html: m.html || '',
-      importance: m.importance || 'unclassified',
-      intent: m.intent,
-      urgency: m.urgency,
-      action_required: m.action_required,
-      confidence: m.confidence,
-      reasons: m.reasons
+      html: m.html || ''
+      // no "importance" key until classifier runs
     }));
 
     return res.json({ success: true, emails: out });
@@ -79,11 +72,7 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
-/**
- * POST /api/imap/test
- * Light credential check: attempts to connect/open INBOX (no message fetch).
- * Body: { email, password, host, port?, tls?, authType?, accessToken? }
- */
+/** POST /test — can I login & open INBOX (no fetch) */
 router.post('/test', async (req, res) => {
   try {
     const {
@@ -92,17 +81,11 @@ router.post('/test', async (req, res) => {
       accessToken = '', tls = true
     } = req.body || {};
 
-    if (!email || !host || !port) {
-      return res.status(400).json({ ok: false, error: 'Email, host and port are required.' });
-    }
-    if (authType === 'password' && !password) {
-      return res.status(400).json({ ok: false, error: 'Password/App Password required.' });
-    }
-    if (authType === 'xoauth2' && !accessToken) {
-      return res.status(400).json({ ok: false, error: 'Access token required for XOAUTH2.' });
-    }
+    if (!email || !host || !port) return res.status(400).json({ ok: false, error: 'Email, host and port are required.' });
+    if (authType === 'password' && !password) return res.status(400).json({ ok: false, error: 'Password/App Password required.' });
+    if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok: false, error: 'Access token required for XOAUTH2.' });
 
-    // Reuse fetchEmails with limit 1 to exercise login/openBox flow
+    // reuse fetch with ALL + limit 1 to exercise login/open path
     await fetchEmails({
       email,
       password,
@@ -121,37 +104,22 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/**
- * POST /api/imap/classify
- * Body: { items: [{ subject, from, to, cc, date, snippet/text/html, ... }] }
- * Returns array aligned with input (importance/intent/urgency/...).
- */
+/** POST /classify — run LLM classifier on client-provided items */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.json([]);
 
-    // Normalize for classifier
-    const normalized = items.map(e => {
-      const fromText = e.from || '';
-      const fromEmail = (fromText.split('<').pop() || '')
-        .replace('>', '')
-        .trim() || fromText;
-      const fromDomain = (fromEmail.split('@')[1] || '')
-        .replace(/[^a-z0-9.-]/ig, '')
-        .toLowerCase();
-
-      return {
-        subject: e.subject || '',
-        from: fromText,
-        fromEmail,
-        fromDomain,
-        to: e.to || '',
-        cc: e.cc || '',
-        date: e.date || '',
-        snippet: e.snippet || e.text || '' // keep payload small (no full HTML)
-      };
-    });
+    const normalized = items.map(e => ({
+      subject: e.subject || '',
+      from: e.from || '',
+      fromEmail: (e.from || '').split('<').pop().replace('>', '').trim(),
+      fromDomain: (e.from || '').split('@').pop()?.replace(/[^a-z0-9\.-]/ig, '') || '',
+      to: e.to || '',
+      cc: e.cc || '',
+      date: e.date || '',
+      snippet: e.snippet || e.text || ''
+    }));
 
     const results = await classifyEmails(normalized);
     return res.json(results);
