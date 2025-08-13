@@ -379,7 +379,7 @@
 
       // client-side timeout (25s)
       const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), 25000);
+      const t = setTimeout(()=>controller.abort(), 60000);
 
       const resp = await fetch("/api/imap/fetch",{
         method:"POST", headers:{"Content-Type":"application/json"},
