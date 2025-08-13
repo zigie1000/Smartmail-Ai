@@ -3,6 +3,7 @@
 // Force IPv4 to avoid IPv6 stalls with iCloud IMAP on Render
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
+
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
@@ -10,16 +11,13 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js'; // (kept if you wire it later)
+import stripeWebHook from './stripeWebHook.js'; // optional
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-// ✅ IMAP REST routes (IMPORTANT: inside this file tree)
+// IMAP routes (lives inside this folder tree)
 import imapRoutes from './imap-reader/imapRoutes.js';
-// NOTE: inside imapRoutes.js, make sure it imports the classifier as:
-//   import { classifyEmails } from './emailClassifier.js'
-// (NOT from '../emailClassifier.js' and NOT from '/src/...')
 
 dotenv.config();
 
@@ -35,25 +33,13 @@ const __dirname  = path.dirname(__filename);
 // ---------- Core middleware ----------
 app.set('trust proxy', 1);
 app.use(cors());
-
-// ⬆️ Increase body size limits (fixes PayloadTooLargeError from IMAP/classifier payloads)
+// ⬇️ raise limits to stop PayloadTooLargeError on /generate (and allow images)
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: false, limit: '10mb' }));
-
-// Optional: friendlier response when someone exceeds the limit
-app.use((err, req, res, next) => {
-  if (err?.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Try a shorter range/limit.' });
-  }
-  next(err);
-});
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders(res) {
-    // help bust old cached JS when you add ?v=2 in the URL
-    res.setHeader('Cache-Control', 'no-cache');
-  }
+  setHeaders(res) { res.setHeader('Cache-Control', 'no-cache'); }
 }));
 
 // ---------- SUPABASE ----------
@@ -100,9 +86,9 @@ app.get('/auth/google/callback', async (req, res) => {
 const {
   AZURE_CLIENT_ID,
   AZURE_CLIENT_SECRET,
-  AZURE_TENANT_ID,       // if absent we'll use "common"
-  AZURE_REDIRECT_URI,    // e.g. https://smartemail.onrender.com/auth/microsoft/callback
-  AZURE_SCOPES           // optional override
+  AZURE_TENANT_ID,
+  AZURE_REDIRECT_URI,
+  AZURE_SCOPES
 } = process.env;
 
 const TENANT     = (AZURE_TENANT_ID && AZURE_TENANT_ID.trim()) || 'common';
@@ -164,7 +150,6 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     }
 
     const email = (me.mail || me.userPrincipalName || '').toLowerCase();
-
     if (email) {
       try {
         await supabase
@@ -249,29 +234,30 @@ async function checkLicense(email) {
 
 // ---------- GENERATE ----------
 app.post('/generate', async (req, res) => {
-  const {
-    email, email_type, emailType,
-    tone, language,
-    target_audience, audience,
-    email_content, content,
-    sender_details, agent,
-    action,
-    formality, length, audience_role
-  } = req.body;
+  try {
+    const {
+      email, email_type, emailType,
+      tone, language,
+      target_audience, audience,
+      email_content, content,
+      sender_details, agent,
+      action,
+      formality, length, audience_role
+    } = req.body || {};
 
-  const finalEmail     = email;
-  const finalEmailType = email_type || emailType;
-  const finalTone      = tone;
-  const finalLanguage  = language;
-  const finalAudience  = target_audience || audience;
-  const finalContent   = email_content || content;
-  const finalAgent     = sender_details || agent;
+    const finalEmail     = email;
+    const finalEmailType = email_type || emailType;
+    const finalTone      = tone;
+    const finalLanguage  = language;
+    const finalAudience  = target_audience || audience;
+    const finalContent   = email_content || content;
+    const finalAgent     = sender_details || agent;
 
-  if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
-    return res.status(400).json({ error: 'Missing required fields.' });
-  }
+    if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
 
-  const prompt = `
+    const prompt = `
 You are a senior email copywriter helping a user write a reply email.
 
 The user received this message and wants to respond to it:
@@ -279,7 +265,7 @@ The user received this message and wants to respond to it:
 ${finalContent}
 """
 
-Write a professional reply email using the following creative brief:
+Write a professional reply email using the following brief:
 
 - Email Type: ${finalEmailType}
 - Tone and Style: ${finalTone}
@@ -293,20 +279,28 @@ Write a professional reply email using the following creative brief:
 Include greeting, body, and closing with a strong sign-off.
 ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const ai = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4-1106-preview',
+        model: 'gpt-4o-mini',
+        temperature: 0.4,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 300,
+        max_tokens: 600
       }),
+      // Optional network timeout safeguard via AbortController, NOT sent in body
     });
-    const result = await response.json();
+
+    if (!ai.ok) {
+      const detail = await safeJson(ai);
+      console.error('Generate error:', ai.status, detail || await ai.text());
+      return res.status(502).json({ error: 'AI service error' });
+    }
+
+    const result = await ai.json();
     const reply = (result.choices?.[0]?.message?.content || '').trim();
     if (!reply) return res.status(500).json({ error: 'AI failed to generate a response.' });
 
@@ -322,21 +316,22 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
     const lic = await checkLicense(finalEmail);
     res.json({ generatedEmail: reply, tier: lic.tier });
   } catch (err) {
-    console.error(err);
+    console.error('Generate exception:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong.' });
   }
 });
 
 // ---------- ENHANCE ----------
 app.post('/enhance', async (req, res) => {
-  const { email, enhance_request, enhance_content } = req.body;
-  if (!email || !enhance_request || !enhance_content) {
-    return res.status(400).json({ error: 'Missing required fields.' });
-  }
-  const lic = await checkLicense(email);
-  if (lic.tier === 'free') return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
+  try {
+    const { email, enhance_request, enhance_content } = req.body || {};
+    if (!email || !enhance_request || !enhance_content) {
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
+    const lic = await checkLicense(email);
+    if (lic.tier === 'free') return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
 
-  const enhancePrompt = `
+    const enhancePrompt = `
 Rewrite the email based on the user's request. Keep it professional.
 
 Original:
@@ -345,20 +340,27 @@ ${enhance_content}
 User request:
 ${enhance_request}`.trim();
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const ai = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4-1106-preview',
+        model: 'gpt-4o-mini',
+        temperature: 0.3,
         messages: [{ role: 'user', content: enhancePrompt }],
-        max_tokens: 400,
+        max_tokens: 700
       }),
     });
-    const result = await response.json();
+
+    if (!ai.ok) {
+      const detail = await safeJson(ai);
+      console.error('Enhance error:', ai.status, detail || await ai.text());
+      return res.status(502).json({ error: 'AI service error' });
+    }
+
+    const result = await ai.json();
     const reply = (result.choices?.[0]?.message?.content || '').trim();
     if (!reply) return res.status(500).json({ error: 'AI failed to enhance.' });
 
@@ -374,10 +376,12 @@ ${enhance_request}`.trim();
 
     res.status(200).json({ generatedEmail: reply, tier: lic.tier });
   } catch (err) {
-    console.error('Enhance error:', err);
+    console.error('Enhance exception:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong while enhancing.' });
   }
 });
+
+function safeJson(resp) { return resp.json().catch(() => null); }
 
 // ---------- FREE USER & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
@@ -464,12 +468,9 @@ app.get('/validate-license', async (req, res) => {
 });
 
 // ---------- IMAP UI + API ----------
-// UI
 app.get('/imap', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
-
-// API (all IMAP endpoints live in ./imap-reader/imapRoutes.js)
 app.use('/api/imap', imapRoutes);
 
 // ---------- Health ----------
