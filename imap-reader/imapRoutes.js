@@ -1,11 +1,12 @@
 // imap-reader/imapRoutes.js (fixed & backward-compatible)
+// NOTE: emailClassifier.js is in the SAME folder as this file.
 import express from 'express';
 import { fetchEmails } from './imapService.js';
-import { classifyEmails } from '../emailClassifier.js';
+import { classifyEmails } from './emailClassifier.js';
 
 const router = express.Router();
 
-/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
+/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE (kept for reference if needed) */
 function toImapSince(dateObj) {
   const d = String(dateObj.getUTCDate()).padStart(2, '0');
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
@@ -19,12 +20,13 @@ function buildCriteria(rangeDays){
   if (Number.isFinite(days) && days > 0) {
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - days);
+    // imapService.js normalizes Date objects for SINCE
     return ['SINCE', since];
   }
   return ['ALL'];
 }
 
-/** Existing endpoint (kept) */
+/** Existing endpoint (kept exactly) */
 router.post('/fetch', async (req, res) => {
   try {
     const {
@@ -53,7 +55,7 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
-/** New: GET /list to match UI expectations */
+/** New: GET /list to match UI */
 router.get('/list', async (req, res) => {
   try {
     const {
@@ -76,7 +78,6 @@ router.get('/list', async (req, res) => {
       authType, accessToken
     });
 
-    // Normalize a minimal shape for clients (id & snippet)
     const out = (emails||[]).map((m, i) => ({
       id: m.uid || m.id || String(i+1),
       from: m.from || '',
@@ -84,7 +85,11 @@ router.get('/list', async (req, res) => {
       subject: m.subject || '(no subject)',
       date: m.date || m.internalDate || null,
       snippet: (m.text || '').slice(0, 500),
-      importance: m.importance || 'unimportant'
+      importance: m.importance || 'unimportant',
+      intent: m.intent,
+      urgency: m.urgency,
+      action_required: m.action_required,
+      reasons: m.reasons
     }));
 
     return res.json({ success:true, emails: out });
@@ -94,7 +99,7 @@ router.get('/list', async (req, res) => {
   }
 });
 
-/** New: POST /classify to run emailClassifier on the fetched messages */
+/** New: POST /classify runs the classifier */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -112,7 +117,7 @@ router.post('/classify', async (req, res) => {
     }));
 
     const results = await classifyEmails(normalized);
-    return res.json(results);
+    return res.json(Array.isArray(results) ? results : []);
   } catch (err) {
     console.error('IMAP /classify error:', err?.message||err);
     return res.status(500).json({ error: 'Classification failed' });
