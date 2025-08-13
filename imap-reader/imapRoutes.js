@@ -5,8 +5,8 @@ import { classifyEmails } from './emailClassifier.js';
 
 const router = express.Router();
 
-/** Build IMAP search criteria safely (Date object for SINCE) */
-function buildCriteria(rangeDays){
+/** Build IMAP search criteria safely */
+function buildCriteria(rangeDays) {
   const days = Number(rangeDays);
   if (Number.isFinite(days) && days > 0) {
     const since = new Date();
@@ -16,7 +16,7 @@ function buildCriteria(rangeDays){
   return ['ALL'];
 }
 
-/** POST /fetch — fetch messages (default last 2 days, limit 50) */
+/** POST /fetch — fetch messages (default: last 2 days, limit 50) */
 router.post('/fetch', async (req, res) => {
   try {
     const {
@@ -27,13 +27,13 @@ router.post('/fetch', async (req, res) => {
     } = req.body || {};
 
     if (!email || !host || !port) {
-      return res.status(400).json({ success:false, error:'Email, host and port are required.' });
+      return res.status(400).json({ success: false, error: 'Email, host and port are required.' });
     }
     if (authType === 'password' && !password) {
-      return res.status(400).json({ success:false, error:'Password/App Password required.' });
+      return res.status(400).json({ success: false, error: 'Password/App Password required.' });
     }
     if (authType === 'xoauth2' && !accessToken) {
-      return res.status(400).json({ success:false, error:'Access token required for XOAUTH2.' });
+      return res.status(400).json({ success: false, error: 'Access token required for XOAUTH2.' });
     }
 
     const criteria = buildCriteria(rangeDays);
@@ -61,15 +61,15 @@ router.post('/fetch', async (req, res) => {
       importance: m.importance || 'unclassified'
     }));
 
-    return res.json({ success:true, emails: out });
+    return res.json({ success: true, emails: out });
   } catch (err) {
     const message = err?.message || 'IMAP fetch failed';
     console.error('IMAP /fetch error:', message);
-    return res.status(502).json({ success:false, error: message });
+    return res.status(502).json({ success: false, error: message });
   }
 });
 
-/** POST /test — quick login check (no fetch) */
+/** POST /test — can I login & open INBOX (no fetch) */
 router.post('/test', async (req, res) => {
   try {
     const {
@@ -78,9 +78,9 @@ router.post('/test', async (req, res) => {
       accessToken = '', tls = true
     } = req.body || {};
 
-    if (!email || !host || !port) return res.status(400).json({ ok:false, error:'Email, host and port are required.' });
-    if (authType === 'password' && !password) return res.status(400).json({ ok:false, error:'Password/App Password required.' });
-    if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok:false, error:'Access token required for XOAUTH2.' });
+    if (!email || !host || !port) return res.status(400).json({ ok: false, error: 'Email, host and port are required.' });
+    if (authType === 'password' && !password) return res.status(400).json({ ok: false, error: 'Password/App Password required.' });
+    if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok: false, error: 'Access token required for XOAUTH2.' });
 
     await fetchEmails({
       email,
@@ -94,13 +94,13 @@ router.post('/test', async (req, res) => {
       accessToken
     });
 
-    return res.json({ ok:true });
+    return res.json({ ok: true });
   } catch (e) {
-    return res.status(401).json({ ok:false, error: e?.message || 'Login failed' });
+    return res.status(401).json({ ok: false, error: e?.message || 'Login failed' });
   }
 });
 
-/** POST /classify — run LLM classifier */
+/** POST /classify — classify emails */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -109,8 +109,8 @@ router.post('/classify', async (req, res) => {
     const normalized = items.map(e => ({
       subject: e.subject || '',
       from: e.from || '',
-      fromEmail: (e.from || '').split('<').pop().replace('>','').trim(),
-      fromDomain: (e.from || '').split('@').pop()?.replace(/[^a-z0-9\.-]/ig,'') || '',
+      fromEmail: (e.from || '').split('<').pop().replace('>', '').trim(),
+      fromDomain: (e.from || '').split('@').pop()?.replace(/[^a-z0-9\.-]/ig, '') || '',
       to: e.to || '',
       cc: e.cc || '',
       date: e.date || '',
