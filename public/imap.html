@@ -240,9 +240,8 @@
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const msg = $("msg");
-  const state = { emails: [], view: [], page: 1, perPage: 20, filter: "all" };
+  const state = { emails: [], view: [], page: 1, perPage: 20 };
 
-  // Provider presets (host/port only)
   const PROVIDERS = {
     gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
     outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
@@ -250,17 +249,14 @@
     icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
   };
 
-  // Persistence
   const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
   function saveForm(){ KEYS.forEach(k => localStorage.setItem("imap."+k, $(k).value)); }
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
-  // Helpers
   function escapeHtml(s){ s = (s == null ? '' : String(s)); return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind==='ok'?'ok':'err'}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 5000); }
+  function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind==='ok'?'ok':'err'}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 6000); }
   function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
 
-  // Priority for chips
   function priorityOf(e){
     const imp = String(e.importance||"unimportant").toLowerCase();
     const urg = Number.isFinite(+e.urgency) ? +e.urgency : 0;
@@ -271,7 +267,6 @@
     return "Low";
   }
 
-  // Render
   function render(){
     const start = (state.page-1)*state.perPage;
     const items = state.view.slice(start, start+state.perPage);
@@ -309,7 +304,6 @@
     </div>`;
   }
 
-  // Filters
   function applyFilters(){
     let filtered = [...state.emails];
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
@@ -348,7 +342,6 @@
     applyFilters();
   }
 
-  // Export helpers
   function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
   function exportCSV(){ const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];const rows=[cols.join(",")].concat(state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(",")));const b=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.csv";a.click();URL.revokeObjectURL(a.href);}
 
@@ -360,10 +353,20 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
-  // Networking
+  // ---- Networking (with iCloud-friendly timeout + retry) ----
   async function fetchAndClassify(){
     skeleton(6);
     try{
+      const provider = $("provider").value;
+      // iCloud defaults/tweaks
+      if (provider === "icloud") {
+        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+        $("tls").value = "on";
+        // keep it light to avoid stalls
+        if (Number($("limit").value||50) > 20) $("limit").value = "20";
+        if (Number($("range").value||2) > 7) $("range").value = "7";
+      }
+
       const payload = {
         email: $("email").value||"",
         password: $("password").value||"",
@@ -377,33 +380,56 @@
       };
       saveForm();
 
-      // client-side timeout (25s)
-      const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), 60000);
+      const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host)
+        ? 120000   // 120s for iCloud
+        : 60000;   // 60s others
 
-      const resp = await fetch("/api/imap/fetch",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify(payload), signal: controller.signal
-      });
-      clearTimeout(t);
+      // tiny retry on network/timeout for iCloud
+      const maxTries = (/icloud/i.test(provider) ? 2 : 1);
+      let lastErr = null;
 
-      if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
-      const data = await resp.json();
-      const emails = Array.isArray(data?.emails)?data.emails:[];
-      let enriched = emails;
+      for (let attempt = 1; attempt <= maxTries; attempt++){
+        try{
+          const controller = new AbortController();
+          const t = setTimeout(()=>controller.abort(), timeoutMs);
 
-      const hasImportance = enriched.some(e => typeof e.importance !== "undefined");
-      if(!hasImportance && emails.length){
-        const clf = await fetch("/api/imap/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:emails})});
-        if(clf.ok){ const out=await clf.json(); if(Array.isArray(out)&&out.length===emails.length){ enriched = emails.map((e,i)=>Object.assign({},e,out[i])); } }
+          const resp = await fetch("/api/imap/fetch",{
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify(payload), signal: controller.signal
+          });
+          clearTimeout(t);
+
+          if(!resp.ok){
+            const errj = await resp.json().catch(()=>({}));
+            throw new Error(errj?.error || `Fetch failed (${resp.status})`);
+          }
+
+          const data = await resp.json();
+          const emails = Array.isArray(data?.emails)?data.emails:[];
+          let enriched = emails;
+
+          const hasImportance = enriched.some(e => typeof e.importance !== "undefined");
+          if(!hasImportance && emails.length){
+            const clf = await fetch("/api/imap/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:emails})});
+            if(clf.ok){ const out=await clf.json(); if(Array.isArray(out)&&out.length===emails.length){ enriched = emails.map((e,i)=>Object.assign({},e,out[i])); } }
+          }
+
+          state.emails = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
+          state.view = state.emails.slice(); state.page=1; render();
+          setMessage("ok","Fetched "+state.emails.length+" emails.");
+          return;
+        }catch(err){
+          lastErr = err;
+          const isTimeout = err && (err.name === "AbortError" || /timed out/i.test(String(err.message||"")));
+          if (!(isTimeout && attempt < maxTries)) throw err;
+          await new Promise(r => setTimeout(r, 2500)); // backoff then retry
+        }
       }
 
-      state.emails = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
-      state.view = state.emails.slice(); state.page=1; render();
-      setMessage("ok","Fetched "+state.emails.length+" emails.");
+      throw lastErr || new Error("Unknown error");
     }catch(err){
       console.error(err); list.innerHTML="";
-      const m = (err && err.name === "AbortError")
+      const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
         ? "Request timed out. Try a shorter range or check network."
         : (err.message || "Could not fetch/classify emails.");
       setMessage("err", m);
@@ -412,6 +438,12 @@
 
   async function testLogin(){
     try{
+      const provider = $("provider").value;
+      if (provider === "icloud") {
+        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+        $("tls").value = "on";
+      }
+
       const payload = {
         email: $("email").value||"", password: $("password").value||"",
         host: $("host").value||"", port: Number($("port").value||993),
@@ -419,10 +451,15 @@
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||""
       };
+
+      const controller = new AbortController();
+      const t = setTimeout(()=>controller.abort(), (/icloud/i.test(provider)? 60000 : 30000));
       const resp = await fetch("/api/imap/test",{
         method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload), signal: controller.signal
       });
+      clearTimeout(t);
+
       const data = await resp.json().catch(()=>null);
       if(resp.ok && data?.ok){ setMessage("ok","Login OK"); }
       else { throw new Error((data && (data.error||data.message)) || `Login failed (${resp.status})`); }
@@ -431,7 +468,6 @@
     }
   }
 
-  // Provider preset + events
   function applyProviderPreset(){
     const p = $("provider").value;
     const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
@@ -462,7 +498,6 @@
   $("fTime").addEventListener("change", applyFilters);
   $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
 
-  // Init
   loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
   state.view = []; render();
