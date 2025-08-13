@@ -3,7 +3,7 @@ import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
 
-// ✅ Local root CA bundle (no remote fetch)
+// ✅ Local root CA bundle (kept; safe on Render)
 import sslRootCAs from 'ssl-root-cas';
 const rootCas = sslRootCAs.create();
 rootCas.inject(); // updates the global https agent
@@ -91,13 +91,20 @@ export async function testLogin({
 }) {
   return new Promise((resolve, reject) => {
     const imapConfig = {
-      user: email,
+      user: String(email || '').trim(),
       host,
       port: Number(port) || 993,
       tls: !!tls,
-      tlsOptions: { rejectUnauthorized: true, servername: host, ca: rootCas },
-      connTimeout: 30000,
-      authTimeout: 30000
+      tlsOptions: {
+        rejectUnauthorized: true,
+        servername: host,     // SNI: important for iCloud
+        ca: rootCas,
+        minVersion: 'TLSv1.2' // enforce modern TLS
+      },
+      // More patient on hosted platforms (Apple can be slow)
+      connTimeout: 60000,
+      authTimeout: 60000,
+      keepalive: { interval: 300000, idleInterval: 300000, forceNoop: true }
     };
     if (authType === 'xoauth2') imapConfig.xoauth2 = accessToken || password || '';
     else imapConfig.password = password;
@@ -114,6 +121,7 @@ export async function testLogin({
       imap.on('alert', (m) => console.log('[IMAP alert]', m));
       imap.on('close', (hadErr) => console.log('[IMAP close]', hadErr));
       imap.on('ready', () => console.log('[IMAP ready] login OK'));
+      imap.on('error', (e) => console.log('[IMAP error]', e?.message || e));
     }
 
     imap.once('error', fail);
@@ -151,18 +159,19 @@ export async function fetchEmails({
     criteria = normalizeCriteria(criteria);
 
     const imapConfig = {
-      user: email,
+      user: String(email || '').trim(),
       host,
       port: Number(port) || 993,
       tls: !!tls,
       tlsOptions: {
-  rejectUnauthorized: true,
-  servername: host,
-  ca: rootCas,
-  minVersion: 'TLSv1.2'
-},
-      connTimeout: 30000,
-      authTimeout: 30000
+        rejectUnauthorized: true,
+        servername: host,     // SNI
+        ca: rootCas,
+        minVersion: 'TLSv1.2'
+      },
+      connTimeout: 60000,
+      authTimeout: 60000,
+      keepalive: { interval: 300000, idleInterval: 300000, forceNoop: true }
     };
     if (authType === 'xoauth2') imapConfig.xoauth2 = accessToken || password || '';
     else imapConfig.password = password;
@@ -171,6 +180,7 @@ export async function fetchEmails({
     const emails = [];
     const parsers = [];
 
+    // Server-side watchdog (allow slow Apple handshakes but don't hang forever)
     const watchdog = setTimeout(() => {
       try { imap.end(); } catch {}
       finish(new Error('IMAP connection timed out'));
