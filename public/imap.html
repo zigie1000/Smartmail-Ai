@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SmartEmail | IMAP Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#f6f8fc; --card:#ffffff; --muted:#6b7280; --text:#1f2937; --brand:#2563eb; --brand-weak:#e5efff;
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --line:#e5e7eb;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;color:var(--text)}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  header h1{font-size:22px;margin:0}
+  .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
+  .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .row > .col{display:flex;flex-direction:column}
+  label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
+  input,select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
+  input[type="number"]{max-width:140px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
+  .btn{background:var(--brand);color:#fff}
+  .btn.secondary{background:#eef2ff;color:#1e3a8a}
+  .btn.ghost{background:#f3f4f6;color:#374151}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
+  .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
+  .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
+  .list{margin-top:14px}
+  .email{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 12px 10px;margin:10px 0}
+  .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+  .from{color:var(--muted);font-size:12px}
+  .subject{font-weight:600}
+  .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
+  .tag.imp{background:#fff7ed;border-color:#fed7aa}
+  .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;margin-left:6px;color:#334155}
+  .chip.u0{opacity:.6}
+  .chip.u1{border-color:#bfdbfe;background:#eff6ff}
+  .chip.u2{border-color:#fde68a;background:#fff7ed}
+  .chip.u3{border-color:#fecaca;background:#fee2e2}
+  .chip[title]{cursor:help}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:#374151}
+  .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sel{margin-right:6px}
+  .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);background-size:300% 100%}
+  .sk-card{height:86px;border-radius:12px;margin:10px 0}
+  @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+  .pager{display:flex;gap:6px;align-items:center}
+  .pager button{padding:8px 12px}
+  .hint{font-size:12px;color:var(--muted)}
+  .switch{position:fixed;top:10px;right:10px;text-decoration:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px}
+  @media (max-width:900px){
+    .row{grid-template-columns:1fr 1fr}
+    .email-header{grid-template-columns:1fr auto}
+    .footer{flex-direction:column;align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+  <a href="/index.html" class="switch">Switch to SmartEmail</a>
+  <div class="wrap">
+    <header>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>IMAP Reader & Classifier</h1>
+      <span class="badge">Minimal + Chips</span>
+    </header>
+
+    <section class="card" style="padding:16px 16px 8px">
+      <div class="row">
+        <div class="col">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
+        </div>
+        <div class="col">
+          <label for="password">App Password / Password</label>
+          <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
+        </div>
+        <div class="col">
+          <label for="host">IMAP Host</label>
+          <input id="host" placeholder="imap.gmail.com" />
+        </div>
+        <div class="col">
+          <label for="port">Port</label>
+          <input id="port" type="number" value="993" min="1" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:6px">
+        <div class="col">
+          <label for="provider">Provider</label>
+          <select id="provider">
+            <option value="custom">— custom —</option>
+            <option value="gmail">Gmail</option>
+            <option value="outlook">Outlook / Office 365</option>
+            <option value="yahoo">Yahoo</option>
+            <option value="icloud">iCloud</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="tls">TLS</label>
+          <select id="tls">
+            <option value="on" selected>On (recommended)</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="range">Range</label>
+          <select id="range">
+            <option value="2" selected>Last 2 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="0">All</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="authType">Auth</label>
+          <select id="authType">
+            <option value="password" selected>Password / App Password</option>
+            <option value="xoauth2">XOAUTH2 (access token)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row" id="xoRow" style="display:none;margin-top:6px">
+        <div class="col" style="grid-column:span 2">
+          <label for="accessToken">Access Token (OAuth)</label>
+          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
+        </div>
+        <div class="col">
+          <label>&nbsp;</label>
+          <button class="btn secondary" id="btnMicrosoft" type="button">Sign in with Microsoft</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
+        <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
+        <button class="btn secondary" id="btnImportant" type="button">Filter: Important</button>
+        <button class="btn ghost" id="btnAll" type="button">Show All</button>
+        <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
+        <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
+        <button class="btn secondary" id="btnSendSelected" type="button">Send Selected → Generator</button>
+      </div>
+
+      <div class="hint" style="margin-top:6px">
+        Tip: Many providers require an <b>App Password</b> for IMAP. For Gmail &amp; iCloud, enable 2FA and create an app-specific password.
+      </div>
+
+      <div id="msg"></div>
+    </section>
+
+    <section class="card list" id="list" aria-live="polite" style="padding:10px 12px"></section>
+
+    <div class="footer card" style="margin-top:12px;">
+      <div class="pager" style="padding:8px 10px">
+        <button id="prev" class="btn ghost" type="button">Prev</button>
+        <span id="pageInfo" class="hint">Page 1</span>
+        <button id="next" class="btn ghost" type="button">Next</button>
+      </div>
+      <div class="hint" style="padding:8px 10px">Select emails and click <b>Send Selected → Generator</b> to prefill the reply screen.</div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
+  const list = $("list");
+  const msg = $("msg");
+  const state = { emails: [], view: [], page: 1, perPage: 20, filter: "all" };
+
+  function escapeHtml(s=""){
+    return s.replace(/[&<>"']/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+
+  function setMessage(kind, text){
+    msg.innerHTML = \`<div class="alert \${kind}">\${escapeHtml(text)}</div>\`;
+    setTimeout(()=>{ msg.innerHTML = ""; }, 4000);
+  }
+
+  function skeleton(n=5){
+    list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join('');
+  }
+
+  function render(){
+    const start = (state.page-1)*state.perPage;
+    const items = state.view.slice(start, start+state.perPage);
+    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; return; }
+    list.innerHTML = items.map(cardHtml).join("");
+    $("pageInfo").textContent = \`Page \${state.page}\`;
+    attachRowHandlers();
+  }
+
+  function cardHtml(e){
+    const imp = (e.importance||"unimportant").toLowerCase();
+    const impClass = imp === "important" ? "imp" : "";
+    const intent = e.intent ? \`<span class="chip" title="Intent">\${escapeHtml(e.intent)}</span>\` : "";
+    const reasons = Array.isArray(e.reasons) ? e.reasons.join(" • ") : "";
+    const urgVal = Number.isInteger(e.urgency) ? e.urgency : null;
+    const urgency = (urgVal !== null) ? \`<span class="chip u\${urgVal}" title="\${escapeHtml(reasons.slice(0,140))}">Urgency \${urgVal}</span>\` : "";
+    return \`
+    <div class="email">
+      <div class="email-header">
+        <div class="meta">
+          <input type="checkbox" class="sel" data-id="\${escapeHtml(e.id||'')}" />
+          <span class="from">\${escapeHtml(e.from||'')}</span>
+        </div>
+        <div class="subject">\${escapeHtml(e.subject||'(no subject)')}</div>
+        <div><span class="tag \${impClass}">\${escapeHtml(imp)}</span>\${intent}\${urgency}</div>
+      </div>
+      <details>
+        <summary>Preview</summary>
+        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">\${escapeHtml(e.snippet||'')}</div>
+      </details>
+      <div class="meta" style="margin-top:6px">
+        <span class="hint">\${escapeHtml(new Date(e.date||Date.now()).toLocaleString())}</span>
+        \${e.to ? \`<span class="hint">→ \${escapeHtml(e.to)}</span>\` : ""}
+      </div>
+    </div>\`;
+  }
+
+  function attachRowHandlers(){
+    // nothing special for now
+  }
+
+  function filterData(){
+    if(state.filter === "imp"){
+      state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important");
+    } else {
+      state.view = state.emails.slice();
+    }
+    state.page = 1;
+    render();
+  }
+
+  // Export helpers
+  function exportJSON(){
+    const blob = new Blob([JSON.stringify(state.view, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "emails.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  function exportCSV(){
+    const cols = ["id","from","to","subject","date","importance","intent","urgency"];
+    const rows = [cols.join(",")].concat(
+      state.view.map(e=>cols.map(c=>JSON.stringify(e[c] ?? "")).join(","))
+    );
+    const blob = new Blob([rows.join("\\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "emails.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // Send selected → Generator (prefill)
+  function sendSelected(){
+    const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
+    if(!ids.length){ setMessage("err","Select at least one email."); return; }
+    const chosen = state.emails.filter(e => ids.includes(String(e.id||"")));
+    // Build querystring using first selected (minimal, same behavior as before)
+    const first = chosen[0] || {};
+    const params = new URLSearchParams({
+      subject: first.subject || "",
+      body: (first.snippet || ""),
+      from: first.from || "",
+      date: first.date || "",
+      importance: String(first.importance||"")
+    });
+    window.location.href = "/index.html?" + params.toString();
+  }
+
+  // Networking (kept generic to avoid breaking existing server; adapt to your existing routes if different)
+  async function fetchAndClassify(){
+    skeleton(6);
+    try{
+      // Prefer your server's IMAP route if available
+      // Expectation: GET /api/imap/list returns { emails: [...] }
+      const q = new URLSearchParams({
+        email: $("email").value || "",
+        host: $("host").value || "",
+        port: $("port").value || "993",
+        provider: $("provider").value || "custom",
+        tls: $("tls").value || "on",
+        range: $("range").value || "2",
+        authType: $("authType").value || "password"
+      });
+      const resp = await fetch("/api/imap/list?"+q.toString());
+      if(!resp.ok){ throw new Error("IMAP list failed"); }
+      const data = await resp.json();
+      const emails = Array.isArray(data?.emails) ? data.emails : [];
+
+      // If server already returns classifications, use them; otherwise try classifying via /api/imap/classify
+      let enriched = emails;
+      const hasImportance = enriched.some(e => typeof e.importance !== "undefined");
+      if(!hasImportance){
+        const clf = await fetch("/api/imap/classify", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ items: emails }) });
+        if(clf.ok){
+          const out = await clf.json();
+          if(Array.isArray(out) && out.length === emails.length){
+            enriched = emails.map((e,i)=>Object.assign({}, e, out[i]));
+          }
+        }
+      }
+
+      // Normalize IDs
+      enriched = enriched.map((e, i)=>({ id: e.id ?? e.uid ?? String(i+1), ...e }));
+
+      state.emails = enriched;
+      state.filter = "all";
+      filterData();
+      setMessage("ok","Fetched "+enriched.length+" emails.");
+    }catch(err){
+      console.error(err);
+      list.innerHTML = "";
+      setMessage("err","Could not fetch/classify emails. Check server routes and credentials.");
+    }
+  }
+
+  // Event hookups
+  $("btnFetch").addEventListener("click", fetchAndClassify);
+  $("btnRefresh").addEventListener("click", ()=>filterData());
+  $("btnImportant").addEventListener("click", ()=>{ state.filter="imp"; filterData(); });
+  $("btnAll").addEventListener("click", ()=>{ state.filter="all"; filterData(); });
+  $("btnExportJson").addEventListener("click", exportJSON);
+  $("btnExportCsv").addEventListener("click", exportCSV);
+  $("btnSendSelected").addEventListener("click", sendSelected);
+  $("prev").addEventListener("click", ()=>{ if(state.page>1){ state.page--; render(); }});
+  $("next").addEventListener("click", ()=>{ const max = Math.ceil(state.view.length/state.perPage)||1; if(state.page<max){ state.page++; render(); }});
+  $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value === "xoauth2" ? "grid" : "none"; });
+
+  // Initial
+  render();
+})();
+</script>
+</body>
+</html>
