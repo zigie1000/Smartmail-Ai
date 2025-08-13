@@ -16,7 +16,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-// IMAP routes (lives inside this folder tree)
+// ✅ IMAP REST routes
 import imapRoutes from './imap-reader/imapRoutes.js';
 
 dotenv.config();
@@ -33,9 +33,11 @@ const __dirname  = path.dirname(__filename);
 // ---------- Core middleware ----------
 app.set('trust proxy', 1);
 app.use(cors());
-// ⬇️ raise limits to stop PayloadTooLargeError on /generate (and allow images)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ⚠️ Fix "PayloadTooLargeError" when sending generator content or small images
+const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -179,16 +181,6 @@ app.get('/auth/microsoft/callback', async (req, res) => {
   }
 });
 
-// Helper for clients: which providers are enabled
-app.get('/auth/providers', (req, res) => {
-  res.json({
-    google_enabled: USE_GOOGLE_AUTH,
-    microsoft_enabled: USE_MS_AUTH,
-    google_url: USE_GOOGLE_AUTH ? '/auth/google' : null,
-    microsoft_url: USE_MS_AUTH ? '/auth/microsoft' : null
-  });
-});
-
 // ---------- HOME (SmartEmail UI) ----------
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -196,12 +188,7 @@ app.get('/', (req, res) => {
 
 // ---------- STATUS ----------
 app.get('/api/status', (req, res) => {
-  res.json({
-    status: 'ok',
-    googleLogin: USE_GOOGLE_AUTH,
-    microsoftLogin: USE_MS_AUTH,
-    mode: 'SmartEmail'
-  });
+  res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
 // ---------- LICENSE HELPERS ----------
@@ -213,23 +200,13 @@ async function checkLicense(email) {
     .maybeSingle();
 
   if (error || !data) {
-    await supabase
-      .from('licenses')
-      .upsert(
-        {
-          email: String(email || '').trim().toLowerCase(),
-          smartemail_tier: 'free',
-          smartemail_expires: null
-        },
-        { onConflict: 'email' }
-      );
+    await supabase.from('licenses').upsert(
+      { email: String(email || '').trim().toLowerCase(), smartemail_tier: 'free', smartemail_expires: null },
+      { onConflict: 'email' }
+    );
     return { tier: 'free', expires: null, reason: 'inserted-free' };
   }
-
-  return {
-    tier: data.smartemail_tier || 'free',
-    expires: data.smartemail_expires || null
-  };
+  return { tier: data.smartemail_tier || 'free', expires: data.smartemail_expires || null };
 }
 
 // ---------- GENERATE ----------
@@ -265,7 +242,7 @@ The user received this message and wants to respond to it:
 ${finalContent}
 """
 
-Write a professional reply email using the following brief:
+Write a professional reply email using the following creative brief:
 
 - Email Type: ${finalEmailType}
 - Tone and Style: ${finalTone}
@@ -279,44 +256,34 @@ Write a professional reply email using the following brief:
 Include greeting, body, and closing with a strong sign-off.
 ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
 
-    const ai = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.4,
+        model: process.env.OPENAI_GENERATE_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 600
-      }),
-      // Optional network timeout safeguard via AbortController, NOT sent in body
+        max_tokens: 400,
+        temperature: 0.5
+      })
     });
 
-    if (!ai.ok) {
-      const detail = await safeJson(ai);
-      console.error('Generate error:', ai.status, detail || await ai.text());
-      return res.status(502).json({ error: 'AI service error' });
+    const result = await aiResp.json();
+    const reply = (result?.choices?.[0]?.message?.content || '').trim();
+    if (!aiResp.ok || !reply) {
+      console.error('Generate error:', result?.error || result);
+      return res.status(502).json({ error: 'AI generation failed.' });
     }
-
-    const result = await ai.json();
-    const reply = (result.choices?.[0]?.message?.content || '').trim();
-    if (!reply) return res.status(500).json({ error: 'AI failed to generate a response.' });
 
     try {
       await supabase.from('leads').insert([{
-        email: finalEmail,
-        original_message: finalContent,
-        generated_reply: reply,
-        product: 'SmartEmail',
+        email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
       }]);
     } catch {}
 
     const lic = await checkLicense(finalEmail);
     res.json({ generatedEmail: reply, tier: lic.tier });
   } catch (err) {
-    console.error('Generate exception:', err?.message || err);
+    console.error('Generate route error:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong.' });
   }
 });
@@ -340,48 +307,36 @@ ${enhance_content}
 User request:
 ${enhance_request}`.trim();
 
-    const ai = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.3,
+        model: process.env.OPENAI_ENHANCE_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: enhancePrompt }],
-        max_tokens: 700
-      }),
+        max_tokens: 500,
+        temperature: 0.4
+      })
     });
 
-    if (!ai.ok) {
-      const detail = await safeJson(ai);
-      console.error('Enhance error:', ai.status, detail || await ai.text());
-      return res.status(502).json({ error: 'AI service error' });
+    const result = await aiResp.json();
+    const reply = (result?.choices?.[0]?.message?.content || '').trim();
+    if (!aiResp.ok || !reply) {
+      console.error('Enhance error:', result?.error || result);
+      return res.status(502).json({ error: 'AI enhancement failed.' });
     }
-
-    const result = await ai.json();
-    const reply = (result.choices?.[0]?.message?.content || '').trim();
-    if (!reply) return res.status(500).json({ error: 'AI failed to enhance.' });
 
     try {
       await supabase.from('enhancements').insert([{
-        email,
-        original_text: enhance_content,
-        enhancement_prompt: enhance_request,
-        enhanced_result: reply,
-        product: 'SmartEmail',
+        email, original_text: enhance_content, enhancement_prompt: enhance_request, enhanced_result: reply, product: 'SmartEmail'
       }]);
     } catch {}
 
     res.status(200).json({ generatedEmail: reply, tier: lic.tier });
   } catch (err) {
-    console.error('Enhance exception:', err?.message || err);
+    console.error('Enhance route error:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong while enhancing.' });
   }
 });
-
-function safeJson(resp) { return resp.json().catch(() => null); }
 
 // ---------- FREE USER & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
@@ -391,10 +346,7 @@ app.post('/api/register-free-user', async (req, res) => {
 
     const { data, error } = await supabase
       .from('licenses')
-      .upsert(
-        { email, smartemail_tier: 'free', smartemail_expires: null },
-        { onConflict: ['email'] }
-      )
+      .upsert({ email, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: ['email'] })
       .select()
       .maybeSingle();
 
@@ -406,10 +358,7 @@ app.post('/api/register-free-user', async (req, res) => {
 });
 
 app.get('/config', (req, res) => {
-  res.json({
-    PRO_URL: process.env.PRO_URL || '',
-    PREMIUM_URL: process.env.PREMIUM_URL || ''
-  });
+  res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
 });
 
 // ---------- LICENSE VALIDATION ----------
@@ -421,44 +370,36 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
     if (licenseKeyRaw) {
-      const { data, error } = await supabase
-        .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires')
-        .eq('license_key', licenseKeyRaw)
-        .maybeSingle();
-      if (error) throw error;
+      const { data } = await supabase
+        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('license_key', licenseKeyRaw).maybeSingle();
       row = data;
     } else {
-      const { data, error } = await supabase
-        .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires')
-        .eq('email', email)
-        .maybeSingle();
-      if (error) throw error;
+      const { data } = await supabase
+        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires')
+        .eq('email', email).maybeSingle();
       row = data;
     }
 
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
-      const { data: inserted, error: insertError } = await supabase
+      const { data: inserted } = await supabase
         .from('licenses')
         .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
-        .select()
-        .maybeSingle();
-      if (insertError) throw insertError;
+        .select().maybeSingle();
       row = inserted;
     }
 
     const now = new Date();
-    const tier = row.smartemail_tier || 'free';
-    const expiresAt = row.smartemail_expires || null;
+    const tier = row?.smartemail_tier || 'free';
+    const expiresAt = row?.smartemail_expires || null;
     const active = tier === 'free' ? true : !!(expiresAt && new Date(expiresAt) >= now);
 
     return res.status(200).json({
       status: active ? 'active' : 'expired',
       tier,
-      email: row.email || null,
-      licenseKey: row.license_key || null,
+      email: row?.email || null,
+      licenseKey: row?.license_key || null,
       expiresAt
     });
   } catch (err) {
