@@ -1,17 +1,9 @@
-// imap-reader/imapRoutes.js (FINAL)
+// imap-reader/imapRoutes.js (FINAL, path fixed)
 import express from 'express';
-import { fetchEmails } from './imapService.js';
-import { classifyEmails } from './emailClassifier.js'; // <- correct relative path
+import { fetchEmails, testLogin } from './imapService.js';
+import { classifyEmails } from '../emailClassifier.js'; // <- classifier is at project root
 
 const router = express.Router();
-
-/** Date -> DD-Mon-YYYY (UTC) for IMAP SINCE */
-function toImapSince(dateObj) {
-  const d = String(dateObj.getUTCDate()).padStart(2, '0');
-  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dateObj.getUTCMonth()];
-  const y = dateObj.getUTCFullYear();
-  return `${d}-${mon}-${y}`;
-}
 
 /** Build IMAP search criteria safely (uses Date object for SINCE) */
 function buildCriteria(rangeDays){
@@ -91,18 +83,8 @@ router.post('/test', async (req, res) => {
     if (authType === 'password' && !password) return res.status(400).json({ ok:false, error:'Password/App Password required.' });
     if (authType === 'xoauth2' && !accessToken) return res.status(400).json({ ok:false, error:'Access token required for XOAUTH2.' });
 
-    // reuse fetchEmails with limit 1 & ALL to exercise auth/open
-    await fetchEmails({
-      email,
-      password,
-      host,
-      port: Number(port) || 993,
-      criteria: ['ALL'],
-      limit: 1,
-      tls: !!tls,
-      authType,
-      accessToken
-    });
+    // This exercises connect+auth+openBox without downloading mail
+    await testLogin({ email, password, host, port: Number(port)||993, tls: !!tls, authType, accessToken });
 
     return res.json({ ok:true });
   } catch (e) {
@@ -110,7 +92,7 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/** POST /classify — run LLM classifier on client-provided items */
+/** POST /classify — run LLM classifier on the fetched messages */
 router.post('/classify', async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
