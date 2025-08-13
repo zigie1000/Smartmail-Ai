@@ -155,7 +155,12 @@ export async function fetchEmails({
       host,
       port: Number(port) || 993,
       tls: !!tls,
-      tlsOptions: { rejectUnauthorized: true, servername: host, ca: rootCas },
+      tlsOptions: {
+  rejectUnauthorized: true,
+  servername: host,
+  ca: rootCas,
+  minVersion: 'TLSv1.2'
+},
       connTimeout: 30000,
       authTimeout: 30000
     };
