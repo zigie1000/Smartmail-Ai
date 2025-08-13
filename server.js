@@ -1,5 +1,8 @@
 // server.js — SmartEmail + IMAP UI/API + Google & Microsoft OAuth
 
+// Force IPv4 to avoid IPv6 stalls with iCloud IMAP on Render
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
@@ -11,6 +14,7 @@ import stripeWebHook from './stripeWebHook.js'; // (kept if you wire it later)
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+
 
 // ✅ IMAP REST routes (IMPORTANT: inside this file tree)
 import imapRoutes from './imap-reader/imapRoutes.js';
