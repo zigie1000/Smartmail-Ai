@@ -391,10 +391,15 @@ app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
     const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
-    if (!email && !licenseKeyRaw) return res.status(400).json({ error: 'Missing email or licenseKey' });
+    if (!email && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Missing email or licenseKey' });
+    }
+
+    // Only treat as valid UUID if it matches pattern
+    const isUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
     let row = null;
-    if (licenseKeyRaw) {
+    if (licenseKeyRaw && isUuid(licenseKeyRaw)) {
       const { data, error } = await supabase
         .from('licenses')
         .select('email, license_key, smartemail_tier, smartemail_expires')
@@ -402,7 +407,9 @@ app.get('/validate-license', async (req, res) => {
         .maybeSingle();
       if (error) throw error;
       row = data;
-    } else {
+    }
+
+    if (!row && email) {
       const { data, error } = await supabase
         .from('licenses')
         .select('email, license_key, smartemail_tier, smartemail_expires')
@@ -413,10 +420,14 @@ app.get('/validate-license', async (req, res) => {
     }
 
     if (!row && email) {
-      const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
+      // Old code generated free_... key, but avoid inserting into UUID column
       const { data: inserted, error: insertError } = await supabase
         .from('licenses')
-        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
+        .insert([{
+          email,
+          smartemail_tier: 'free',
+          smartemail_expires: null
+        }])
         .select()
         .maybeSingle();
       if (insertError) throw insertError;
