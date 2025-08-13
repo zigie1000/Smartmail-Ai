@@ -1,3 +1,4 @@
+// emailClassifier.js
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -35,24 +36,38 @@ Heuristics:
 
 Always return a JSON array with the same length as the input. Prefer IMPORTANT when unsure.`;
 
-  const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    temperature: 0,
-    max_tokens: 256,
-    messages: [
-      { role: 'system', content: sys },
-      { role: 'user', content: user }
-    ]
-  });
+  const userContent = `Classify the following emails:\n${JSON.stringify(input)}`;
 
   try {
+    const resp = await client.chat.completions.create({
+      model: process.env.SMARTEMAIL_CLASSIFIER_MODEL || 'gpt-4o-mini',
+      temperature: 0,
+      max_tokens: 256,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: userContent }
+      ]
+    });
+
     const text = resp.choices?.[0]?.message?.content?.trim() || '[]';
     const parsed = JSON.parse(text);
-    // Normalize & clamp
-    return Array.isArray(parsed)
-      ? parsed.map(x => ({ importance: /important/i.test(x?.importance) ? 'important' : 'unimportant' }))
-      : items.map(() => ({ importance: 'unclassified' }));
-  } catch {
-    return items.map(() => ({ importance: 'unclassified' }));
+
+    if (Array.isArray(parsed) && parsed.length === items.length) {
+      return parsed.map(x => ({
+        importance: /important/i.test(x?.importance) ? 'important' : 'unimportant',
+        intent: x?.intent || undefined,
+        urgency: typeof x?.urgency === 'number' ? x.urgency : undefined,
+        action_required: typeof x?.action_required === 'boolean' ? x.action_required : undefined,
+        entities: x?.entities || undefined,
+        confidence: typeof x?.confidence === 'number' ? x.confidence : undefined,
+        reasons: Array.isArray(x?.reasons) ? x.reasons : undefined
+      }));
+    }
+
+    // Fallback if parse failed or lengths mismatch
+    return items.map(() => ({ importance: 'unimportant' }));
+  } catch (err) {
+    console.error('Classifier error:', err?.message || err);
+    return items.map(() => ({ importance: 'unimportant' }));
   }
 }
