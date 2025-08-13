@@ -7,13 +7,16 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js';
+import stripeWebHook from './stripeWebHook.js'; // (kept if you wire it later)
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto';                 // ✅ keep only this one
+import crypto from 'crypto';
 
-// ✅ IMAP REST routes
+// ✅ IMAP REST routes (IMPORTANT: inside this file tree)
 import imapRoutes from './imap-reader/imapRoutes.js';
+// NOTE: inside imapRoutes.js, make sure it imports the classifier as:
+//   import { classifyEmails } from './emailClassifier.js'
+// (NOT from '../emailClassifier.js' and NOT from '/src/...')
 
 dotenv.config();
 
@@ -26,20 +29,27 @@ const USE_MS_AUTH     = (process.env.USE_MS_AUTH || 'true') === 'true';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-// Core middleware
+// ---------- Core middleware ----------
+app.set('trust proxy', 1);
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));           // JSON bodies (IMAP forms are small)
+app.use(express.urlencoded({ extended: false }));  // just in case
 
 // Static files
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res) {
+    // help bust old cached JS when you add ?v=2 in the URL
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
-// ----- SUPABASE -----
+// ---------- SUPABASE ----------
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ----- GOOGLE OAUTH (optional) -----
+// ---------- GOOGLE OAUTH (optional) ----------
 let googleClient;
 if (USE_GOOGLE_AUTH) {
   googleClient = new google.auth.OAuth2(
@@ -73,7 +83,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// ===== MICROSOFT OAUTH (Graph) — minimal add =====
+// ---------- MICROSOFT OAUTH (Graph) ----------
 const {
   AZURE_CLIENT_ID,
   AZURE_CLIENT_SECRET,
@@ -90,7 +100,6 @@ const MS_AUTH  = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/author
 const MS_TOKEN = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
 const GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
 
-// Start login
 app.get('/auth/microsoft', (req, res) => {
   if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
   if (!AZURE_CLIENT_ID || !AZURE_REDIRECT_URI) {
@@ -109,7 +118,6 @@ app.get('/auth/microsoft', (req, res) => {
   res.redirect(`${MS_AUTH}?${params.toString()}`);
 });
 
-// Callback -> exchange code -> fetch profile -> save tokens -> back to /imap
 app.get('/auth/microsoft/callback', async (req, res) => {
   if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
   try {
@@ -135,9 +143,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       return res.status(500).json({ error: 'Failed to exchange token', detail: tokens });
     }
 
-    const meRes = await fetch(GRAPH_ME, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
+    const meRes = await fetch(GRAPH_ME, { headers: { Authorization: `Bearer ${tokens.access_token}` } });
     const me = await meRes.json();
     if (!meRes.ok) {
       console.error('Graph /me error:', me);
@@ -185,12 +191,12 @@ app.get('/auth/providers', (req, res) => {
   });
 });
 
-// ----- HOME (SmartEmail UI) -----
+// ---------- HOME (SmartEmail UI) ----------
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ----- STATUS -----
+// ---------- STATUS ----------
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
@@ -266,7 +272,10 @@ Write a professional reply email using the following creative brief:
 - Tone and Style: ${finalTone}
 - Target Audience: ${finalAudience}
 - Primary Goal / Call-to-Action: ${action || ''}
-- Language: ${finalLanguage}\n- Formality: ${formality || ''}\n- Preferred Length: ${length || ''}\n- Audience Role: ${audience_role || ''}
+- Language: ${finalLanguage}
+- Formality: ${formality || ''}
+- Preferred Length: ${length || ''}
+- Audience Role: ${audience_role || ''}
 
 Include greeting, body, and closing with a strong sign-off.
 ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
@@ -391,15 +400,10 @@ app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
     const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
-    if (!email && !licenseKeyRaw) {
-      return res.status(400).json({ error: 'Missing email or licenseKey' });
-    }
-
-    // Only treat as valid UUID if it matches pattern
-    const isUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+    if (!email && !licenseKeyRaw) return res.status(400).json({ error: 'Missing email or licenseKey' });
 
     let row = null;
-    if (licenseKeyRaw && isUuid(licenseKeyRaw)) {
+    if (licenseKeyRaw) {
       const { data, error } = await supabase
         .from('licenses')
         .select('email, license_key, smartemail_tier, smartemail_expires')
@@ -407,9 +411,7 @@ app.get('/validate-license', async (req, res) => {
         .maybeSingle();
       if (error) throw error;
       row = data;
-    }
-
-    if (!row && email) {
+    } else {
       const { data, error } = await supabase
         .from('licenses')
         .select('email, license_key, smartemail_tier, smartemail_expires')
@@ -420,14 +422,10 @@ app.get('/validate-license', async (req, res) => {
     }
 
     if (!row && email) {
-      // Old code generated free_... key, but avoid inserting into UUID column
+      const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const { data: inserted, error: insertError } = await supabase
         .from('licenses')
-        .insert([{
-          email,
-          smartemail_tier: 'free',
-          smartemail_expires: null
-        }])
+        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
         .select()
         .maybeSingle();
       if (insertError) throw insertError;
@@ -458,8 +456,11 @@ app.get('/imap', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
 
-// API
+// API (all IMAP endpoints live in ./imap-reader/imapRoutes.js)
 app.use('/api/imap', imapRoutes);
+
+// ---------- Health ----------
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 // ---------- START ----------
 app.listen(PORT, () => {
