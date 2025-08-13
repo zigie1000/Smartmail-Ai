@@ -256,7 +256,12 @@
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
   // Helpers
-  function escapeHtml(s=""){ return s.replace(/[&<>"']/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c])); }
+  function escapeHtml(s) {
+  s = (s == null ? '' : String(s));
+  return s.replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
   function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 5000); }
   function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
 
