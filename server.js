@@ -391,10 +391,13 @@ app.post('/api/register-free-user', async (req, res) => {
     if (!email) return res.status(400).json({ error: 'Email required' });
 
     const { data, error } = await supabase
-      .from('licenses')
-      .upsert({ email, app_name: APP, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email,app_name' })
-      .select()
-      .maybeSingle();
+  .from('licenses')
+  .insert(
+    { email, app_name: APP, smartemail_tier: 'free', smartemail_expires: null },
+    { onConflict: 'email,app_name', ignoreDuplicates: true }   // 👈 key change
+  )
+  .select()
+  .maybeSingle();
 
     if (error) return res.status(500).json({ error: 'DB error', detail: error.message });
     res.json({ status: data ? 'inserted' : 'exists' });
