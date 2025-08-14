@@ -1,346 +1,160 @@
-// imap-reader/imapService.js — iCloud-friendly IMAP fetcher (full file)
+// imap-reader/imapService.js — IMAP fetcher (iCloud-friendly), returns headers/attachments for better classification
 
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
-import dotenv from 'dotenv';
-
-// ✅ Use a local root CA bundle (no remote fetch) so TLS verify passes on Render
 import sslRootCAs from 'ssl-root-cas';
-const rootCas = sslRootCAs.create();
-rootCas.inject();
-
+import dotenv from 'dotenv';
 dotenv.config();
+
+// trust common CAs (Render/iCloud TLS quirks)
+const rootCas = sslRootCAs.create(); rootCas.inject();
 
 const IMAP_DEBUG = String(process.env.IMAP_DEBUG || '').toLowerCase() === 'true';
 
-/* ----------------------------------------------------------------
-   Helpers
------------------------------------------------------------------ */
-
-/** Make sure search criteria is in a shape the `imap` lib accepts */
-function normalizeCriteria(raw) {
-  if (!raw) return ['ALL'];
-
-  // Single SINCE pair => wrap
-  if (Array.isArray(raw) && String(raw[0]).toUpperCase() === 'SINCE') {
-    let v = raw[1];
-    if (!(v instanceof Date)) v = new Date(v);
-    if (isNaN(v.getTime())) return ['ALL'];
-    return [['SINCE', v]];
-  }
-
-  // Mixed array => normalize only SINCE
-  if (Array.isArray(raw)) {
-    const fixed = raw
-      .map((c) => {
-        if (Array.isArray(c) && String(c[0]).toUpperCase() === 'SINCE') {
-          let v = c[1];
-          if (!(v instanceof Date)) v = new Date(v);
-          if (isNaN(v.getTime())) return null;
-          return ['SINCE', v];
-        }
-        return c;
-      })
-      .filter(Boolean);
-    return fixed.length ? fixed : ['ALL'];
-  }
-  return ['ALL'];
+function friendlyImapError(msg, ctx = {}){
+  const s = String(msg||'').toLowerCase();
+  if (/authentication failed|invalid credentials/.test(s)) return 'Authentication failed. Check email/password or app password.';
+  if (/unable to verify the first certificate|self signed/i.test(s)) return 'TLS validation failed. Try TLS=On or correct host.';
+  if (/timed? out|timeout/.test(s)) return 'IMAP connection timed out.';
+  if (/no such host|getaddrinfo/i.test(s)) return `Cannot resolve host ${ctx.host||''}.`;
+  return msg || 'IMAP error';
 }
 
-/** Human-readable IMAP error text (no secrets) */
-function friendlyImapError(msg = '', ctx = {}) {
-  const s = String(msg || '');
-  const host = String(ctx.host || '');
-  const email = String(ctx.email || '');
-  const authType = String(ctx.authType || 'password');
-
-  const isIcloud =
-    /imap\.mail\.me\.com/i.test(host) ||
-    /@(icloud\.com|me\.com|mac\.com)$/i.test(email);
-
-  if (/AUTHENTICATIONFAILED|Invalid credentials|login failed|AUTHENTICATION FAILED/i.test(s)) {
-    if (isIcloud && authType !== 'xoauth2') {
-      return 'Authentication Failed — iCloud requires an App-Specific Password when 2FA is enabled. Generate one at appleid.apple.com → Sign-In & Security → App-Specific Passwords.';
-    }
-    return 'Authentication Failed (check username and password/app password)';
+function openImap({ email, password, accessToken, host, port=993, tls=true, authType='password' }){
+  const cfg = {
+    user: email,
+    host, port, tls,
+    autotls: 'always',
+    tlsOptions: { rejectUnauthorized: true, ca: rootCas },
+    connTimeout: 30000, authTimeout: 30000
+  };
+  if (authType === 'xoauth2') cfg.xoauth2 = accessToken || password || '';
+  else cfg.password = password;
+  const imap = new Imap(cfg);
+  if (IMAP_DEBUG){
+    imap.on('alert',  m => console.log('[IMAP alert]', m));
+    imap.on('close',  hadErr => console.log('[IMAP close]', hadErr));
+    imap.on('error',  err => console.log('[IMAP error]', err?.message||err));
+    imap.on('ready',  () => console.log('[IMAP ready]'));
   }
-
-  if (/ENOTFOUND|getaddrinfo|hostname|not found/i.test(s)) return 'IMAP host not found';
-  if (/self signed|certificate|unable to verify|hostname\/IP.*certificate/i.test(s)) return 'TLS certificate validation failed';
-  if (/timed out|timeout/i.test(s)) return 'IMAP connection timed out';
-  if (/Too many simultaneous connections/i.test(s)) return 'Too many simultaneous IMAP connections';
-  if (/rate limit|temporarily unavailable/i.test(s)) return 'IMAP rate limited or temporarily unavailable';
-
-  return s;
+  return imap;
 }
 
-/* ----------------------------------------------------------------
-   Minimal login test (no fetch)
------------------------------------------------------------------ */
-export async function testLogin({
-  email,
-  password,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password', // 'password' | 'xoauth2'
-  accessToken = ''
-}) {
+function openMailbox(imap, box='INBOX'){
   return new Promise((resolve, reject) => {
-    const imapConfig = {
-      user: email,
-      host,
-      port: Number(port) || 993,
-      tls: !!tls,
-      tlsOptions: {
-        rejectUnauthorized: true,
-        servername: host,
-        ca: rootCas,
-        minVersion: 'TLSv1.2'
-      },
-      connTimeout: 30000,
-      authTimeout: 30000
-    };
-    if (authType === 'xoauth2') imapConfig.xoauth2 = accessToken || password || '';
-    else imapConfig.password = password;
-
-    const imap = new Imap(imapConfig);
-
-    const fail = (e) => reject(new Error(friendlyImapError(e?.message || e, { host, email, authType })));
-    const done = () => { try { imap.end(); } catch {} ; resolve(true); };
-
-    if (IMAP_DEBUG) {
-      imap.on('alert',  (m) => console.log('[IMAP alert]', m));
-      imap.on('close',  (hadErr) => console.log('[IMAP close]', hadErr));
-      imap.on('ready',  () => console.log('[IMAP ready] login OK'));
-    }
-
-    imap.once('error', fail);
-    imap.once('ready', done);
-
-    try { imap.connect(); } catch (e) { fail(e); }
+    imap.openBox(box, true, (err, boxInfo) => err ? reject(err) : resolve(boxInfo));
   });
 }
 
-/* ----------------------------------------------------------------
-   Full fetch (iCloud-friendly)
-   - iCloud: fetch ENVELOPE + small TEXT snippet => fast + reliable
-   - Others: fetch full BODY[] and parse as before
------------------------------------------------------------------ */
-export async function fetchEmails({
-  email,
-  password,          // password or XOAUTH2 token (see authType)
-  host,
-  port = 993,
-  criteria = ['ALL'],
-  limit = 20,
-  tls = true,
-  authType = 'password',
-  accessToken = ''
-}) {
+function fetchBodies(imap, uids){
   return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (err, data) => {
-      if (settled) return;
-      settled = true;
-      if (err) reject(err);
-      else resolve(data || []);
-    };
+    const out = [];
+    if (!uids.length) return resolve(out);
 
-    const isIcloud = /imap\.mail\.me\.com/i.test(String(host));
+    const f = imap.fetch(uids, { bodies: '', struct: true });
+    f.on('message', (msg) => {
+      const chunks = [];
+      let attrs = null;
+      msg.on('body', (stream) => {
+        stream.on('data', (d)=>chunks.push(d));
+      });
+      msg.once('attributes', (a)=> attrs = a);
+      msg.once('end', async () => {
+        try{
+          const parsed = await simpleParser(Buffer.concat(chunks));
+          const headers = {};
+          for (const [k,v] of parsed.headerLines || []) headers[k.toLowerCase()] = String(v||'');
+          const attachments = parsed.attachments || [];
+          const hasIcs = attachments.some(a => /\.ics$/i.test(a.filename || '')) || /text\/calendar/i.test(parsed.headers.get('content-type')||'');
+          const attachTypes = attachments.map(a => (a.contentType||'').split(';')[0]);
 
-    // Final search criteria
-    criteria = normalizeCriteria(criteria);
+          const fromObj = parsed.from?.value?.[0] || {};
+          const fromEmail = String(fromObj.address||'').toLowerCase();
+          const fromDomain = fromEmail.split('@')[1] || '';
 
-    // iCloud: lighter fetch to prevent timeouts on Render
-    const ICLOUD_SNIPPET_BYTES = 12 * 1024; // 12KB preview
-    const FETCH_BODIES_ICLOUD = [
-      'ENVELOPE',
-      `BODY[TEXT]<0.${ICLOUD_SNIPPET_BYTES}>`, // small snippet
-      'FLAGS',
-    ];
-
-    // Non-iCloud: full message for parser (kept behavior)
-    const FETCH_BODIES_FULL = ['']; // BODY[] (full)
-
-    const imapConfig = {
-      user: email,
-      host,
-      port: Number(port) || 993,
-      tls: !!tls,
-      tlsOptions: {
-        rejectUnauthorized: true,
-        servername: host,
-        ca: rootCas,
-        minVersion: 'TLSv1.2'
-      },
-      connTimeout: 30000,
-      authTimeout: 30000
-    };
-    if (authType === 'xoauth2') imapConfig.xoauth2 = accessToken || password || '';
-    else imapConfig.password = password;
-
-    const imap = new Imap(imapConfig);
-    const emails = [];
-    const parsePromises = [];
-
-    // 75s watchdog (shorter than Render’s 90s response timeout you set on server)
-    const watchdog = setTimeout(() => {
-      try { imap.end(); } catch {}
-      finish(new Error('IMAP connection timed out'));
-    }, 75000);
-
-    if (IMAP_DEBUG) {
-      imap.on('alert',  (m) => console.log('[IMAP alert]', m));
-      imap.on('close',  (hadErr) => console.log('[IMAP close]', hadErr));
-      imap.on('error',  (e) => console.log('[IMAP error]', e?.message || e));
-    }
-
-    imap.once('ready', () => {
-      imap.openBox('INBOX', true, (err) => {
-        if (err) {
-          clearTimeout(watchdog);
-          return finish(new Error(friendlyImapError(err?.message || err, { host, email, authType })));
+          out.push({
+            uid: attrs?.uid,
+            id: attrs?.uid,
+            date: parsed.date ? new Date(parsed.date).toISOString() : '',
+            subject: parsed.subject || '',
+            from: parsed.from?.text || '',
+            fromEmail, fromDomain,
+            to: parsed.to?.text || '',
+            cc: parsed.cc?.text || '',
+            snippet: (parsed.text||'').slice(0, 1200),
+            text: parsed.text || '',
+            headers,
+            contentType: headers['content-type'] || '',
+            hasIcs,
+            attachTypes,
+            unread: !attrs?.flags?.includes('\\Seen'),
+            flagged: attrs?.flags?.includes('\\Flagged')
+          });
+        }catch(e){
+          out.push({ uid: attrs?.uid, id: attrs?.uid, subject:'(parse failed)', snippet:'', headers:{} });
         }
-
-        if (IMAP_DEBUG) {
-          try { console.log('IMAP search criteria =>', JSON.stringify(criteria)); } catch {}
-        }
-
-        imap.search(criteria, (err, results = []) => {
-          if (err) {
-            clearTimeout(watchdog);
-            return finish(new Error(friendlyImapError(err?.message || err, { host, email, authType })));
-          }
-
-          if (!Array.isArray(results) || results.length === 0) {
-            clearTimeout(watchdog);
-            try { imap.end(); } catch {}
-            return; // 'end' resolves with []
-          }
-
-          // Only fetch the last N (most recent) messages
-          const n = Math.max(0, Math.min(Number(limit) || 0, results.length)) || results.length;
-          const uids = results.slice(-n);
-
-          // Choose fetch profile based on provider
-          const fetchBodies = isIcloud ? FETCH_BODIES_ICLOUD : FETCH_BODIES_FULL;
-
-          const fetcher = imap.fetch(uids, {
-            bodies: fetchBodies,
-            struct: false
-          });
-
-          fetcher.on('message', (msg) => {
-            let uid = null;
-            let internalDate = null;
-
-            const record = { uid };
-
-            msg.once('attributes', (attrs) => {
-              uid = attrs?.uid ?? null;
-              internalDate = attrs?.date ?? null;
-              record.uid = uid;
-              record.internalDate = internalDate;
-            });
-
-            // iCloud light path: collect ENVELOPE + tiny TEXT
-            if (isIcloud) {
-              let snippet = '';
-              let envelope = null;
-
-              msg.on('body', (stream, info) => {
-                const which = info?.which || '';
-                const chunks = [];
-                stream.on('data', (c) => chunks.push(Buffer.from(c)));
-                stream.on('end', () => {
-                  const buf = Buffer.concat(chunks).toString('utf8');
-                  if (/ENVELOPE/i.test(which)) {
-                    // ENVELOPE is returned as a string; imap lib doesn’t parse for us
-                    // but simple way: rely on headers from BODY[TEXT] if present,
-                    // otherwise just keep subject empty — iCloud will still send TEXT bytes.
-                  } else if (/BODY\[TEXT\]</i.test(which)) {
-                    snippet = buf;
-                  }
-                });
-              });
-
-              msg.once('end', () => {
-                // We don’t have structured ENVELOPE fields parsed here;
-                // so we parse the snippet headers quickly using mailparser on a tiny chunk
-                const tiny = new Promise((resolve) => {
-                  // Try to create a pseudo message with minimal headers if present
-                  simpleParser(snippet, (err, parsed) => {
-                    const item = {
-                      uid,
-                      internalDate,
-                      subject: parsed?.subject || '(no subject)',
-                      from: parsed?.from?.text || '',
-                      to: parsed?.to?.text || '',
-                      date: parsed?.date || internalDate || null,
-                      text: parsed?.text || snippet || '',
-                      html: parsed?.html || ''
-                    };
-                    emails.push(item);
-                    resolve();
-                  });
-                });
-                parsePromises.push(tiny);
-              });
-            } else {
-              // Non-iCloud: full body parse as before
-              msg.on('body', (stream) => {
-                const p = new Promise((resolveOne) => {
-                  simpleParser(stream, (err, parsed) => {
-                    if (!err && parsed) {
-                      emails.push({
-                        uid,
-                        internalDate,
-                        subject: parsed.subject || '(no subject)',
-                        from: parsed.from?.text || '',
-                        to: parsed.to?.text || '',
-                        date: parsed.date || internalDate || null,
-                        text: parsed.text || '',
-                        html: parsed.html || ''
-                      });
-                    }
-                    resolveOne(); // swallow per-message parse errors
-                  });
-                });
-                parsePromises.push(p);
-              });
-            }
-          });
-
-          fetcher.once('error', (e) => {
-            clearTimeout(watchdog);
-            finish(new Error(friendlyImapError(e?.message || e, { host, email, authType })));
-          });
-
-          fetcher.once('end', () => {
-            Promise.allSettled(parsePromises).finally(() => {
-              try { imap.end(); } catch {}
-            });
-          });
-        });
       });
     });
+    f.once('error', (e)=> reject(e));
+    f.once('end', ()=> resolve(out));
+  });
+}
 
-    imap.once('error', (err) => {
-      clearTimeout(watchdog);
-      finish(new Error(friendlyImapError(err?.message || err, { host, email, authType })));
+export async function fetchEmails({ email, password, accessToken, host, port=993, tls=true, authType='password', search=['ALL'], limit=20, importantFirst=false }) {
+  return new Promise((resolve, reject) => {
+    const imap = openImap({ email, password, accessToken, host, port, tls, authType });
+    const finish = (err, data) => {
+      try { imap.end(); } catch {}
+      return err ? reject(new Error(friendlyImapError(err?.message||err, {host,email,authType}))) : resolve(data);
+    };
+
+    let watchdog = setTimeout(()=>{ try{ imap.destroy(); } catch{} finish(new Error('IMAP timed out')); }, 120000);
+
+    imap.once('ready', async () => {
+      try{
+        await openMailbox(imap, 'INBOX');
+        // Search UIDs by date range
+        imap.search(search, async (err, uids) => {
+          if (err) return finish(err);
+          uids = (uids || []).slice(-Math.max(1, Number(limit)||20)); // last N
+          if (!uids.length) return finish({ items:[], hasMore:false, nextCursor:null });
+
+          // newest first
+          uids.sort((a,b)=>b-a);
+
+          const items = await fetchBodies(imap, uids);
+          // sort important-first on the client usually; we keep order by date desc
+          const payload = { items, hasMore:false, nextCursor:null };
+          finish(payload);
+        });
+      }catch(e){ finish(e); }
     });
 
-    imap.once('end', () => {
+    imap.once('error', (e)=> {
       clearTimeout(watchdog);
-      finish(null, emails);
+      finish(e);
+    });
+    imap.once('end', ()=> {
+      clearTimeout(watchdog);
     });
 
-    try {
-      imap.connect();
-    } catch (e) {
-      clearTimeout(watchdog);
-      finish(new Error(friendlyImapError(e?.message || e, { host, email, authType })));
-    }
+    try{ imap.connect(); } catch(e){ clearTimeout(watchdog); finish(e); }
+  });
+}
+
+export async function testLogin({ email, password, accessToken, host, port=993, tls=true, authType='password' }){
+  return new Promise((resolve, reject) => {
+    const imap = openImap({ email, password, accessToken, host, port, tls, authType });
+    const finish = (err) => { try{ imap.end(); }catch{}; return err ? reject(err) : resolve(true); };
+    let watchdog = setTimeout(()=>{ try{ imap.destroy(); } catch{} finish(new Error('IMAP timed out')); }, 60000);
+
+    imap.once('ready', async ()=> {
+      try{ await openMailbox(imap, 'INBOX'); finish(); }
+      catch(e){ finish(e); }
+    });
+    imap.once('error', (e)=> { clearTimeout(watchdog); finish(e); });
+    imap.once('end', ()=> { clearTimeout(watchdog); });
+
+    try{ imap.connect(); } catch(e){ clearTimeout(watchdog); finish(e); }
   });
 }
