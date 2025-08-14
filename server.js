@@ -56,7 +56,7 @@ if (USE_GOOGLE_AUTH) {
   googleClient = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID || '',
     process.env.GOOGLE_CLIENT_SECRET || '',
-    process.env.GOOGLE_REDIRECT_URI || ''
+    process.env.AZURE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || ''
   );
 }
 
@@ -371,12 +371,12 @@ app.get('/validate-license', async (req, res) => {
     let row = null;
     if (licenseKeyRaw) {
       const { data } = await supabase
-        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires')
+        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires, tier, status, expires_at')
         .eq('license_key', licenseKeyRaw).maybeSingle();
       row = data;
     } else {
       const { data } = await supabase
-        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires')
+        .from('licenses').select('email, license_key, smartemail_tier, smartemail_expires, tier, status, expires_at')
         .eq('email', email).maybeSingle();
       row = data;
     }
@@ -391,9 +391,11 @@ app.get('/validate-license', async (req, res) => {
     }
 
     const now = new Date();
-    const tier = row?.smartemail_tier || 'free';
-    const expiresAt = row?.smartemail_expires || null;
-    const active = tier === 'free' ? true : !!(expiresAt && new Date(expiresAt) >= now);
+    const tier = (row?.smartemail_tier || row?.tier || 'free');
+    const expiresAt = (row?.smartemail_expires || row?.expires_at || null);
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? new Date(expiresAt) >= now : (row?.status === 'active' || row?.status === 'paid'));
 
     return res.status(200).json({
       status: active ? 'active' : 'expired',
@@ -426,24 +428,25 @@ app.post('/api/license/check', async (req, res) => {
 
     const { data, error } = await supabase
       .from('licenses')
-      .select('tier,status,expires_at,created_at')
+      .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at')
       .eq('email', email.toLowerCase())
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (error) return res.status(500).json({ error: 'Lookup failed' });
+    if (error) return res.json({ found: false, active: false, tier: 'free' });
 
     if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
+    const tierVal = (data.smartemail_tier || data.tier || 'free');
+    const expires = (data.smartemail_expires || data.expires_at || null);
     const active =
-      (data.status === 'active' || data.status === 'paid') &&
-      (!data.expires_at || new Date(data.expires_at) > new Date());
+      (tierVal === 'free') ||
+      (!!expires ? new Date(expires) > new Date() : (data.status === 'active' || data.status === 'paid'));
 
-    const tier = active ? (data.tier || 'pro') : 'free';
-    return res.json({ found: true, active, tier });
-  } catch (e) {
-    return res.status(500).json({ error: 'Lookup failed' });
+    return res.json({ found: true, active, tier: tierVal });
+  } catch {
+    return res.json({ found: false, active: false, tier: 'free' });
   }
 });
 
