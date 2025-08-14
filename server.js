@@ -193,10 +193,36 @@ app.get('/api/status', (req, res) => {
 });
 
 // ---------- LICENSE HELPERS (scoped to SmartEmail) ----------
-async function checkLicense(email) {
+async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // Prefer SmartEmail row
+  // 1) Prefer license key (scoped to this app), then any app
+  if (licenseKey) {
+    let { data } = await supabase
+      .from('licenses')
+      .select('smartemail_tier, smartemail_expires')
+      .eq('license_key', licenseKey)
+      .eq('app_name', APP)
+      .maybeSingle();
+
+    if (!data) {
+      const fb = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires')
+        .eq('license_key', licenseKey)
+        .maybeSingle();
+      data = fb.data;
+    }
+
+    if (data) {
+      return {
+        tier: data.smartemail_tier || 'free',
+        expires: data.smartemail_expires || null
+      };
+    }
+  }
+
+  // 2) SmartEmail row (email + app_name)
   let { data, error } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires')
@@ -206,7 +232,7 @@ async function checkLicense(email) {
     .limit(1)
     .maybeSingle();
 
-  // Fallback to legacy (no app_name)
+  // 3) Fallback to legacy row (email only)
   if ((!data && !error) || (error && error.code === 'PGRST116')) {
     const fb = await supabase
       .from('licenses')
@@ -216,9 +242,9 @@ async function checkLicense(email) {
       .limit(1)
       .maybeSingle();
     data = fb.data;
-    error = fb.error || null;
   }
 
+  // 4) Create a free stub if nothing exists
   if (!data) {
     await supabase.from('licenses').upsert(
       { email: e, app_name: APP, smartemail_tier: 'free', smartemail_expires: null },
@@ -226,6 +252,7 @@ async function checkLicense(email) {
     );
     return { tier: 'free', expires: null, reason: 'inserted-free' };
   }
+
   return { tier: data.smartemail_tier || 'free', expires: data.smartemail_expires || null };
 }
 
