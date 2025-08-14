@@ -327,8 +327,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
       }]);
     } catch {}
 
-    const lic = await checkLicense(finalEmail);
-    res.json({ generatedEmail: reply, tier: lic.tier });
+    res.json({ generatedEmail: reply, tier: 'free' });
   } catch (err) {
     console.error('Generate route error:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong.' });
