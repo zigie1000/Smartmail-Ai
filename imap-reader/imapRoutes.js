@@ -52,17 +52,22 @@ async function getTier({ licenseKey = '', email = '' }) {
       if (supa) {
         const { data, error } = await supa
           .from('licenses')
-          .select('smartemail_tier, license_key')
+          .select('smartemail_tier, license_key, tier, status, smartemail_expires, expires_at')
           .eq('license_key', licenseKey)
           .maybeSingle();
-        if (!error && data) return String(data.smartemail_tier || 'free').toLowerCase();
+        if (!error && data) {
+          const t = String(data.smartemail_tier || data.tier || 'free').toLowerCase();
+          return t;
+        }
       } else if (pg) {
         const c = await pg.connect(); try {
           const r = await c.query(
-            'select smartemail_tier from public.licenses where license_key=$1 limit 1',
+            'select smartemail_tier, tier from public.licenses where license_key=$1 limit 1',
             [licenseKey]
           );
-          if (r.rows[0]) return String(r.rows[0].smartemail_tier || 'free').toLowerCase();
+          if (r.rows[0]) {
+            return String(r.rows[0].smartemail_tier || r.rows[0].tier || 'free').toLowerCase();
+          }
         } finally { c.release(); }
       }
     }
@@ -80,22 +85,22 @@ async function getTier({ licenseKey = '', email = '' }) {
         if (link?.license_key) {
           const { data: lic } = await supa
             .from('licenses')
-            .select('smartemail_tier')
+            .select('smartemail_tier, tier')
             .eq('license_key', link.license_key)
             .maybeSingle();
-          if (lic) return String(lic.smartemail_tier || 'free').toLowerCase();
+          if (lic) return String(lic.smartemail_tier || lic.tier || 'free').toLowerCase();
         }
       } else if (pg) {
         const c = await pg.connect(); try {
           const r = await c.query(
-            `select l.smartemail_tier
+            `select coalesce(l.smartemail_tier, l.tier, 'free') as t
                from license_mailboxes lm
                join public.licenses l on l.license_key = lm.license_key
               where lm.mailbox_hash = $1
               limit 1`,
             [mh]
           );
-          if (r.rows[0]) return String(r.rows[0].smartemail_tier || 'free').toLowerCase();
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
         } finally { c.release(); }
       }
     }
@@ -107,20 +112,20 @@ async function getTier({ licenseKey = '', email = '' }) {
       if (supa) {
         const { data } = await supa
           .from('licenses')
-          .select('smartemail_tier')
+          .select('smartemail_tier, tier')
           .eq('email', em)
           .maybeSingle();
-        if (data) return String(data.smartemail_tier || 'free').toLowerCase();
+        if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
       } else if (pg) {
         const c = await pg.connect(); try {
           const r = await c.query(
-            `select smartemail_tier
+            `select coalesce(smartemail_tier, tier, 'free') as t
                from public.licenses
               where lower(email)=lower($1)
               order by created_at desc
               limit 1`, [em]
           );
-          if (r.rows[0]) return String(r.rows[0].smartemail_tier || 'free').toLowerCase();
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
         } finally { c.release(); }
       }
     }
