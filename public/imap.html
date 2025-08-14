@@ -24,6 +24,7 @@
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
   .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.is-on{box-shadow:inset 0 0 0 2px var(--brand); outline:2px solid #93c5fd; outline-offset:2px}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
@@ -155,7 +156,7 @@
         <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
         <button class="btn ghost" id="btnTest" type="button">Test Login</button>
         <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
-        <button class="btn secondary" id="btnImportant" type="button">Filter: Important</button>
+        <button class="btn secondary" id="btnImportant" type="button" aria-pressed="false">Filter: Important</button>
         <button class="btn ghost" id="btnAll" type="button">Show All</button>
         <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
@@ -240,13 +241,13 @@
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const msg = $("msg");
-  const state = { emails: [], view: [], page: 1, perPage: 20 };
 
-  const PROVIDERS = {
-    gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
-    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
-    yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
-    icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
+  const state = {
+    emails: [],
+    view: [],
+    page: 1,
+    perPage: 20,
+    filterImportance: 'all' // 'all' | 'important'
   };
 
   const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
@@ -306,6 +307,13 @@
 
   function applyFilters(){
     let filtered = [...state.emails];
+
+    // Important toggle first (client-side only)
+    if (state.filterImportance === 'important') {
+      filtered = filtered.filter(e => String(e.importance).toLowerCase() === 'important');
+    }
+
+    // Dropdown filters
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
     if (fPri) filtered = filtered.filter(e => priorityOf(e) === fPri);
     if (fIntent) filtered = filtered.filter(e => (e.intent||"") === fIntent);
@@ -328,6 +336,14 @@
     state.view = filtered; state.page = 1; render();
   }
 
+  function setImportantMode(mode){ // 'all' | 'important'
+    state.filterImportance = mode;
+    $("btnImportant").classList.toggle('is-on', mode==='important');
+    $("btnImportant").setAttribute('aria-pressed', String(mode==='important'));
+    $("btnAll").classList.toggle('is-on', mode==='all');
+    applyFilters();
+  }
+
   function applySmartView(v){
     $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
     switch(v){
@@ -339,7 +355,7 @@
       case "newsletters": $("fIntent").value = "newsletter"; break;
       case "today": $("fTime").value = "today"; break;
     }
-    applyFilters();
+    setImportantMode('all'); // smart views shouldn’t lock important-only
   }
 
   function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
@@ -367,7 +383,6 @@
         if (Number($("range").value||2) > 7) $("range").value = "7";
       }
 
-      // Range "All" -> send "all", otherwise numeric days
       const rangeVal = $("range").value;
       const rangeDays = rangeVal === "0" ? "all" : Number(rangeVal||2);
 
@@ -381,7 +396,7 @@
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
-        importantFirst: true   // sort-only; do NOT server-filter
+        importantFirst: true   // sort-only; never server-filter
       };
       saveForm();
 
@@ -398,12 +413,8 @@
       const data = await resp.json().catch(()=>null);
       if(!resp.ok || !data){ throw new Error((data && data.error) || `Fetch failed (${resp.status})`); }
 
-      // Support both server styles:
-      // 1) New: { items: [...], nextCursor, hasMore } with item.classification
-      // 2) Legacy: { emails: [...] } with plain items -> we call /classify
       let base = [];
       if (Array.isArray(data.items)) {
-        // Flatten classification onto the item
         base = data.items.map((it, i) => {
           const cls = it.classification || {};
           return {
@@ -413,7 +424,6 @@
           };
         });
       } else if (Array.isArray(data.emails)) {
-        // Legacy path: follow-up classify call then merge
         const emails = data.emails;
         let enriched = emails;
         try {
@@ -423,19 +433,19 @@
           });
           if (clf.ok) {
             const out = await clf.json();
-            const arr = out?.results || out; // support {results:[...]} or [...]
+            const arr = out?.results || out;
             if (Array.isArray(arr) && arr.length === emails.length) {
               enriched = emails.map((e,i)=>Object.assign({}, e, arr[i]));
             }
           }
         } catch(_) {}
         base = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
-      } else {
-        base = [];
       }
 
       state.emails = base;
-      state.view = base.slice();
+      setImportantMode('all'); // reset hard-lock: start in Show All after each fetch
+      $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
+      state.view = state.emails.slice();
       state.page = 1;
       render();
 
@@ -481,13 +491,25 @@
     }
   }
 
+  function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
+  function exportCSV(){ const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];const rows=[cols.join(",")].concat(state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(",")));const b=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.csv";a.click();URL.revokeObjectURL(a.href);}
+
+  function sendSelected(){
+    const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
+    if(!ids.length){ setMessage("err","Select at least one email."); return; }
+    const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
+    const params = new URLSearchParams({subject:first.subject||"", body:(first.snippet||first.text||""), from:first.from||"", date:first.date||"", importance:String(first.importance||"")});
+    window.location.href = "/index.html?" + params.toString();
+  }
+
   function applyProviderPreset(){
-    const p = $("provider").value;
     const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
-    if(P[p]){ $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; }
+    const p = P[$("provider").value];
+    if(p){ $("host").value=p.host; $("port").value=p.port; $("tls").value=p.tls; }
     saveForm();
   }
 
+  // Bindings
   ["email","password","host","port","tls","range","authType","limit"].forEach(id => $(id).addEventListener("change", saveForm));
   $("provider").addEventListener("change", applyProviderPreset);
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
@@ -495,9 +517,10 @@
   $("btnFetch").addEventListener("click", fetchAndClassify);
   $("btnTest").addEventListener("click", testLogin);
   $("btnRefresh").addEventListener("click", ()=>render());
-  // IMPORTANT FILTER IS CLIENT-SIDE ONLY:
-  $("btnImportant").addEventListener("click", ()=>{ state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important"); state.page=1; render(); });
-  $("btnAll").addEventListener("click", ()=>{ state.view = state.emails.slice(); state.page=1; render(); });
+
+  $("btnImportant").addEventListener("click", ()=> setImportantMode('important'));
+  $("btnAll").addEventListener("click", ()=> setImportantMode('all'));
+
   $("btnExportJson").addEventListener("click", exportJSON);
   $("btnExportCsv").addEventListener("click", exportCSV);
   $("btnSendSelected").addEventListener("click", sendSelected);
@@ -512,8 +535,10 @@
   $("fTime").addEventListener("change", applyFilters);
   $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
 
+  // Init
   loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
+  setImportantMode('all'); // start in Show All
   state.view = []; render();
 })();
 </script>
