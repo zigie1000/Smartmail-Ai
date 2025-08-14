@@ -12,6 +12,8 @@
   header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
   header h1{font-size:20px;margin:0}
   .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
+  .tier{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .tier .pill{padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;font-size:12px}
   .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
   .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
   .row>.col{display:flex;flex-direction:column}
@@ -24,7 +26,6 @@
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
   .btn:disabled{opacity:.6;cursor:not-allowed}
-  .btn.is-on{box-shadow:inset 0 0 0 2px var(--brand); outline:2px solid #93c5fd; outline-offset:2px}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
@@ -55,19 +56,8 @@
   .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid --line}
   .pager{display:flex;gap:6px;align-items:center}
   .pager button{padding:8px 12px}
-  .hint{font-size:12px;color:#6b7280}
+  .hint{font-size:12px;color:var(--muted)}
   .switch{position:fixed;top:10px;right:10px;text-decoration:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px}
-
-  /* Segmented toggle */
-  .seg{display:inline-flex;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#f3f4f6}
-  .seg button{background:transparent;color:#374151;padding:8px 12px}
-  .seg button.is-on{background:#fff;border-left:1px solid var(--line);border-right:1px solid var(--line);color:#111827}
-  .seg .count{font-variant-numeric:tabular-nums;margin-left:6px;opacity:.75}
-
-  /* Star learn */
-  .star{border:none;background:transparent;font-size:18px;cursor:pointer;margin-right:8px}
-  .star[aria-pressed="true"]{filter: drop-shadow(0 0 2px #f59e0b)}
-
   .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
   .filters .col{display:flex;flex-direction:column}
   @media (max-width:900px){
@@ -75,6 +65,7 @@
     .filters{grid-template-columns:1fr 1fr}
     .email-header{grid-template-columns:1fr auto}
     .footer{flex-direction:column;align-items:flex-start}
+    .tier{flex-wrap:wrap;gap:6px}
   }
 </style>
 </head>
@@ -85,6 +76,11 @@
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h1>SmartEmail IMAP</h1>
       <span class="badge">Facets • Chips • Test Login</span>
+      <div class="tier">
+        <span id="tierPill" class="pill">Tier: —</span>
+        <input id="licenseKey" placeholder="License key (optional)" style="min-width:240px"/>
+        <button id="btnTier" class="btn ghost" type="button">Check Tier</button>
+      </div>
     </header>
 
     <section class="card" style="padding:16px 16px 8px">
@@ -164,20 +160,15 @@
       </div>
 
       <div class="toolbar">
-        <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
-        <button class="btn ghost" id="btnTest" type="button">Test Login</button>
-        <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
-
-        <!-- Segmented toggle -->
-        <div class="seg" role="group" aria-label="View toggle" style="margin-left:6px">
-          <button id="btnAll" class="btn ghost is-on" type="button" aria-pressed="true">Show All <span id="countAll" class="count"></span></button>
-          <button id="btnImportant" class="btn secondary" type="button" aria-pressed="false">Important <span id="countImp" class="count"></span></button>
-        </div>
-
-        <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
-        <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
-        <button class="btn secondary" id="btnSendSelected" type="button">Send Selected → Generator</button>
-        <button class="btn ghost" id="btnMore" type="button">More (30d)</button>
+        <button class="btn" id="btnFetch" type="button" disabled>Fetch &amp; Classify</button>
+        <button class="btn ghost" id="btnTest" type="button" disabled>Test Login</button>
+        <button class="btn ghost" id="btnRefresh" type="button" disabled>Refresh</button>
+        <button class="btn secondary" id="btnImportant" type="button" disabled>Filter: Important</button>
+        <button class="btn ghost" id="btnAll" type="button" disabled>Show All</button>
+        <button class="btn ghost" id="btnExportJson" type="button" disabled>Export JSON</button>
+        <button class="btn ghost" id="btnExportCsv" type="button" disabled>Export CSV</button>
+        <button class="btn secondary" id="btnSendSelected" type="button" disabled>Send Selected → Generator</button>
+        <button class="btn ghost" id="btnMore" type="button" disabled>More (30d)</button>
       </div>
 
       <div class="filters">
@@ -244,9 +235,9 @@
 
     <div class="footer card" style="margin-top:12px;">
       <div class="pager" style="padding:8px 10px">
-        <button id="prev" class="btn ghost" type="button">Prev</button>
+        <button id="prev" class="btn ghost" type="button" disabled>Prev</button>
         <span id="pageInfo" class="hint">Page 1</span>
-        <button id="next" class="btn ghost" type="button">Next</button>
+        <button id="next" class="btn ghost" type="button" disabled>Next</button>
       </div>
       <div class="hint" style="padding:8px 10px">Select emails and click <b>Send Selected → Generator</b> to prefill the reply screen.</div>
     </div>
@@ -257,16 +248,16 @@
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const msg = $("msg");
+  const state = { emails: [], view: [], page: 1, perPage: 20, tier: 'free', isPaid: false, tierKnown: false };
 
-  const state = {
-    emails: [],
-    view: [],
-    page: 1,
-    perPage: 20,
-    viewMode: 'all' // 'all' | 'important'
+  const PROVIDERS = {
+    gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
+    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
+    yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
+    icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
   };
 
-  const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
+  const KEYS = ["email","host","port","provider","tls","range","authType","limit","licenseKey"];
   function saveForm(){ KEYS.forEach(k => localStorage.setItem("imap."+k, $(k).value)); }
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
@@ -284,15 +275,23 @@
     return "Low";
   }
 
+  function setTierUI(tier, isPaid){
+    state.tier = tier; state.isPaid = !!isPaid; state.tierKnown = true;
+    $("tierPill").textContent = `Tier: ${tier||'free'}`;
+    const enable = ()=>{ ["btnFetch","btnTest","btnRefresh","btnImportant","btnAll","btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next"].forEach(id => $(id).disabled = false); };
+    enable();
+    if(!isPaid){
+      setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
+    }
+  }
+
   function render(){
     const start = (state.page-1)*state.perPage;
     const items = state.view.slice(start, start+state.perPage);
-    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; updateCounts(); return; }
+    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; return; }
     list.innerHTML = items.map(cardHtml).join("");
     $("pageInfo").textContent = `Page ${state.page}`;
-    updateCounts();
   }
-
   function cardHtml(e){
     const imp = (e.importance||"unimportant").toLowerCase();
     const impClass = imp === "important" ? "imp" : "";
@@ -301,18 +300,17 @@
     const urgVal = Number.isInteger(e.urgency) ? e.urgency : null;
     const urgency = (urgVal !== null) ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>` : "";
     const pri = priorityOf(e);
-    const starOn = String(imp)==='important';
-    const starBtn = `<button class="star" title="Mark as Important" data-id="${escapeHtml(e.id||'')}" data-from="${escapeHtml(e.fromEmail||'')}" data-dom="${escapeHtml(e.fromDomain||'')}" aria-pressed="${starOn}">${starOn?'⭐':'☆'}</button>`;
     const priorityChip = `<span class="chip pri-${pri}" title="Priority derived from importance+urgency">${pri}</span>`;
+    const from = e.from || e.fromEmail || "";
     return `
     <div class="email">
       <div class="email-header">
         <div class="meta">
           <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
-          <span class="from">${escapeHtml(e.from||'')}</span>
+          <span class="from">${escapeHtml(from)}</span>
         </div>
         <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
-        <div>${starBtn}<span class="tag ${impClass}">${escapeHtml(imp)}</span>${priorityChip}${intent}${urgency}</div>
+        <div><span class="tag ${impClass}">${escapeHtml(imp)}</span>${priorityChip}${intent}${urgency}</div>
       </div>
       <details>
         <summary>Preview</summary>
@@ -327,11 +325,6 @@
 
   function applyFilters(){
     let filtered = [...state.emails];
-
-    if (state.viewMode === 'important') {
-      filtered = filtered.filter(e => String(e.importance).toLowerCase() === 'important');
-    }
-
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
     if (fPri) filtered = filtered.filter(e => priorityOf(e) === fPri);
     if (fIntent) filtered = filtered.filter(e => (e.intent||"") === fIntent);
@@ -354,20 +347,18 @@
     state.view = filtered; state.page = 1; render();
   }
 
-  function setViewMode(mode){
-    state.viewMode = mode;
-    $("btnAll").classList.toggle('is-on', mode==='all');
-    $("btnAll").setAttribute('aria-pressed', String(mode==='all'));
-    $("btnImportant").classList.toggle('is-on', mode==='important');
-    $("btnImportant").setAttribute('aria-pressed', String(mode==='important'));
+  function applySmartView(v){
+    $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
+    switch(v){
+      case "needs_action": $("fAction").value = "needs"; break;
+      case "awaiting_reply": $("fAction").value = "awaiting"; break;
+      case "meetings_48h": $("fIntent").value = "meeting"; $("fTime").value = "2"; break;
+      case "billing": $("fIntent").value = "billing"; break;
+      case "security_legal": $("fIntent").value = "security"; break;
+      case "newsletters": $("fIntent").value = "newsletter"; break;
+      case "today": $("fTime").value = "today"; break;
+    }
     applyFilters();
-  }
-
-  function updateCounts(){
-    const all = state.emails.length;
-    const imp = state.emails.filter(e => String(e.importance).toLowerCase()==='important').length;
-    $("countAll").textContent = all ? `(${all})` : '';
-    $("countImp").textContent = imp ? `(${imp})` : '';
   }
 
   function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
@@ -377,57 +368,64 @@
     const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
     if(!ids.length){ setMessage("err","Select at least one email."); return; }
     const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
-    const params = new URLSearchParams({subject:first.subject||"", body:(first.snippet||first.text||""), from:first.from||"", date:first.date||"", importance:String(first.importance||"")});
+    const params = new URLSearchParams({
+      subject:first.subject||"",
+      body:(first.snippet||first.text||""),
+      from:first.from||"",
+      date:first.date||"",
+      importance:String(first.importance||"")
+    });
     window.location.href = "/index.html?" + params.toString();
   }
 
-  // ⭐ feedback (delegate)
-  list.addEventListener('click', async (ev)=>{
-    const btn = ev.target.closest('.star');
-    if(!btn) return;
-    const id   = btn.dataset.id;
-    const nowOn = btn.getAttribute('aria-pressed') !== 'true';
-    btn.setAttribute('aria-pressed', String(nowOn));
-    btn.textContent = nowOn ? '⭐' : '☆';
-
-    const item = state.emails.find(x => String(x.id)===String(id));
-    if (item) {
-      item.importance = nowOn ? 'important' : (item.importance==='important' ? 'unclassified' : item.importance);
-      applyFilters();
-      // fire-and-forget
-      try {
-        await fetch('/api/imap/feedback', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            label: nowOn ? 'important' : 'unimportant',
-            fromEmail: item.fromEmail || '',
-            fromDomain: item.fromDomain || ''
-          })
-        });
-      } catch(_){}
+  // -------- Tier preflight --------
+  async function checkTier() {
+    try {
+      const payload = { email: $("email").value||"", licenseKey: $("licenseKey").value||localStorage.getItem('smartemail.licenseKey')||"" };
+      const resp = await fetch("/api/imap/tier",{ method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      const data = await resp.json().catch(()=>({}));
+      if (resp.ok) {
+        setTierUI(data.tier || 'free', !!data.isPaid);
+        if (data.notice) setMessage('ok', data.notice);
+      } else {
+        setTierUI('free', false);
+      }
+    } catch (_) {
+      setTierUI('free', false);
     }
-  });
+  }
 
   // ---- Networking ----
   async function fetchAndClassify(){
     skeleton(6);
     try{
-      const rangeDays = Number($("range").value || 2) || 0; // ALWAYS a number (0 = all)
+      const provider = $("provider").value;
+
+      // iCloud defaults
+      if (provider === "icloud") {
+        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+        $("tls").value = "on";
+        if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
+        if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
+      }
+
       const payload = {
         email: $("email").value||"",
         password: $("password").value||"",
         host: $("host").value||"",
         port: Number($("port").value||993),
         tls: ($("tls").value||"on")!=="off",
-        rangeDays,
+        rangeDays: Number($("range").value||2),
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
-        importantFirst: true
+        licenseKey: $("licenseKey").value || localStorage.getItem('smartemail.licenseKey') || ""
       };
+      saveForm();
+
+      const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
       const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), 60000);
+      const t = setTimeout(()=>controller.abort(), timeoutMs);
 
       const resp = await fetch("/api/imap/fetch",{
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -435,47 +433,17 @@
       });
       clearTimeout(t);
 
-      const data = await resp.json().catch(()=>null);
-      if(!resp.ok || !data){ throw new Error((data && data.error) || `Server error while fetching mail.`); }
+      if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
+      const data = await resp.json();
 
-      let base = [];
-      if (Array.isArray(data.items)) {
-        base = data.items.map((it, i) => {
-          const cls = it.classification || {};
-          return {
-            id: it.id ?? it.uid ?? String(i+1),
-            from: it.from, to: it.to, subject: it.subject, date: it.date, snippet: it.snippet, text: it.text,
-            fromEmail: it.fromEmail, fromDomain: it.fromDomain,
-            importance: cls.importance, intent: cls.intent, urgency: cls.urgency, action_required: cls.action_required, confidence: cls.confidence, reasons: cls.reasons
-          };
-        });
-      } else if (Array.isArray(data.emails)) {
-        const emails = data.emails;
-        let enriched = emails;
-        try {
-          const clf = await fetch("/api/imap/classify",{
-            method:"POST", headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({items:emails})
-          });
-          if (clf.ok) {
-            const out = await clf.json();
-            const arr = out?.results || out;
-            if (Array.isArray(arr) && arr.length === emails.length) {
-              enriched = emails.map((e,i)=>Object.assign({}, e, arr[i]));
-            }
-          }
-        } catch(_) {}
-        base = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
-      }
+      const emails = Array.isArray(data?.emails)?data.emails:[];
+      state.emails = emails.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
+      state.view = state.emails.slice(); state.page=1; render();
 
-      state.emails = base;
-      setViewMode('all'); // reset toggle after each fetch
-      $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
-      state.view = state.emails.slice();
-      state.page = 1;
-      render();
+      if (data?.tier) setTierUI(data.tier, data.tier !== 'free');
+      if (data?.notice) setMessage("ok", data.notice);
 
-      setMessage("ok", "Fetched " + state.emails.length + " emails.");
+      setMessage("ok", "Fetched "+state.emails.length+" emails.");
     }catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
@@ -487,6 +455,12 @@
 
   async function testLogin(){
     try{
+      const provider = $("provider").value;
+      if (provider === "icloud") {
+        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+        $("tls").value = "on";
+      }
+
       const payload = {
         email: $("email").value||"", password: $("password").value||"",
         host: $("host").value||"", port: Number($("port").value||993),
@@ -496,7 +470,7 @@
       };
 
       const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), 30000);
+      const t = setTimeout(()=>controller.abort(), (/icloud/i.test(provider)? 60000 : 30000));
       const resp = await fetch("/api/imap/test",{
         method:"POST", headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(payload), signal: controller.signal
@@ -511,17 +485,24 @@
     }
   }
 
-  // Bindings
-  ["email","password","host","port","tls","range","authType","limit"].forEach(id => $(id).addEventListener("change", saveForm));
+  function applyProviderPreset(){
+    const p = $("provider").value;
+    const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
+    if(P[p]){ $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; }
+    saveForm();
+  }
+
+  // ---- Events ----
+  ["email","password","host","port","tls","range","authType","limit","licenseKey"].forEach(id => $(id).addEventListener("change", saveForm));
+  $("provider").addEventListener("change", applyProviderPreset);
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
 
+  $("btnTier").addEventListener("click", checkTier);
   $("btnFetch").addEventListener("click", fetchAndClassify);
   $("btnTest").addEventListener("click", testLogin);
   $("btnRefresh").addEventListener("click", ()=>render());
-
-  $("btnAll").addEventListener("click", ()=> setViewMode('all'));
-  $("btnImportant").addEventListener("click", ()=> setViewMode('important'));
-
+  $("btnImportant").addEventListener("click", ()=>{ state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important"); state.page=1; render(); });
+  $("btnAll").addEventListener("click", ()=>{ state.view = state.emails.slice(); state.page=1; render(); });
   $("btnExportJson").addEventListener("click", exportJSON);
   $("btnExportCsv").addEventListener("click", exportCSV);
   $("btnSendSelected").addEventListener("click", sendSelected);
@@ -534,12 +515,18 @@
   $("fIntent").addEventListener("change", applyFilters);
   $("fAction").addEventListener("change", applyFilters);
   $("fTime").addEventListener("change", applyFilters);
-  $("smartView").addEventListener("change", (e)=>{ setViewMode('all'); applyFilters(); });
+  $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
 
   // Init
-  loadForm();
+  loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-  setViewMode('all'); state.view = []; render();
+  // Auto pull key from SmartEmail storage, if present
+  if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
+    $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
+  }
+  // Tier preflight
+  checkTier();
+  state.view = []; render();
 })();
 </script>
 </body>
