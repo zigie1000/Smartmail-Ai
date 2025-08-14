@@ -279,6 +279,11 @@ async function syncTierFromSQL(email){
     const d = await sqlCheckEmail(email);
     const tier = (d && d.active && d.tier) ? d.tier : 'free';
     localStorage.setItem('smartemail_tier', tier);
+
+    // ⬇️ Apply the tier to the UI immediately
+    setTier(tier);
+    updateFeatureAccess();
+
     log && log(`🔄 SQL tier sync: ${tier} for ${email}`);
   }catch(e){
     log && log('⚠️ SQL sync failed: '+(e?.message||'error'));
