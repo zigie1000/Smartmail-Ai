@@ -1,300 +1,219 @@
 // imap-reader/emailClassifier.js
-// Heuristic-first + LLM fallback; VIP/Legal/Gov/Bulk lists; learned weights; safe JSON; no 'signal' in body.
+// Hybrid classifier: cheap heuristics + learned lists/weights,
+// with an OpenAI fallback for undecided cases.
+// - No 'signal' inside JSON body (fixes 400 signal error)
+// - alignOutput() is defined here
+// - Robust defaults so UI never breaks
 
 import fetch from 'node-fetch';
+import crypto from 'crypto';
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const MODEL_DEFAULT = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-4o-mini';
+const MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-4o-mini';
 
-// Optional hook so the host app can inject list loaders (SQL) at startup.
-// Signature: async fetchLists(userId) => { vip:Set, bulk:Set, legal:Set, government:Set, weights:{email:Map,domain:Map} }
-let fetchListsHook = null;
-export function configureClassifier({ fetchLists } = {}) {
-  if (typeof fetchLists === 'function') fetchListsHook = fetchLists;
-}
+const HASH = (s) => crypto.createHash('sha256').update(String(s||'').toLowerCase()).digest('hex');
 
-// ---------- util ----------
-function safeJson(s){ try{ return JSON.parse(s); } catch{ return null; } }
-
-function alignOutput(raw){
-  const def = { importance:'unclassified', intent:'other', urgency:0, action_required:false, confidence:0.5, reasons:[] };
-  if (!raw || typeof raw!=='object') return def;
+function alignOutput(raw) {
+  const def = {
+    importance: 'unclassified',   // 'important'|'unimportant'|'unclassified'
+    intent: 'other',              // billing|meeting|sales|support|hr|legal|security|newsletter|social|other
+    urgency: 0,                   // 0..3
+    action_required: false,
+    confidence: 0.5,
+    reasons: []
+  };
+  if (!raw || typeof raw !== 'object') return def;
   const out = { ...def };
-  const imp = String(raw.importance||'').toLowerCase();
-  if (['important','unimportant','unclassified'].includes(imp)) out.importance = imp;
+
+  const imp = String(raw.importance || '').toLowerCase();
+  if (imp === 'important' || imp === 'unimportant') out.importance = imp;
+
   const intents = new Set(['billing','meeting','sales','support','hr','legal','security','newsletter','social','other']);
-  const intent = String(raw.intent||'').toLowerCase();
+  const intent = String(raw.intent || '').toLowerCase();
   out.intent = intents.has(intent) ? intent : 'other';
-  const urg = Number(raw.urgency); out.urgency = Number.isFinite(urg)? Math.max(0,Math.min(3,Math.round(urg))) : 0;
+
+  const urg = Number(raw.urgency);
+  out.urgency = Number.isFinite(urg) ? Math.max(0, Math.min(3, Math.round(urg))) : 0;
+
   out.action_required = !!raw.action_required;
-  const conf = Number(raw.confidence); out.confidence = Number.isFinite(conf)? Math.max(0,Math.min(1,conf)) : 0.5;
-  if (Array.isArray(raw.reasons)) out.reasons = raw.reasons.map(x=>String(x)).slice(0,8);
+
+  const conf = Number(raw.confidence);
+  out.confidence = Number.isFinite(conf) ? Math.max(0, Math.min(1, conf)) : 0.5;
+
+  if (Array.isArray(raw.reasons)) out.reasons = raw.reasons.map(x => String(x)).slice(0, 6);
   else if (raw.reasons) out.reasons = [String(raw.reasons)];
   return out;
 }
 
-// ---------- regexes & helpers ----------
-const MARKETING_INFRAS = /(sendgrid|mailchimp|amazonses|postmarkapp|sparkpost|mandrill|convertkit|klaviyo|substack|campaign-monitor|constantcontact)/i;
-const NOREPLY = /(^|\b)no-?reply@/i;
-
-const GOV_TAX_KW = /(tax( office| authority)?|revenue service|sars|hmrc|irs|customs|department of (state|home|labor|labour)|treasury|social security)/i;
-const LAW_FIRM_KW = /(attorney|barrister|solicitor|advocate|law firm|llp|legal (notice|demand|action)|subpoena|court|arbitration|settlement|nda|contract)/i;
-const BILLING_KW = /(invoice|payment|paid|unpaid|overdue|refund|charge|billing|receipt|statement|credit note|debit note)/i;
-const SECURITY_KW = /(password reset|unusual sign[- ]in|mfa code|2fa code|verify login|account (locked|suspended)|phishing|breach|compromised)/i;
-const MEETING_KW = /(meeting|call|zoom|teams|google meet|calendar|invite|ics|reschedule|schedule)/i;
-const SALES_KW = /(quote|pricing|proposal|order|purchase|rfq|rfi|tender|lead)/i;
-const SUPPORT_KW = /(ticket|support|issue|bug|down|outage|escalation|sev)/i;
-const DEADLINE_KW = /(today|tomorrow|by eod|within 24 hours|final notice|overdue|due (date|today|tomorrow)|respond (within|by))/i;
-
-function getHeader(obj, key){
-  if (!obj) return '';
-  if (typeof obj.get === 'function') return String(obj.get(key)||'');
-  return String(obj[key]||'');
-}
-function extractSignals(e){
-  const subj = (e.subject||'');
-  const body = (e.snippet||'');
-  const text = subj + '\n' + body;
-
-  const fromEmail = (e.fromEmail||'').toLowerCase();
-  const fromDomain = (e.fromDomain||'').toLowerCase();
-  const headers = e.headers || {};
-
-  const h = {
-    listId: getHeader(headers,'list-id'),
-    listUnsub: getHeader(headers,'list-unsubscribe'),
-    precedence: getHeader(headers,'precedence'),
-    autoSubmitted: getHeader(headers,'auto-submitted'),
-    inReplyTo: getHeader(headers,'in-reply-to'),
-    references: getHeader(headers,'references'),
-    contentType: getHeader(headers,'content-type')
-  };
-
-  const hasListHeaders = !!(h.listId || h.listUnsub || /bulk|list|auto_reply/i.test(h.precedence) || /auto-submitted/i.test(h.autoSubmitted));
-  const isNoReply = NOREPLY.test(fromEmail) || NOREPLY.test(e.from || '');
-
-  return { subj, body, text, fromEmail, fromDomain, headers: h, hasListHeaders, isNoReply };
-}
-function guessIntentByRegex(text, headers){
-  if (BILLING_KW.test(text)) return 'billing';
-  if (MEETING_KW.test(text) || /text\/calendar/i.test(headers?.contentType||'') || /ics/i.test(text)) return 'meeting';
-  if (SUPPORT_KW.test(text)) return 'support';
-  if (SECURITY_KW.test(text)) return 'security';
-  if (LAW_FIRM_KW.test(text)) return 'legal';
-  if (GOV_TAX_KW.test(text)) return 'legal';
-  if (/newsletter|unsubscribe/i.test(text) || headers?.listId) return 'newsletter';
-  if (SALES_KW.test(text)) return 'sales';
+function pickIntent(e) {
+  const s = `${e.subject || ''}\n${e.snippet || ''}`.toLowerCase();
+  if (/\b(invoice|receipt|payment|bill|po#|quote|subscription)\b/.test(s)) return 'billing';
+  if (/\bmeeting|invite|calendar|zoom|google meet|teams\b/.test(s)) return 'meeting';
+  if (/\bcontract|nda|legal|attorney|counsel|copyright|gdpr|dpia\b/.test(s)) return 'legal';
+  if (/\bsecurity|breach|vulnerability|2fa|otp|login alert\b/.test(s)) return 'security';
+  if (/\bsupport|ticket|issue|bug|helpdesk|rma\b/.test(s)) return 'support';
+  if (/\bsale|pricing|quote|lead|demo request\b/.test(s)) return 'sales';
+  if (/\bnewsletter|unsubscribe|digest|roundup|update\b/.test(s)) return 'newsletter';
+  if (/\bhr|payroll|benefit|leave|vacation|timesheet\b/.test(s)) return 'hr';
+  if (/\bfacebook|twitter|x\.com|linkedin|instagram|social\b/.test(s)) return 'social';
   return 'other';
 }
-function guessUrgencyByRegex(text){
-  if (/(final notice|suspended|overdue|today|within 24)/i.test(text)) return 3;
-  if (/(tomorrow|by eod|respond within|due (soon|date))/i.test(text)) return 2;
-  if (/(invoice|meeting|schedule|reply)/i.test(text)) return 1;
-  return 0;
-}
 
-function scoreEmail(e, sets){
-  const { text, fromEmail, fromDomain, headers, hasListHeaders, isNoReply } = extractSignals(e);
-  const vip = sets.vip, bulk = sets.bulk, legal = sets.legal, government = sets.government;
+function baseHeuristics(e, lists) {
+  const L = lists || { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(), weights:{email:new Map(), domain:new Map()} };
+  const fromEmail = (e.fromEmail || '').toLowerCase();
+  const fromDomain = (e.fromDomain || '').toLowerCase();
+  const emailHash = HASH(fromEmail);
 
-  let w = 0, reasons = [];
+  // learned weights (hashed or plain)
+  const wEmail = L.weights?.email?.get(emailHash) ?? L.weights?.email?.get(fromEmail) ?? 0;
+  const wDomain = L.weights?.domain?.get(fromDomain) ?? 0;
+  const learned = wEmail + 0.6 * wDomain;
 
-  // Learned weights (Bayesian) from feedback
-  const wEmail  = sets.weights?.email?.get(fromEmail)  ?? 0;
-  const wDomain = sets.weights?.domain?.get(fromDomain) ?? 0;
-  if (wEmail)  { w += wEmail * 1.5; reasons.push('learned(email)'); }
-  if (wDomain) { w += wDomain * 1.0; reasons.push('learned(domain)'); }
+  const isVIP = L.vip?.has(fromEmail) || L.vip?.has(fromDomain);
+  const isGov = L.government?.has(fromDomain);
+  const isLegal = L.legal?.has(fromDomain) || /\b(legal|attorney|counsel)\b/.test((e.subject||'').toLowerCase());
+  const isBulk = L.bulk?.has(fromDomain) || /\bunsubscribe|no-reply|mailer-daemon|noreply\b/.test(fromEmail);
 
-  // VIP/legal/gov lists
-  if (vip.has(fromEmail) || vip.has(fromDomain)) { w += 7; reasons.push('vip sender'); }
-  if (legal.has(fromEmail) || legal.has(fromDomain)) { w += 6; reasons.push('legal sender'); }
-  if (government.has(fromEmail) || government.has(fromDomain)) { w += 6; reasons.push('gov/tax sender'); }
+  const hasICS = !!e.hasIcs || (e.attachTypes||[]).some(t => /calendar|ics/i.test(String(t)));
+  const soonMeeting = hasICS;
 
-  // Thread signals
-  if (headers.inReplyTo || headers.references) { w += 3; reasons.push('thread / reply'); }
+  const s = `${e.subject || ''} ${e.snippet || ''}`.toLowerCase();
+  const urgentWords = /\burgent|asap|immediately|action required|past due|final notice\b/.test(s);
 
-  // Calendar/attachments
-  if (e.hasIcs || /text\/calendar/i.test(e.contentType||'')) { w += 5; reasons.push('calendar'); }
-  if ((e.attachTypes||[]).some(t => /application\/pdf/i.test(t))) { w += 2; reasons.push('pdf'); }
+  let intent = pickIntent(e);
+  let importance = 'unclassified';
+  let urgency = 0;
+  let action_required = false;
+  const reasons = [];
 
-  // Keywords
-  if (BILLING_KW.test(text)) { w += 5; reasons.push('billing'); }
-  if (SECURITY_KW.test(text)) { w += 6; reasons.push('security'); }
-  if (LAW_FIRM_KW.test(text)) { w += 4; reasons.push('legal content'); }
-  if (GOV_TAX_KW.test(text)) { w += 4; reasons.push('gov/tax'); }
-  if (DEADLINE_KW.test(text)) { w += 3; reasons.push('deadline'); }
-  if (SUPPORT_KW.test(text)) { w += 3; reasons.push('support'); }
+  // Importance starting point
+  if (isBulk) { importance = 'unimportant'; reasons.push('bulk/newsletter'); }
+  if (isVIP || isGov || isLegal) { importance = 'important'; reasons.push(isVIP?'VIP':isGov?'government':'legal'); }
 
-  // Demotions
-  if (bulk.has(fromDomain) || MARKETING_INFRAS.test(fromDomain)) { w -= 5; reasons.push('marketing infra'); }
-  if (hasListHeaders) { w -= 6; reasons.push('list/bulk headers'); }
-  if (isNoReply) { w -= 3; reasons.push('noreply'); }
+  // Urgency
+  if (urgentWords) { urgency = 3; reasons.push('urgent language'); }
+  else if (soonMeeting) { urgency = Math.max(urgency, 2); reasons.push('calendar/meeting'); }
+  else if (intent === 'billing') { urgency = Math.max(urgency, 2); }
 
-  // Recency
-  if (e.date) {
-    const hours = Math.max(0, (Date.now() - new Date(e.date).getTime())/36e5);
-    w += Math.max(0, 18 - Math.min(72, hours)) * 0.1;
+  // Action
+  if (/\bplease (confirm|review|respond|reply|sign|pay|schedule)\b/.test(s)) {
+    action_required = true; reasons.push('explicit request');
   }
 
-  const intent = guessIntentByRegex(text, headers);
-  const urgency = guessUrgencyByRegex(text);
-  return { w, reasons, intent, urgency };
+  // Learned weights tilt
+  if (learned > 0.7) { importance = 'important'; reasons.push('learned positive'); }
+  if (learned < -0.7 && importance !== 'important') { importance = 'unimportant'; reasons.push('learned negative'); }
+
+  // Confidence
+  let confidence = 0.55 + Math.max(-0.2, Math.min(0.35, learned * 0.15));
+  if (isVIP || isGov || isLegal) confidence += 0.15;
+  if (isBulk) confidence += 0.10;
+  confidence = Math.max(0.3, Math.min(0.95, confidence));
+
+  return alignOutput({ importance, intent, urgency, action_required, confidence, reasons });
 }
 
-function heuristicClassify(e, sets){
-  const { w, reasons, intent, urgency } = scoreEmail(e, sets);
-  if (w >= 8){
-    return alignOutput({
-      importance:'important',
-      intent, urgency,
-      action_required: urgency>=1 || ['billing','security','legal'].includes(intent),
-      confidence:0.9, reasons
-    });
-  }
-  if (w <= -5){
-    return alignOutput({
-      importance:'unimportant',
-      intent: intent==='newsletter' ? 'newsletter' : intent,
-      urgency:0, action_required:false, confidence:0.85, reasons
-    });
-  }
-  return null;
+function needsLLM(o) {
+  // Only ask LLM if we’re still unclassified or low confidence
+  return o.importance === 'unclassified' || o.confidence < 0.55;
 }
 
-// ---------- LLM fallback ----------
-function buildSystemPrompt(){
+function buildSystemPrompt() {
   return [
-    "You are an email triage assistant.",
-    "Return ONLY JSON with:",
-    "{importance:'important'|'unimportant'|'unclassified', intent:'billing'|'meeting'|'sales'|'support'|'hr'|'legal'|'security'|'newsletter'|'social'|'other', urgency:0|1|2|3, action_required:boolean, confidence:number, reasons:string[]}.",
-    "Important: time-sensitive, money/security/legal, government/tax, VIP, calendar within 48h, requires action.",
-    "Unimportant: newsletters/promotions/bulk (List-Id/List-Unsubscribe/Precedence: bulk), marketing infra, noreply.",
-    "Prefer 'legal' for lawyers/law firms, court, NDA/contracts, or government/tax offices.",
-    "Be strict and concise."
+    'You are an email triage assistant.',
+    'Return only compact JSON with fields:',
+    "{importance: 'important'|'unimportant'|'unclassified', intent: 'billing'|'meeting'|'sales'|'support'|'hr'|'legal'|'security'|'newsletter'|'social'|'other', urgency: 0..3, action_required: boolean, confidence: 0..1, reasons: string[]}.",
+    'Be terse. Output JSON only.'
   ].join(' ');
 }
-const FEW_SHOTS = [
-  {role:'user', content:"From: noreply@mailer.bigshop.com\nSubject: 40% OFF SALE\nHeaders: List-Id: bigshop\nSnippet: Save big…"},
-  {role:'assistant', content: JSON.stringify({importance:'unimportant', intent:'newsletter', urgency:0, action_required:false, confidence:0.96, reasons:['promo','List-Id']})},
-  {role:'user', content:"From: travel@airline.com\nSubject: Boarding pass for tomorrow 07:40\nSnippet: Your flight departs…"},
-  {role:'assistant', content: JSON.stringify({importance:'important', intent:'other', urgency:2, action_required:true, confidence:0.93, reasons:['time-sensitive travel']})},
-  {role:'user', content:"From: accounts@lawfirm-llp.com\nSubject: Signed NDA attached\nSnippet: Please countersign by EOD…"},
-  {role:'assistant', content: JSON.stringify({importance:'important', intent:'legal', urgency:2, action_required:true, confidence:0.92, reasons:['legal document','deadline']})},
-  {role:'user', content:"From: notices@govtax.gov\nSubject: Tax assessment 2024\nSnippet: Payment due 30 Sept…"},
-  {role:'assistant', content: JSON.stringify({importance:'important', intent:'legal', urgency:3, action_required:true, confidence:0.94, reasons:['government/tax','payment due']})}
-];
 
-async function classifyWithModel(items, modelName = MODEL_DEFAULT){
+export async function classifyEmails(items, opts = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return items.map(()=>alignOutput({}));
+  const lists = opts.lists || { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(), weights:{ email:new Map(), domain:new Map() } };
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  // 1) Heuristics first
+  const heur = items.map(e => baseHeuristics(e, lists));
+
+  // If no API key or all good enough, return heuristics
+  if (!apiKey || heur.every(h => !needsLLM(h))) return heur;
+
+  // 2) Ask LLM only for the undecided ones, in original order
+  const undecIdx = heur.map((h,i) => needsLLM(h) ? i : -1).filter(i => i >= 0);
+  if (undecIdx.length === 0) return heur;
 
   const userContent = [
-    "Classify these emails. Return a JSON array of length N in the SAME ORDER.",
-    "Fields: importance, intent, urgency, action_required, confidence, reasons.",
-    "",
-    ...items.map((e, idx) => {
-      const parts = [
-        `#${idx + 1}`,
+    'Classify these emails. Return a JSON array of length N with objects in the same order.',
+    'Fields: importance, intent, urgency, action_required, confidence, reasons.',
+    '',
+    ...undecIdx.map((i, k) => {
+      const e = items[i];
+      const lines = [
+        `#${k+1}`,
         `From: ${e.from || ''}`,
         e.fromEmail ? `From-Email: ${e.fromEmail}` : '',
         e.fromDomain ? `From-Domain: ${e.fromDomain}` : '',
         `Subject: ${e.subject || ''}`,
-        e.headers ? `Headers: ${JSON.stringify(e.headers).slice(0, 400)}` : '',
-        `Snippet: ${(e.snippet || '').slice(0, 1000)}`
+        `Snippet: ${(e.snippet || '').slice(0, 800)}`,
+        e.date ? `Date: ${e.date}` : ''
       ].filter(Boolean);
-      return parts.join('\n');
+      return lines.join('\n');
     })
   ].join('\n\n');
 
   const controller = new AbortController();
-  const timeout = setTimeout(()=>controller.abort(), 15000);
-  try{
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  let data = null;
+  try {
     const resp = await fetch(OPENAI_URL, {
-      method:'POST',
-      headers:{ Authorization:`Bearer ${apiKey}`, 'Content-Type':'application/json' },
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        model: modelName,
+        model: MODEL,
         messages: [
-          {role:'system', content: buildSystemPrompt()},
-          ...FEW_SHOTS,
-          {role:'user', content: userContent}
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: userContent }
         ],
-        temperature: 0,
-        max_tokens: 350
+        temperature: 0.2,
+        max_tokens: 300
       }),
       signal: controller.signal
     });
     clearTimeout(timeout);
     const text = await resp.text();
-    const data = safeJson(text);
-    if(!resp.ok){
+    data = safeJson(text);
+    if (!resp.ok) {
       console.error('Classifier error:', resp.status, data?.error || text);
-      return items.map(()=>alignOutput({}));
+      return heur; // fallback to heuristics only
     }
-    const content = data?.choices?.[0]?.message?.content || '[]';
-    const parsed = safeJson(content);
-    if (!Array.isArray(parsed)) return items.map(()=>alignOutput({}));
-    return items.map((_,i)=>alignOutput(parsed[i]));
-  }catch(err){
+  } catch (e) {
     clearTimeout(timeout);
-    console.error('Classifier fetch error:', err?.message || err);
-    return items.map(()=>alignOutput({}));
+    console.error('Classifier fetch error:', e?.message || e);
+    return heur;
   }
+
+  const content = data?.choices?.[0]?.message?.content || '[]';
+  const parsed = safeJson(content);
+  if (!Array.isArray(parsed)) return heur;
+
+  // Merge LLM results back to those indices
+  const out = heur.slice();
+  undecIdx.forEach((i, k) => {
+    const aligned = alignOutput(parsed[k]);
+    // Simple blend: if LLM increased confidence or changed importance, adopt it.
+    const base = out[i];
+    const better =
+      (aligned.importance !== 'unclassified' && base.importance === 'unclassified') ||
+      (aligned.confidence > base.confidence + 0.05);
+    out[i] = better ? aligned : base;
+  });
+
+  return out;
 }
 
-// ---------- public API ----------
-export async function classifyEmails(items, options = {}){
-  const { userId = 'default', model = MODEL_DEFAULT, topModelN = 60 } = options;
-
-  // 0) load sets/weights (empty defaults)
-  let lists = {
-    vip: new Set(),
-    bulk: new Set(['mailchimp.com','sendgrid.net','substack.com','medium.com']),
-    legal: new Set(),
-    government: new Set(),
-    weights: { email:new Map(), domain:new Map() }
-  };
-  try{
-    if (options.lists) {
-      ['vip','bulk','legal','government'].forEach(k=>{ if(options.lists[k]) lists[k] = new Set([...options.lists[k]]); });
-      if (options.lists.weights){
-        lists.weights = {
-          email: new Map(options.lists.weights.email || []),
-          domain: new Map(options.lists.weights.domain || [])
-        };
-      }
-    } else if (fetchListsHook) {
-      const loaded = await fetchListsHook(userId);
-      if (loaded && typeof loaded === 'object') {
-        if (loaded.vip) lists.vip = new Set([...loaded.vip]);
-        if (loaded.bulk) lists.bulk = new Set([...(loaded.bulk), ...lists.bulk]);
-        if (loaded.legal) lists.legal = new Set([...loaded.legal]);
-        if (loaded.government) lists.government = new Set([...loaded.government]);
-        if (loaded.weights) lists.weights = {
-          email: new Map(loaded.weights.email || []),
-          domain: new Map(loaded.weights.domain || [])
-        };
-      }
-    }
-  }catch(e){ console.warn('fetchLists failed:', e?.message||e); }
-
-  if (!Array.isArray(items) || !items.length) return [];
-
-  // 1) heuristic for all
-  const heur = items.map((e,i)=>({i, res: heuristicClassify(e, lists)}));
-
-  // 2) uncertain → model
-  const undecided = heur.filter(x=>!x.res).map(x=>x.i);
-  const topN = undecided.slice(0, Math.min(topModelN, undecided.length));
-  const toModel = topN.map(i=>items[i]);
-
-  let modelOut = [];
-  if (toModel.length) modelOut = await classifyWithModel(toModel, model);
-
-  const byIdx = new Map();
-  topN.forEach((i,k)=>byIdx.set(i, modelOut[k] || alignOutput({})));
-
-  // 3) merge
-  const results = items.map((_,i)=>alignOutput(heur[i]?.res || byIdx.get(i) || {}));
-  return results;
-}
+function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
