@@ -353,13 +353,13 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
-  // ---- Networking (iCloud-friendly) ----
+  // ---- Networking ----
   async function fetchAndClassify(){
     skeleton(6);
     try{
       const provider = $("provider").value;
 
-      // iCloud defaults/tweaks
+      // iCloud-friendly tweaks
       if (provider === "icloud") {
         if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
         $("tls").value = "on";
@@ -367,16 +367,21 @@
         if (Number($("range").value||2) > 7) $("range").value = "7";
       }
 
+      // Range "All" -> send "all", otherwise numeric days
+      const rangeVal = $("range").value;
+      const rangeDays = rangeVal === "0" ? "all" : Number(rangeVal||2);
+
       const payload = {
         email: $("email").value||"",
         password: $("password").value||"",
         host: $("host").value||"",
         port: Number($("port").value||993),
         tls: ($("tls").value||"on")!=="off",
-        rangeDays: Number($("range").value||2),
+        rangeDays,
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
-        accessToken: $("accessToken")?.value||""
+        accessToken: $("accessToken")?.value||"",
+        importantFirst: true   // sort-only; do NOT server-filter
       };
       saveForm();
 
@@ -390,28 +395,51 @@
       });
       clearTimeout(t);
 
-      if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
-      const data = await resp.json();
-      const emails = Array.isArray(data?.emails)?data.emails:[];
+      const data = await resp.json().catch(()=>null);
+      if(!resp.ok || !data){ throw new Error((data && data.error) || `Fetch failed (${resp.status})`); }
 
-      // 🔥 Always classify (fixes “all unclassified”)
-      let enriched = emails;
-      if (emails.length){
-        const clf = await fetch("/api/imap/classify",{
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({items:emails})
+      // Support both server styles:
+      // 1) New: { items: [...], nextCursor, hasMore } with item.classification
+      // 2) Legacy: { emails: [...] } with plain items -> we call /classify
+      let base = [];
+      if (Array.isArray(data.items)) {
+        // Flatten classification onto the item
+        base = data.items.map((it, i) => {
+          const cls = it.classification || {};
+          return {
+            id: it.id ?? it.uid ?? String(i+1),
+            from: it.from, to: it.to, subject: it.subject, date: it.date, snippet: it.snippet, text: it.text,
+            importance: cls.importance, intent: cls.intent, urgency: cls.urgency, action_required: cls.action_required, confidence: cls.confidence, reasons: cls.reasons
+          };
         });
-        if (clf.ok){
-          const out = await clf.json();
-          if (Array.isArray(out) && out.length === emails.length) {
-            enriched = emails.map((e,i)=>Object.assign({}, e, out[i]));
+      } else if (Array.isArray(data.emails)) {
+        // Legacy path: follow-up classify call then merge
+        const emails = data.emails;
+        let enriched = emails;
+        try {
+          const clf = await fetch("/api/imap/classify",{
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({items:emails})
+          });
+          if (clf.ok) {
+            const out = await clf.json();
+            const arr = out?.results || out; // support {results:[...]} or [...]
+            if (Array.isArray(arr) && arr.length === emails.length) {
+              enriched = emails.map((e,i)=>Object.assign({}, e, arr[i]));
+            }
           }
-        }
+        } catch(_) {}
+        base = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
+      } else {
+        base = [];
       }
 
-      state.emails = enriched.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
-      state.view = state.emails.slice(); state.page=1; render();
-      setMessage("ok","Fetched "+state.emails.length+" emails.");
+      state.emails = base;
+      state.view = base.slice();
+      state.page = 1;
+      render();
+
+      setMessage("ok", "Fetched " + state.emails.length + " emails.");
     }catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
@@ -467,6 +495,7 @@
   $("btnFetch").addEventListener("click", fetchAndClassify);
   $("btnTest").addEventListener("click", testLogin);
   $("btnRefresh").addEventListener("click", ()=>render());
+  // IMPORTANT FILTER IS CLIENT-SIDE ONLY:
   $("btnImportant").addEventListener("click", ()=>{ state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important"); state.page=1; render(); });
   $("btnAll").addEventListener("click", ()=>{ state.view = state.emails.slice(); state.page=1; render(); });
   $("btnExportJson").addEventListener("click", exportJSON);
