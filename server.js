@@ -485,49 +485,80 @@ app.get('/imap', (req, res) => {
 });
 app.use('/api/imap', imapRoutes);
 
-// --- SQL-backed email/tier check (used by the front-end badge) ---
+/// --- SQL-backed email/tier check (used by the front-end badge) ---
 app.post('/api/license/check', async (req, res) => {
   try {
-    const { email } = req.body || {};
-    if (!email || typeof email !== 'string') {
-      return res.status(400).json({ error: 'Email required' });
+    const { email: rawEmail, licenseKey: rawKey } = req.body || {};
+    const email = (typeof rawEmail === 'string' ? rawEmail : '').toLowerCase().trim();
+    const licenseKey = (typeof rawKey === 'string' ? rawKey : '').trim();
+
+    if (!email && !licenseKey) {
+      return res.status(400).json({ error: 'Email or licenseKey required' });
     }
-    const e = email.toLowerCase();
 
-    // SmartEmail row first
-    let { data, error } = await supabase
-      .from('licenses')
-      .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at')
-      .eq('email', e)
-      .eq('app_name', APP)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    let row = null;
 
-    // Fallback to any app row
-    if ((!data && !error) || (error && error.code === 'PGRST116')) {
+    // 1) Prefer license_key scoped to SmartEmail
+    if (licenseKey) {
+      const { data } = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at, app_name, email, license_key')
+        .eq('license_key', licenseKey)
+        .eq('app_name', APP)
+        .maybeSingle();
+      row = data;
+    }
+
+    // 2) Fallback: license_key in any app
+    if (!row && licenseKey) {
       const fb = await supabase
         .from('licenses')
-        .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at')
-        .eq('email', e)
+        .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at, app_name, email, license_key')
+        .eq('license_key', licenseKey)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      data = fb.data;
-      error = fb.error || null;
+      row = fb.data || null;
     }
 
-    if (error) return res.json({ found: false, active: false, tier: 'free' });
-    if (!data)  return res.json({ found: false, active: false, tier: 'free' });
+    // 3) Next: email scoped to SmartEmail (latest)
+    if (!row && email) {
+      const { data } = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at, app_name, email, license_key')
+        .eq('email', email)
+        .eq('app_name', APP)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row = data || null;
+    }
 
-    const tierVal = (data.smartemail_tier || data.tier || 'free');
-    const expires = (data.smartemail_expires || data.expires_at || null);
-    const active =
-      (tierVal === 'free') ||
-      (!!expires ? new Date(expires) > new Date() : (data.status === 'active' || data.status === 'paid'));
+    // 4) Last fallback: email in any app (latest)
+    if (!row && email) {
+      const fb = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, tier, status, expires_at, created_at, app_name, email, license_key')
+        .eq('email', email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row = fb.data || null;
+    }
+
+    // If still nothing, treat as free (don’t insert here; that’s done elsewhere)
+    if (!row) return res.json({ found: false, active: false, tier: 'free' });
+
+    // Compute tier/active
+    const tierVal = (row.smartemail_tier || row.tier || 'free').toLowerCase();
+    const expires = row.smartemail_expires || row.expires_at || null;
+    const active = (tierVal === 'free')
+      ? true
+      : !!(expires ? new Date(expires) > new Date() : (row.status === 'active' || row.status === 'paid'));
 
     return res.json({ found: true, active, tier: tierVal });
-  } catch {
+  } catch (e) {
+    // On any error, don’t block UI — just report free
     return res.json({ found: false, active: false, tier: 'free' });
   }
 });
