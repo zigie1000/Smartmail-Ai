@@ -27,7 +27,8 @@ const pg = (!supa && POSTGRES_URL)
 
 // ---------- Utils ----------
 const router = express.Router();
-const APP_ID = 'imap'; // for logs/future use
+const APP_ID = 'imap';        // for logs/future use
+const APP    = 'SmartEmail';  // ★ scope license lookups to SmartEmail
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const mailboxHash = (email) => sha256(String(email).trim().toLowerCase());
@@ -40,40 +41,64 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Tier helpers ---
-// Prefer license key; fall back to (a) previously-linked mailbox, then (b) legacy "email row in licenses".
+// --- Tier helpers (SmartEmail-scoped, with legacy fallback) ---
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
   const mh = em ? mailboxHash(em) : null;
 
-  // 1) License key direct lookup
+  // 1) License key direct lookup (SmartEmail first, then any)
   try {
     if (licenseKey) {
       if (supa) {
-        const { data, error } = await supa
+        // Scoped
+        let { data, error } = await supa
           .from('licenses')
-          .select('smartemail_tier, license_key, tier, status, smartemail_expires, expires_at')
+          .select('smartemail_tier, tier, app_name')
           .eq('license_key', licenseKey)
+          .eq('app_name', APP)
           .maybeSingle();
-        if (!error && data) {
+
+        // Fallback (legacy rows without app_name)
+        if ((!data || error) && !error) {
+          const fb = await supa
+            .from('licenses')
+            .select('smartemail_tier, tier, app_name')
+            .eq('license_key', licenseKey)
+            .maybeSingle();
+          data = fb.data;
+        }
+
+        if (data) {
           const t = String(data.smartemail_tier || data.tier || 'free').toLowerCase();
           return t;
         }
       } else if (pg) {
         const c = await pg.connect(); try {
-          const r = await c.query(
-            'select smartemail_tier, tier from public.licenses where license_key=$1 limit 1',
-            [licenseKey]
+          // Scoped first
+          let r = await c.query(
+            `select coalesce(smartemail_tier, tier, 'free') as t
+               from public.licenses
+              where license_key=$1 and app_name=$2
+              order by created_at desc
+              limit 1`, [licenseKey, APP]
           );
-          if (r.rows[0]) {
-            return String(r.rows[0].smartemail_tier || r.rows[0].tier || 'free').toLowerCase();
-          }
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
+
+          // Fallback
+          r = await c.query(
+            `select coalesce(smartemail_tier, tier, 'free') as t
+               from public.licenses
+              where license_key=$1
+              order by created_at desc
+              limit 1`, [licenseKey]
+          );
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
         } finally { c.release(); }
       }
     }
   } catch (e) { console.warn('tier by key failed:', e?.message || e); }
 
-  // 2) Linked mailbox → license
+  // 2) Linked mailbox → license (kept as-is; it already resolves to a specific license_key)
   try {
     if (mh) {
       if (supa) {
@@ -83,16 +108,40 @@ async function getTier({ licenseKey = '', email = '' }) {
           .eq('mailbox_hash', mh)
           .limit(1).maybeSingle();
         if (link?.license_key) {
-          const { data: lic } = await supa
+          // Try SmartEmail row for that key first
+          let { data: lic } = await supa
             .from('licenses')
             .select('smartemail_tier, tier')
             .eq('license_key', link.license_key)
+            .eq('app_name', APP)
             .maybeSingle();
+
+          if (!lic) {
+            const fb = await supa
+              .from('licenses')
+              .select('smartemail_tier, tier')
+              .eq('license_key', link.license_key)
+              .maybeSingle();
+            lic = fb.data;
+          }
+
           if (lic) return String(lic.smartemail_tier || lic.tier || 'free').toLowerCase();
         }
       } else if (pg) {
         const c = await pg.connect(); try {
-          const r = await c.query(
+          // Scoped first
+          let r = await c.query(
+            `select coalesce(l.smartemail_tier, l.tier, 'free') as t
+               from license_mailboxes lm
+               join public.licenses l on l.license_key = lm.license_key
+              where lm.mailbox_hash = $1 and l.app_name=$2
+              limit 1`,
+            [mh, APP]
+          );
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
+
+          // Fallback
+          r = await c.query(
             `select coalesce(l.smartemail_tier, l.tier, 'free') as t
                from license_mailboxes lm
                join public.licenses l on l.license_key = lm.license_key
@@ -106,19 +155,44 @@ async function getTier({ licenseKey = '', email = '' }) {
     }
   } catch (e) { console.warn('tier by mailbox failed:', e?.message || e); }
 
-  // 3) Legacy: tier by email row
+  // 3) Legacy: tier by email row (SmartEmail first, then any)
   try {
     if (em) {
       if (supa) {
-        const { data } = await supa
+        // Scoped
+        let { data } = await supa
           .from('licenses')
           .select('smartemail_tier, tier')
           .eq('email', em)
+          .eq('app_name', APP)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
+
+        if (!data) {
+          const fb = await supa
+            .from('licenses')
+            .select('smartemail_tier, tier')
+            .eq('email', em)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          data = fb.data;
+        }
+
         if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
       } else if (pg) {
         const c = await pg.connect(); try {
-          const r = await c.query(
+          let r = await c.query(
+            `select coalesce(smartemail_tier, tier, 'free') as t
+               from public.licenses
+              where lower(email)=lower($1) and app_name=$2
+              order by created_at desc
+              limit 1`, [em, APP]
+          );
+          if (r.rows[0]) return String(r.rows[0].t || 'free').toLowerCase();
+
+          r = await c.query(
             `select coalesce(smartemail_tier, tier, 'free') as t
                from public.licenses
               where lower(email)=lower($1)
@@ -357,8 +431,7 @@ router.post('/feedback', async (req, res) => {
   try {
     const { label, fromEmail = '', fromDomain = '', email: ownerEmail = '', licenseKey = '' } = req.body || {};
     const tier = await getTier({ licenseKey, email: ownerEmail });
-    const paid = await isPaid(tier);
-    if (!paid) {
+    thePaid: if (!(await isPaid(tier))) {
       return res.status(402).json({ ok:false, error: 'Upgrade to enable learning (Important ⭐).' });
     }
     if (!label || (!fromEmail && !fromDomain)) {
