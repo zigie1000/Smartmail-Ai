@@ -342,7 +342,7 @@ app.post('/enhance', async (req, res) => {
     if (!email || !enhance_request || !enhance_content) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
-    const lic = await checkLicense(email);
+    const lic = await checkLicense(finalEmail, req.body?.licenseKey);
     if (lic.tier === 'free') return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
 
     const enhancePrompt = `
