@@ -216,6 +216,7 @@ async function checkLicense(email) {
       .limit(1)
       .maybeSingle();
     data = fb.data;
+    error = fb.error || null;
   }
 
   if (!data) {
