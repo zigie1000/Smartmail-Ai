@@ -24,6 +24,7 @@
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
   .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.is-on{box-shadow:inset 0 0 0 2px var(--brand); outline:2px solid #93c5fd; outline-offset:2px}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
@@ -62,6 +63,10 @@
   .seg button{background:transparent;color:#374151;padding:8px 12px}
   .seg button.is-on{background:#fff;border-left:1px solid var(--line);border-right:1px solid var(--line);color:#111827}
   .seg .count{font-variant-numeric:tabular-nums;margin-left:6px;opacity:.75}
+
+  /* Star learn */
+  .star{border:none;background:transparent;font-size:18px;cursor:pointer;margin-right:8px}
+  .star[aria-pressed="true"]{filter: drop-shadow(0 0 2px #f59e0b)}
 
   .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
   .filters .col{display:flex;flex-direction:column}
@@ -282,11 +287,12 @@
   function render(){
     const start = (state.page-1)*state.perPage;
     const items = state.view.slice(start, start+state.perPage);
-    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; return; }
+    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; updateCounts(); return; }
     list.innerHTML = items.map(cardHtml).join("");
     $("pageInfo").textContent = `Page ${state.page}`;
-    updateCounts(); // keep counts fresh
+    updateCounts();
   }
+
   function cardHtml(e){
     const imp = (e.importance||"unimportant").toLowerCase();
     const impClass = imp === "important" ? "imp" : "";
@@ -295,6 +301,8 @@
     const urgVal = Number.isInteger(e.urgency) ? e.urgency : null;
     const urgency = (urgVal !== null) ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>` : "";
     const pri = priorityOf(e);
+    const starOn = String(imp)==='important';
+    const starBtn = `<button class="star" title="Mark as Important" data-id="${escapeHtml(e.id||'')}" data-from="${escapeHtml(e.fromEmail||'')}" data-dom="${escapeHtml(e.fromDomain||'')}" aria-pressed="${starOn}">${starOn?'⭐':'☆'}</button>`;
     const priorityChip = `<span class="chip pri-${pri}" title="Priority derived from importance+urgency">${pri}</span>`;
     return `
     <div class="email">
@@ -304,7 +312,7 @@
           <span class="from">${escapeHtml(e.from||'')}</span>
         </div>
         <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
-        <div><span class="tag ${impClass}">${escapeHtml(imp)}</span>${priorityChip}${intent}${urgency}</div>
+        <div>${starBtn}<span class="tag ${impClass}">${escapeHtml(imp)}</span>${priorityChip}${intent}${urgency}</div>
       </div>
       <details>
         <summary>Preview</summary>
@@ -320,12 +328,10 @@
   function applyFilters(){
     let filtered = [...state.emails];
 
-    // Segmented toggle (client-side only)
     if (state.viewMode === 'important') {
       filtered = filtered.filter(e => String(e.importance).toLowerCase() === 'important');
     }
 
-    // Dropdown facets
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
     if (fPri) filtered = filtered.filter(e => priorityOf(e) === fPri);
     if (fIntent) filtered = filtered.filter(e => (e.intent||"") === fIntent);
@@ -348,7 +354,7 @@
     state.view = filtered; state.page = 1; render();
   }
 
-  function setViewMode(mode){ // 'all' | 'important'
+  function setViewMode(mode){
     state.viewMode = mode;
     $("btnAll").classList.toggle('is-on', mode==='all');
     $("btnAll").setAttribute('aria-pressed', String(mode==='all'));
@@ -375,23 +381,39 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
+  // ⭐ feedback (delegate)
+  list.addEventListener('click', async (ev)=>{
+    const btn = ev.target.closest('.star');
+    if(!btn) return;
+    const id   = btn.dataset.id;
+    const nowOn = btn.getAttribute('aria-pressed') !== 'true';
+    btn.setAttribute('aria-pressed', String(nowOn));
+    btn.textContent = nowOn ? '⭐' : '☆';
+
+    const item = state.emails.find(x => String(x.id)===String(id));
+    if (item) {
+      item.importance = nowOn ? 'important' : (item.importance==='important' ? 'unclassified' : item.importance);
+      applyFilters();
+      // fire-and-forget
+      try {
+        await fetch('/api/imap/feedback', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            label: nowOn ? 'important' : 'unimportant',
+            fromEmail: item.fromEmail || '',
+            fromDomain: item.fromDomain || ''
+          })
+        });
+      } catch(_){}
+    }
+  });
+
   // ---- Networking ----
   async function fetchAndClassify(){
     skeleton(6);
     try{
-      const provider = $("provider").value;
-
-      // iCloud-friendly tweaks
-      if (provider === "icloud") {
-        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-        $("tls").value = "on";
-        if (Number($("limit").value||50) > 20) $("limit").value = "20";
-        if (Number($("range").value||2) > 7) $("range").value = "7";
-      }
-
-      // Always send a NUMBER for rangeDays (0 = All)
-      const rangeDays = Number($("range").value || 2) || 0;
-
+      const rangeDays = Number($("range").value || 2) || 0; // ALWAYS a number (0 = all)
       const payload = {
         email: $("email").value||"",
         password: $("password").value||"",
@@ -402,13 +424,10 @@
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
-        importantFirst: true   // sort-only; never server-filter
+        importantFirst: true
       };
-      saveForm();
-
-      const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
       const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), timeoutMs);
+      const t = setTimeout(()=>controller.abort(), 60000);
 
       const resp = await fetch("/api/imap/fetch",{
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -426,6 +445,7 @@
           return {
             id: it.id ?? it.uid ?? String(i+1),
             from: it.from, to: it.to, subject: it.subject, date: it.date, snippet: it.snippet, text: it.text,
+            fromEmail: it.fromEmail, fromDomain: it.fromDomain,
             importance: cls.importance, intent: cls.intent, urgency: cls.urgency, action_required: cls.action_required, confidence: cls.confidence, reasons: cls.reasons
           };
         });
@@ -467,12 +487,6 @@
 
   async function testLogin(){
     try{
-      const provider = $("provider").value;
-      if (provider === "icloud") {
-        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-        $("tls").value = "on";
-      }
-
       const payload = {
         email: $("email").value||"", password: $("password").value||"",
         host: $("host").value||"", port: Number($("port").value||993),
@@ -482,7 +496,7 @@
       };
 
       const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), (/icloud/i.test(provider)? 60000 : 30000));
+      const t = setTimeout(()=>controller.abort(), 30000);
       const resp = await fetch("/api/imap/test",{
         method:"POST", headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(payload), signal: controller.signal
@@ -497,27 +511,8 @@
     }
   }
 
-  function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
-  function exportCSV(){ const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];const rows=[cols.join(",")].concat(state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(",")));const b=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.csv";a.click();URL.revokeObjectURL(a.href);}
-
-  function sendSelected(){
-    const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
-    if(!ids.length){ setMessage("err","Select at least one email."); return; }
-    const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
-    const params = new URLSearchParams({subject:first.subject||"", body:(first.snippet||first.text||""), from:first.from||"", date:first.date||"", importance:String(first.importance||"")});
-    window.location.href = "/index.html?" + params.toString();
-  }
-
-  function applyProviderPreset(){
-    const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
-    const p = P[$("provider").value];
-    if(p){ $("host").value=p.host; $("port").value=p.port; $("tls").value=p.tls; }
-    saveForm();
-  }
-
   // Bindings
   ["email","password","host","port","tls","range","authType","limit"].forEach(id => $(id).addEventListener("change", saveForm));
-  $("provider").addEventListener("change", applyProviderPreset);
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
 
   $("btnFetch").addEventListener("click", fetchAndClassify);
@@ -542,10 +537,9 @@
   $("smartView").addEventListener("change", (e)=>{ setViewMode('all'); applyFilters(); });
 
   // Init
-  loadForm(); applyProviderPreset();
+  loadForm();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-  setViewMode('all'); // start in Show All
-  state.view = []; render();
+  setViewMode('all'); state.view = []; render();
 })();
 </script>
 </body>
