@@ -265,11 +265,12 @@ function recheckLicense(){ detectAndSyncLicense(false); alert("🔄 License rech
 function log(m){ const a=document.getElementById("debugLog"); if(!a) return; a.value+=`${new Date().toISOString()} — ${m}\n`; a.scrollTop=a.value.length; if(a.value.length>12000) a.value=a.value.slice(-9000); console.log(m); }
 
 /* === SQL-Tier helpers (added, non-blocking; UI unchanged) === */
+// === SQL-Tier helpers (added, non-blocking; UI unchanged) ===
 async function sqlCheckEmail(email){
   const res = await fetch('/api/license/check',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ email })
+    body: JSON.stringify({ email, app: 'SmartEmail' })   // ⬅ add app name
   });
   if(!res.ok) throw new Error('Lookup failed');
   return await res.json(); // {found, active, tier}
