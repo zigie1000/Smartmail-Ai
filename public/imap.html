@@ -24,7 +24,6 @@
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
   .btn:disabled{opacity:.6;cursor:not-allowed}
-  .btn.is-on{box-shadow:inset 0 0 0 2px var(--brand); outline:2px solid #93c5fd; outline-offset:2px}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
@@ -55,8 +54,15 @@
   .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid --line}
   .pager{display:flex;gap:6px;align-items:center}
   .pager button{padding:8px 12px}
-  .hint{font-size:12px;color:var(--muted)}
+  .hint{font-size:12px;color:#6b7280}
   .switch{position:fixed;top:10px;right:10px;text-decoration:none;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px}
+
+  /* Segmented toggle */
+  .seg{display:inline-flex;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#f3f4f6}
+  .seg button{background:transparent;color:#374151;padding:8px 12px}
+  .seg button.is-on{background:#fff;border-left:1px solid var(--line);border-right:1px solid var(--line);color:#111827}
+  .seg .count{font-variant-numeric:tabular-nums;margin-left:6px;opacity:.75}
+
   .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
   .filters .col{display:flex;flex-direction:column}
   @media (max-width:900px){
@@ -156,8 +162,13 @@
         <button class="btn" id="btnFetch" type="button">Fetch &amp; Classify</button>
         <button class="btn ghost" id="btnTest" type="button">Test Login</button>
         <button class="btn ghost" id="btnRefresh" type="button">Refresh</button>
-        <button class="btn secondary" id="btnImportant" type="button" aria-pressed="false">Filter: Important</button>
-        <button class="btn ghost" id="btnAll" type="button">Show All</button>
+
+        <!-- Segmented toggle -->
+        <div class="seg" role="group" aria-label="View toggle" style="margin-left:6px">
+          <button id="btnAll" class="btn ghost is-on" type="button" aria-pressed="true">Show All <span id="countAll" class="count"></span></button>
+          <button id="btnImportant" class="btn secondary" type="button" aria-pressed="false">Important <span id="countImp" class="count"></span></button>
+        </div>
+
         <button class="btn ghost" id="btnExportJson" type="button">Export JSON</button>
         <button class="btn ghost" id="btnExportCsv" type="button">Export CSV</button>
         <button class="btn secondary" id="btnSendSelected" type="button">Send Selected → Generator</button>
@@ -247,7 +258,7 @@
     view: [],
     page: 1,
     perPage: 20,
-    filterImportance: 'all' // 'all' | 'important'
+    viewMode: 'all' // 'all' | 'important'
   };
 
   const KEYS = ["email","host","port","provider","tls","range","authType","limit"];
@@ -274,6 +285,7 @@
     if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; return; }
     list.innerHTML = items.map(cardHtml).join("");
     $("pageInfo").textContent = `Page ${state.page}`;
+    updateCounts(); // keep counts fresh
   }
   function cardHtml(e){
     const imp = (e.importance||"unimportant").toLowerCase();
@@ -308,12 +320,12 @@
   function applyFilters(){
     let filtered = [...state.emails];
 
-    // Important toggle first (client-side only)
-    if (state.filterImportance === 'important') {
+    // Segmented toggle (client-side only)
+    if (state.viewMode === 'important') {
       filtered = filtered.filter(e => String(e.importance).toLowerCase() === 'important');
     }
 
-    // Dropdown filters
+    // Dropdown facets
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
     if (fPri) filtered = filtered.filter(e => priorityOf(e) === fPri);
     if (fIntent) filtered = filtered.filter(e => (e.intent||"") === fIntent);
@@ -336,26 +348,20 @@
     state.view = filtered; state.page = 1; render();
   }
 
-  function setImportantMode(mode){ // 'all' | 'important'
-    state.filterImportance = mode;
+  function setViewMode(mode){ // 'all' | 'important'
+    state.viewMode = mode;
+    $("btnAll").classList.toggle('is-on', mode==='all');
+    $("btnAll").setAttribute('aria-pressed', String(mode==='all'));
     $("btnImportant").classList.toggle('is-on', mode==='important');
     $("btnImportant").setAttribute('aria-pressed', String(mode==='important'));
-    $("btnAll").classList.toggle('is-on', mode==='all');
     applyFilters();
   }
 
-  function applySmartView(v){
-    $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
-    switch(v){
-      case "needs_action": $("fAction").value = "needs"; break;
-      case "awaiting_reply": $("fAction").value = "awaiting"; break;
-      case "meetings_48h": $("fIntent").value = "meeting"; $("fTime").value = "2"; break;
-      case "billing": $("fIntent").value = "billing"; break;
-      case "security_legal": $("fIntent").value = "security"; break;
-      case "newsletters": $("fIntent").value = "newsletter"; break;
-      case "today": $("fTime").value = "today"; break;
-    }
-    setImportantMode('all'); // smart views shouldn’t lock important-only
+  function updateCounts(){
+    const all = state.emails.length;
+    const imp = state.emails.filter(e => String(e.importance).toLowerCase()==='important').length;
+    $("countAll").textContent = all ? `(${all})` : '';
+    $("countImp").textContent = imp ? `(${imp})` : '';
   }
 
   function exportJSON(){ const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="emails.json";a.click();URL.revokeObjectURL(a.href);}
@@ -383,8 +389,8 @@
         if (Number($("range").value||2) > 7) $("range").value = "7";
       }
 
-      const rangeVal = $("range").value;
-      const rangeDays = rangeVal === "0" ? "all" : Number(rangeVal||2);
+      // Always send a NUMBER for rangeDays (0 = All)
+      const rangeDays = Number($("range").value || 2) || 0;
 
       const payload = {
         email: $("email").value||"",
@@ -411,7 +417,7 @@
       clearTimeout(t);
 
       const data = await resp.json().catch(()=>null);
-      if(!resp.ok || !data){ throw new Error((data && data.error) || `Fetch failed (${resp.status})`); }
+      if(!resp.ok || !data){ throw new Error((data && data.error) || `Server error while fetching mail.`); }
 
       let base = [];
       if (Array.isArray(data.items)) {
@@ -443,7 +449,7 @@
       }
 
       state.emails = base;
-      setImportantMode('all'); // reset hard-lock: start in Show All after each fetch
+      setViewMode('all'); // reset toggle after each fetch
       $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
       state.view = state.emails.slice();
       state.page = 1;
@@ -518,8 +524,8 @@
   $("btnTest").addEventListener("click", testLogin);
   $("btnRefresh").addEventListener("click", ()=>render());
 
-  $("btnImportant").addEventListener("click", ()=> setImportantMode('important'));
-  $("btnAll").addEventListener("click", ()=> setImportantMode('all'));
+  $("btnAll").addEventListener("click", ()=> setViewMode('all'));
+  $("btnImportant").addEventListener("click", ()=> setViewMode('important'));
 
   $("btnExportJson").addEventListener("click", exportJSON);
   $("btnExportCsv").addEventListener("click", exportCSV);
@@ -533,12 +539,12 @@
   $("fIntent").addEventListener("change", applyFilters);
   $("fAction").addEventListener("change", applyFilters);
   $("fTime").addEventListener("change", applyFilters);
-  $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
+  $("smartView").addEventListener("change", (e)=>{ setViewMode('all'); applyFilters(); });
 
   // Init
   loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-  setImportantMode('all'); // start in Show All
+  setViewMode('all'); // start in Show All
   state.view = []; render();
 })();
 </script>
