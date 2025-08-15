@@ -11,7 +11,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebhook.js'; // ⬅️ ESM default export now
+import stripeWebHook from './stripeWebhook.js'; // ESM default export
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -34,15 +34,9 @@ const __dirname  = path.dirname(__filename);
 app.set('trust proxy', 1);
 app.use(cors());
 
-// IMPORTANT: mount Stripe webhook BEFORE express.json()
-// This keeps req.body as a raw Buffer for signature verification
-if (process.env.STRIPE_WEBHOOK_PATH) {
-  app.post(
-    process.env.STRIPE_WEBHOOK_PATH,
-    express.raw({ type: 'application/json' }),
-    stripeWebHook
-  );
-}
+// ⚠️ Mount Stripe webhook BEFORE json/urlencoded so req.body is raw (Buffer)
+const WEBHOOK_PATH = process.env.STRIPE_WEBHOOK_PATH || '/stripe/webhook';
+app.post(WEBHOOK_PATH, express.raw({ type: 'application/json' }), stripeWebHook);
 
 // Payload size enough for generator + small images
 const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
@@ -208,21 +202,22 @@ async function checkLicense(email, licenseKey) {
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
-      .select('smartemail_tier, smartemail_expires, tier, expires_at')
+      .select('smartemail_tier, smartemail_expires, tier, expires_at, status')
       .eq('license_key', licenseKey)
       .maybeSingle();
 
     if (byKey.data) {
       return {
         tier: byKey.data.smartemail_tier || byKey.data.tier || 'free',
-        expires: byKey.data.smartemail_expires || byKey.data.expires_at || null
+        expires: byKey.data.smartemail_expires || byKey.data.expires_at || null,
+        status: byKey.data.status || null
       };
     }
   }
 
   const r = await supabase
     .from('licenses')
-    .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
+    .select('smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
     .eq('email', e)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -237,7 +232,8 @@ async function checkLicense(email, licenseKey) {
 
   return {
     tier: r.data.smartemail_tier || r.data.tier || 'free',
-    expires: r.data.smartemail_expires || r.data.expires_at || null
+    expires: r.data.smartemail_expires || r.data.expires_at || null,
+    status: r.data.status || null
   };
 }
 
@@ -405,7 +401,6 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
-    // Email first (latest)
     if (email) {
       const byEmail = await supabase
         .from('licenses')
@@ -417,7 +412,6 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
-    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -427,7 +421,6 @@ app.get('/validate-license', async (req, res) => {
       row = byKey.data || null;
     }
 
-    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -473,9 +466,10 @@ app.post('/api/license/check', async (req, res) => {
     }
     const e = email.toLowerCase().trim();
 
+    // ⬇️ Read BOTH new and legacy fields to avoid “Pro → Free” flip
     const r = await supabase
       .from('licenses')
-      .select('smartemail_tier, smartemail_expires, status, created_at')
+      .select('smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
       .eq('email', e)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -484,14 +478,14 @@ app.post('/api/license/check', async (req, res) => {
     const data = r.data;
     if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-    const tierVal = (data.smartemail_tier || 'free').toLowerCase();
-    const expires = data.smartemail_expires || null;
+    const tierVal = (data.smartemail_tier || data.tier || 'free').toLowerCase();
+    const expires = data.smartemail_expires || data.expires_at || null;
     const active  = (tierVal === 'free')
       ? true
       : (!!expires ? new Date(expires) > new Date() : (data.status === 'active' || data.status === 'paid'));
 
     return res.json({ found: true, active, tier: tierVal });
-  } catch {
+  } catch (e) {
     return res.json({ found: false, active: false, tier: 'free' });
   }
 });
