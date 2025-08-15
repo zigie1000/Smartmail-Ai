@@ -463,25 +463,22 @@ app.post('/api/license/check', async (req, res) => {
     const e = email.toLowerCase().trim();
 
     const r = await supabase
-      .from('licenses')
-      .select('smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
-      .eq('email', e)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  .from('licenses')
+  .select('smartemail_tier, smartemail_expires, status, created_at')
+  .eq('email', e)
+  .order('created_at', { ascending: false })
+  .limit(1)
+  .maybeSingle();
 
-    const data = r.data;
-    if (!data) return res.json({ found: false, active: false, tier: 'free' });
+const data = r.data;
+if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-    const tierVal = (data.smartemail_tier || data.tier || 'free').toLowerCase();
-    const expires = data.smartemail_expires || data.expires_at || null;
-    const active = (tierVal === 'free')
-      ? true
-      : !!(expires ? new Date(expires) > new Date() : (data.status === 'active' || data.status === 'paid'));
+// Always use only smartemail_tier
+const tierVal = (data.smartemail_tier || 'free').toLowerCase();
+const expires = data.smartemail_expires || null;
+const active = !expires || new Date(expires) > new Date() || data.status === 'active';
 
-    return res.json({ found: true, active, tier: tierVal });
-  } catch {
-    return res.json({ found: false, active: false, tier: 'free' });
+return res.json({ found: true, active, tier: tierVal });
   }
 });
 
