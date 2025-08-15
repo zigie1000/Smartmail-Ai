@@ -191,17 +191,18 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS (email-only primary) ----------
+// ---------- LICENSE HELPERS (email-only) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // If licenseKey is provided, try by key first (still read smartemail_* if present)
+  // If licenseKey provided, prefer it — still read SmartEmail columns
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, tier, expires_at')
       .eq('license_key', licenseKey)
       .maybeSingle();
+
     if (byKey.data) {
       return {
         tier: byKey.data.smartemail_tier || byKey.data.tier || 'free',
@@ -210,8 +211,8 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
-  // Primary: latest row by email (NO app filter)
-  const { data } = await supabase
+  // Primary: by email (latest)
+  const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
     .eq('email', e)
@@ -219,7 +220,7 @@ async function checkLicense(email, licenseKey) {
     .limit(1)
     .maybeSingle();
 
-  if (!data) {
+  if (!r.data) {
     await supabase
       .from('licenses')
       .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
@@ -227,8 +228,8 @@ async function checkLicense(email, licenseKey) {
   }
 
   return {
-    tier: data.smartemail_tier || data.tier || 'free',
-    expires: data.smartemail_expires || data.expires_at || null
+    tier: r.data.smartemail_tier || r.data.tier || 'free',
+    expires: r.data.smartemail_expires || r.data.expires_at || null
   };
 }
 
