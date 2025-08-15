@@ -11,7 +11,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js'; // optional (kept)
+import stripeWebHook from './stripeWebHook.js'; // optional
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -34,7 +34,7 @@ const __dirname  = path.dirname(__filename);
 app.set('trust proxy', 1);
 app.use(cors());
 
-// Payload size enough for generator + small images
+// Make payloads big enough for generator + small images
 const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
 app.use(express.json({ limit: BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
@@ -191,7 +191,7 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS (EMAIL-ONLY; no app_name filter) ----------
+// ---------- LICENSE HELPERS (EMAIL-ONLY primary; key fallback) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
@@ -303,7 +303,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
       }]);
     } catch {}
 
-    // Generation is always available — we still return the current tier for UI badge.
+    // Generation is always available — we still return the current tier for the UI badge.
     const lic = await checkLicense(finalEmail, req.body?.licenseKey);
     res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
   } catch (err) {
@@ -320,7 +320,7 @@ app.post('/enhance', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    const lic = await checkLicense(email, req.body?.licenseKey);
+    const lic = await checkLicense(email, req.body?.licenseKey); // ← fixed variable
     if ((lic.tier || 'free').toLowerCase() === 'free') {
       return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
     }
@@ -453,32 +453,33 @@ app.get('/imap', (req, res) => {
 });
 app.use('/api/imap', imapRoutes);
 
-// --- SQL-backed email-only tier check (used by front-end badge) ---
+// --- SQL-backed email-only tier check (used by the front-end badge) ---
 app.post('/api/license/check', async (req, res) => {
   try {
-    const { email } = req.body || {};
-    if (!email || typeof email !== 'string') {
-      return res.status(400).json({ error: 'Email required' });
-    }
-    const e = email.toLowerCase().trim();
+    const email = (req.body?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'Email required' });
 
-    const r = await supabase
-  .from('licenses')
-  .select('smartemail_tier, smartemail_expires, status, created_at')
-  .eq('email', e)
-  .order('created_at', { ascending: false })
-  .limit(1)
-  .maybeSingle();
+    const { data, error } = await supabase
+      .from('licenses')
+      .select('smartemail_tier, smartemail_expires, status, created_at')
+      .eq('email', email)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-const data = r.data;
-if (!data) return res.json({ found: false, active: false, tier: 'free' });
+    if (error) throw error;
+    if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-// Always use only smartemail_tier
-const tierVal = (data.smartemail_tier || 'free').toLowerCase();
-const expires = data.smartemail_expires || null;
-const active = !expires || new Date(expires) > new Date() || data.status === 'active';
+    const tier   = (data.smartemail_tier || 'free').toLowerCase();
+    const exp    = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
+    const active = (tier === 'free')
+      ? true
+      : !!(exp ? exp > new Date() : (data.status === 'active' || data.status === 'paid'));
 
-return res.json({ found: true, active, tier: tierVal });
+    return res.json({ found: true, active, tier });
+  } catch (e) {
+    // Do not block UI if SQL fails
+    return res.json({ found: false, active: false, tier: 'free' });
   }
 });
 
