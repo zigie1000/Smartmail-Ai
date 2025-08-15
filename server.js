@@ -11,7 +11,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js'; // optional
+import stripeWebHook from './stripeWebHook.js'; // optional, kept
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -21,7 +21,7 @@ import imapRoutes from './imap-reader/imapRoutes.js';
 
 dotenv.config();
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
@@ -34,7 +34,7 @@ const __dirname  = path.dirname(__filename);
 app.set('trust proxy', 1);
 app.use(cors());
 
-// Make payloads big enough for generator + small images
+// Payload size enough for generator + small images
 const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
 app.use(express.json({ limit: BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
@@ -56,7 +56,7 @@ if (USE_GOOGLE_AUTH) {
   googleClient = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID || '',
     process.env.GOOGLE_CLIENT_SECRET || '',
-    process.env.AZURE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || ''
+    process.env.GOOGLE_REDIRECT_URI || process.env.AZURE_REDIRECT_URI || ''
   );
 }
 
@@ -191,27 +191,27 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS (EMAIL-ONLY) ----------
+// ---------- LICENSE HELPERS (email-only primary) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // Try license key first (any app), still read smartemail_* columns for consistency
+  // If licenseKey is provided, try by key first (still read smartemail_* if present)
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, tier, expires_at')
       .eq('license_key', licenseKey)
       .maybeSingle();
-
     if (byKey.data) {
-      const tier    = byKey.data.smartemail_tier || byKey.data.tier || 'free';
-      const expires = byKey.data.smartemail_expires || byKey.data.expires_at || null;
-      return { tier, expires };
+      return {
+        tier: byKey.data.smartemail_tier || byKey.data.tier || 'free',
+        expires: byKey.data.smartemail_expires || byKey.data.expires_at || null
+      };
     }
   }
 
-  // Primary: by email (latest). No app filter.
-  let { data } = await supabase
+  // Primary: latest row by email (NO app filter)
+  const { data } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
     .eq('email', e)
@@ -219,20 +219,17 @@ async function checkLicense(email, licenseKey) {
     .limit(1)
     .maybeSingle();
 
-  // If not found, create a free stub
   if (!data) {
-    try {
-      const newKey = `free_${e.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
-      await supabase
-        .from('licenses')
-        .insert([{ email: e, license_key: newKey, smartemail_tier: 'free', smartemail_expires: null }]);
-    } catch {}
-    return { tier: 'free', expires: null };
+    await supabase
+      .from('licenses')
+      .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
+    return { tier: 'free', expires: null, reason: 'inserted-free' };
   }
 
-  const tier    = data.smartemail_tier || data.tier || 'free';
-  const expires = data.smartemail_expires || data.expires_at || null;
-  return { tier, expires };
+  return {
+    tier: data.smartemail_tier || data.tier || 'free',
+    expires: data.smartemail_expires || data.expires_at || null
+  };
 }
 
 // ---------- GENERATE (always available) ----------
@@ -306,7 +303,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
       }]);
     } catch {}
 
-    // Generation is always available — return current tier for badge
+    // Always available; still return current tier for the badge.
     const lic = await checkLicense(finalEmail, req.body?.licenseKey);
     res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
   } catch (err) {
@@ -368,30 +365,20 @@ ${enhance_request}`.trim();
   }
 });
 
-// ---------- FREE USER & CONFIG ----------
+// ---------- FREE USER REG (email-only) & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    // Insert only if not present (email-only semantics)
-    const existing = await supabase
+    const { data, error } = await supabase
       .from('licenses')
-      .select('id')
-      .eq('email', email)
-      .limit(1)
+      .upsert({ email, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' })
+      .select()
       .maybeSingle();
 
-    if (!existing.data) {
-      try {
-        const licenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
-        await supabase
-          .from('licenses')
-          .insert([{ email, license_key: licenseKey, smartemail_tier: 'free', smartemail_expires: null }]);
-        return res.json({ status: 'inserted' });
-      } catch (e) {}
-    }
-    return res.json({ status: 'exists' });
+    if (error) return res.status(500).json({ error: 'DB error', detail: error.message });
+    res.json({ status: data ? 'inserted' : 'exists' });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Unknown error' });
   }
@@ -410,6 +397,7 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
+    // Email first (latest)
     if (email) {
       const byEmail = await supabase
         .from('licenses')
@@ -421,6 +409,7 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
+    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -430,7 +419,7 @@ app.get('/validate-license', async (req, res) => {
       row = byKey.data || null;
     }
 
-    // If nothing found for email, create a SmartEmail-free stub
+    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -441,7 +430,7 @@ app.get('/validate-license', async (req, res) => {
       row = ins.data;
     }
 
-    const now       = new Date();
+    const now = new Date();
     const tier      = (row?.smartemail_tier || row?.tier || 'free');
     const expiresAt = (row?.smartemail_expires || row?.expires_at || null);
     const active    = tier === 'free'
@@ -487,7 +476,7 @@ app.post('/api/license/check', async (req, res) => {
     const data = r.data;
     if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-    // Use ONLY smartemail_* to decide tier/expiry for this app
+    // ONLY smartemail_* governs this app
     const tierVal = (data.smartemail_tier || 'free').toLowerCase();
     const expires = data.smartemail_expires || null;
     const active  = (tierVal === 'free')
@@ -496,7 +485,7 @@ app.post('/api/license/check', async (req, res) => {
 
     return res.json({ found: true, active, tier: tierVal });
   } catch (e) {
-    // On any error, don’t block UI — just report free
+    // Don’t block UI on errors — default to free
     return res.json({ found: false, active: false, tier: 'free' });
   }
 });
