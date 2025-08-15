@@ -1,110 +1,97 @@
-// stripeWebhook.js — ESM webhook handler for Stripe + Supabase
-// Exports a DEFAULT function. Keep req.body as RAW (mounted in server.js).
+// stripeWebhook.js  (ESM, no require())
+// Registers an Express router you can mount at /stripe/webhook
+
+import express from 'express';
+import crypto from 'crypto';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2023-10-16' });
-const supabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_KEY || '');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' });
+const router = express.Router();
 
-function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
-
-export default async function stripeWebHook(req, res) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) return res.status(500).json({ error: 'Missing STRIPE_WEBHOOK_SECRET' });
-
+// raw body for Stripe signature verification
+router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
   try {
-    // req.body must be a Buffer (express.raw on route)
-    event = stripe.webhooks.constructEvent(req.body, sig, secret);
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('❌ Stripe signature error:', err?.message || err);
+    console.error('❌ Stripe webhook signature error:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-
-      // Email priority: metadata.email > customer_details.email > customer_email
-      const md = session.metadata || {};
-      const email =
-        (md.email || session.customer_details?.email || session.customer_email || '').toLowerCase();
-      if (!email) return res.status(200).send('No email; skipped');
-
-      // Pull product metadata (tier, durationDays) from first line item product
-      let productMeta = {};
-      let stripeProductId = null;
-      let planName = 'Unnamed Plan';
-      try {
-        const lines = await stripe.checkout.sessions.listLineItems(session.id, { expand: ['data.price.product'] });
-        const product = lines.data?.[0]?.price?.product;
-        stripeProductId = product?.id || null;
-        productMeta = product?.metadata || {};
-        planName = product?.name || 'Unnamed Plan';
-      } catch (e) {
-        console.error('⚠️ Could not expand product metadata:', e?.message || e);
-      }
-
-      const tier = String(productMeta.tier || md.tier || 'pro').toLowerCase();
-      const durationDays = parseInt(productMeta.durationDays || md.durationDays || '30', 10) || 30;
-
-      const now = new Date();
-      const expiresAt = addDays(now, durationDays);
-      const licenseKey =
-        md.license_key || `lic_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
-
-      // Write BOTH legacy columns and SmartEmail-scoped columns
-      const payload = {
-        email,
-        license_key: licenseKey,
-
-        // legacy
-        license_type: tier,
-        plan: session.client_reference_id || 'manual',
-        name: planName,
-        status: 'paid',
-        is_active: true,
-        expires_at: expiresAt.toISOString(),
-        created_at: now.toISOString(),
-        stripe_customer: session.customer || null,
-        stripe_product: stripeProductId,
-
-        // SmartEmail columns the UI/server prefer
-        smartemail_tier: tier,
-        smartemail_expires: expiresAt.toISOString(),
-      };
-
-      const { error } = await supabase.from('licenses').upsert(payload, { onConflict: 'email' });
-      if (error) {
-        console.error('❌ Supabase upsert error:', error.message || error);
-        return res.status(500).send('Database upsert error');
-      }
-
-      console.log(`✅ License upserted for ${email} → ${tier} until ${expiresAt.toISOString()}`);
-      return res.status(200).send('Success');
-    }
-
-    if (event.type === 'customer.subscription.deleted') {
-      const sub = event.data.object;
-      const email = (sub.metadata?.email || '').toLowerCase();
-      if (email) {
-        await supabase
-          .from('licenses')
-          .update({
-            status: 'canceled',
-            is_active: false,
-            smartemail_tier: 'free',
-            smartemail_expires: null,
-          })
-          .eq('email', email);
-      }
-      return res.status(200).send('Subscription handled');
-    }
-
-    return res.status(200).send('Unhandled event');
-  } catch (err) {
-    console.error('❌ Webhook handler error:', err?.message || err);
-    return res.status(500).json({ error: 'Webhook handler failed' });
+  if (event.type !== 'checkout.session.completed') {
+    return res.status(200).send('Unhandled event type');
   }
-}
+
+  // --- Make a scoped Supabase client (service key) ---
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+  try {
+    const session = event.data.object;
+    const email =
+      session.customer_email ||
+      (session.customer_details && session.customer_details.email) ||
+      null;
+
+    if (!email) {
+      console.warn('⚠️ No email on session; skipping license write.');
+      return res.status(200).send('No email');
+    }
+
+    // Read the product metadata (tier, durationDays)
+    const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+      expand: ['data.price.product']
+    });
+    const product = lineItems?.data?.[0]?.price?.product;
+    const meta = (product && product.metadata) || {};
+    const planName = (product && product.name) || 'Unnamed Plan';
+
+    const paidTier = String(meta.tier || 'pro').toLowerCase();  // default pro if missing
+    const durationDays = parseInt(meta.durationDays || '30', 10);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    const licenseKey = crypto.randomBytes(16).toString('hex');
+
+    // Upsert both smartemail_* and legacy fields
+    const payload = {
+      email: email.toLowerCase(),
+      license_key: licenseKey,
+      // Primary for SmartEmail:
+      smartemail_tier: paidTier,
+      smartemail_expires: expiresAt.toISOString(),
+      // Keep legacy for compatibility:
+      tier: paidTier,
+      expires_at: expiresAt.toISOString(),
+      // status flags
+      status: 'active',
+      is_active: true,
+      // optional Stripe refs
+      stripe_customer: session.customer || null,
+      stripe_product: product?.id || null,
+      plan: session.client_reference_id || 'checkout',
+      name: planName,
+      created_at: now.toISOString()
+    };
+
+    const { error } = await supabase
+      .from('licenses')
+      .upsert([payload], { onConflict: 'email' });
+
+    if (error) {
+      console.error('❌ Supabase upsert error:', error.message);
+      return res.status(500).send('Database insert error');
+    }
+
+    console.log(`✅ License set: ${email} → ${paidTier} until ${payload.smartemail_expires}`);
+    return res.status(200).send('Success');
+  } catch (err) {
+    console.error('❌ Webhook handler error:', err);
+    return res.status(500).send('Server error');
+  }
+});
+
+// Support both default and named import styles:
+export { router as stripeWebHook };
+export default router;
