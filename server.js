@@ -375,16 +375,43 @@ app.post('/api/register-free-user', async (req, res) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    const { data, error } = await supabase
+    // 1) If the user already has ANY license row, DO NOT overwrite it.
+    const { data: existing, error: selErr } = await supabase
       .from('licenses')
-      .upsert({ email, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' })
+      .select('email, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+      .eq('email', email)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (selErr) return res.status(500).json({ error: 'DB error', detail: selErr.message });
+
+    if (existing) {
+      // If they already have a paid/active license, keep it as-is.
+      const legacyTier   = (existing.tier || '').toLowerCase();
+      const scopedTier   = (existing.smartemail_tier || '').toLowerCase();
+      const expires      = existing.smartemail_expires || existing.expires_at || null;
+      const activeLegacy = !!(expires ? new Date(expires) > new Date() : (existing.status === 'paid' || existing.status === 'active'));
+
+      if (activeLegacy || (scopedTier && scopedTier !== 'free') || (legacyTier && legacyTier !== 'free')) {
+        return res.json({ status: 'exists' });
+      }
+
+      // If an inert row exists (no paid data), just leave it alone too.
+      return res.json({ status: 'exists' });
+    }
+
+    // 2) Only now create a brand-new free stub.
+    const { data, error: insErr } = await supabase
+      .from('licenses')
+      .insert({ email, smartemail_tier: 'free', smartemail_expires: null })
       .select()
       .maybeSingle();
 
-    if (error) return res.status(500).json({ error: 'DB error', detail: error.message });
-    res.json({ status: data ? 'inserted' : 'exists' });
+    if (insErr) return res.status(500).json({ error: 'DB error', detail: insErr.message });
+    return res.json({ status: data ? 'inserted' : 'exists' });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Unknown error' });
+    return res.status(500).json({ error: e.message || 'Unknown error' });
   }
 });
 
