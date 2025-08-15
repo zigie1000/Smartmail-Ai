@@ -11,7 +11,12 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebhook.js'; // optional, safe stub
+// Optional Stripe webhook: support default or named export; fall back to no-op
+import * as stripeWebHookModule from './stripeWebhook.js';
+const stripeWebHook =
+  stripeWebHookModule.default ||
+  stripeWebHookModule.stripeWebHook ||
+  ((req, res) => res.status(200).end());
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
