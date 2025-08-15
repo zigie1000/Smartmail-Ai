@@ -11,7 +11,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebHook.js'; // optional, kept
+import stripeWebHook from './stripeWebhook.js'; // optional, safe stub
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -191,11 +191,10 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS (email-only) ----------
+// ---------- LICENSE HELPERS (email-first) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // If licenseKey provided, prefer it — still read SmartEmail columns
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
@@ -211,7 +210,6 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
-  // Primary: by email (latest)
   const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
@@ -233,7 +231,7 @@ async function checkLicense(email, licenseKey) {
   };
 }
 
-// ---------- GENERATE (always available) ----------
+// ---------- GENERATE (always available; returns tier for badge) ----------
 app.post('/generate', async (req, res) => {
   try {
     const {
@@ -299,14 +297,13 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
     }
 
     try {
-  await supabase.from('leads').insert([{
-    email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
-  }]);
-} catch {}
+      await supabase.from('leads').insert([{
+        email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
+      }]);
+    } catch {}
 
-// Always available — still return current tier for the badge.
-const lic = await checkLicense(finalEmail, req.body?.licenseKey);
-res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
+    const lic = await checkLicense(finalEmail, req.body?.licenseKey);
+    res.json({ generatedEmail: reply, tier: (lic?.tier || 'free') });
   } catch (err) {
     console.error('Generate route error:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -434,7 +431,7 @@ app.get('/validate-license', async (req, res) => {
     const now = new Date();
     const tier      = (row?.smartemail_tier || row?.tier || 'free');
     const expiresAt = (row?.smartemail_expires || row?.expires_at || null);
-    const active    = tier === 'free'
+    const active    = (tier === 'free')
       ? true
       : !!(expiresAt ? new Date(expiresAt) >= now : (row?.status === 'active' || row?.status === 'paid'));
 
@@ -457,7 +454,7 @@ app.get('/imap', (req, res) => {
 });
 app.use('/api/imap', imapRoutes);
 
-// --- SQL-backed email-only tier check (used by the front-end badge) ---
+// --- SQL-backed email-only tier check (front-end badge) ---
 app.post('/api/license/check', async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -477,16 +474,14 @@ app.post('/api/license/check', async (req, res) => {
     const data = r.data;
     if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-    // ONLY smartemail_* governs this app
     const tierVal = (data.smartemail_tier || 'free').toLowerCase();
     const expires = data.smartemail_expires || null;
     const active  = (tierVal === 'free')
       ? true
-      : (!!expires ? new Date(expires) > new Date() : data.status === 'active' || data.status === 'paid');
+      : (!!expires ? new Date(expires) > new Date() : (data.status === 'active' || data.status === 'paid'));
 
     return res.json({ found: true, active, tier: tierVal });
-  } catch (e) {
-    // Don’t block UI on errors — default to free
+  } catch {
     return res.json({ found: false, active: false, tier: 'free' });
   }
 });
