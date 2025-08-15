@@ -10,13 +10,13 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
-import Stripe from 'stripe';
 // Optional Stripe webhook: support default or named export; fall back to no-op
 import * as stripeWebHookModule from './stripeWebhook.js';
 const stripeWebHook =
   stripeWebHookModule.default ||
   stripeWebHookModule.stripeWebHook ||
   ((req, res) => res.status(200).end());
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -39,15 +39,28 @@ const __dirname  = path.dirname(__filename);
 app.set('trust proxy', 1);
 app.use(cors());
 
+// ⚠️ Stripe webhook must read the *raw* body. Register this BEFORE express.json().
+if (process.env.STRIPE_WEBHOOK_PATH) {
+  app.post(
+    process.env.STRIPE_WEBHOOK_PATH,
+    express.raw({ type: 'application/json' }),
+    stripeWebHook
+  );
+}
+
 // Payload size enough for generator + small images
 const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
 app.use(express.json({ limit: BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 
 // Static files
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders(res) { res.setHeader('Cache-Control', 'no-cache'); }
-}));
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  })
+);
 
 // ---------- SUPABASE ----------
 const supabase = createClient(
@@ -99,8 +112,9 @@ const {
 } = process.env;
 
 const TENANT     = (AZURE_TENANT_ID && AZURE_TENANT_ID.trim()) || 'common';
-const MS_SCOPES  = (AZURE_SCOPES && AZURE_SCOPES.trim())
-  || 'openid profile email offline_access https://graph.microsoft.com/Mail.Read';
+const MS_SCOPES  =
+  (AZURE_SCOPES && AZURE_SCOPES.trim()) ||
+  'openid profile email offline_access https://graph.microsoft.com/Mail.Read';
 
 const MS_AUTH  = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`;
 const MS_TOKEN = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
@@ -149,7 +163,9 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       return res.status(500).json({ error: 'Failed to exchange token', detail: tokens });
     }
 
-    const meRes = await fetch(GRAPH_ME, { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+    const meRes = await fetch(GRAPH_ME, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
     const me = await meRes.json();
     if (!meRes.ok) {
       console.error('Graph /me error:', me);
@@ -193,13 +209,19 @@ app.get('/', (req, res) => {
 
 // ---------- STATUS ----------
 app.get('/api/status', (req, res) => {
-  res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
+  res.json({
+    status: 'ok',
+    googleLogin: USE_GOOGLE_AUTH,
+    microsoftLogin: USE_MS_AUTH,
+    mode: 'SmartEmail'
+  });
 });
 
 // ---------- LICENSE HELPERS (email-first) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
+  // Prefer key if supplied
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
@@ -215,6 +237,7 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
+  // Latest by email
   const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
@@ -226,7 +249,10 @@ async function checkLicense(email, licenseKey) {
   if (!r.data) {
     await supabase
       .from('licenses')
-      .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
+      .upsert(
+        { email: e, smartemail_tier: 'free', smartemail_expires: null },
+        { onConflict: 'email' }
+      );
     return { tier: 'free', expires: null, reason: 'inserted-free' };
   }
 
@@ -257,7 +283,10 @@ app.post('/generate', async (req, res) => {
     const finalContent   = email_content || content;
     const finalAgent     = sender_details || agent;
 
-    if (!finalEmail || !finalEmailType || !finalTone || !finalLanguage || !finalAudience || !finalContent) {
+    if (
+      !finalEmail || !finalEmailType || !finalTone ||
+      !finalLanguage || !finalAudience || !finalContent
+    ) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
@@ -285,7 +314,10 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
 
     const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         model: process.env.OPENAI_GENERATE_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
@@ -303,7 +335,10 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
 
     try {
       await supabase.from('leads').insert([{
-        email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
+        email: finalEmail,
+        original_message: finalContent,
+        generated_reply: reply,
+        product: 'SmartEmail'
       }]);
     } catch {}
 
@@ -339,7 +374,10 @@ ${enhance_request}`.trim();
 
     const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         model: process.env.OPENAI_ENHANCE_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: enhancePrompt }],
@@ -357,7 +395,11 @@ ${enhance_request}`.trim();
 
     try {
       await supabase.from('enhancements').insert([{
-        email, original_text: enhance_content, enhancement_prompt: enhance_request, enhanced_result: reply, product: 'SmartEmail'
+        email,
+        original_text: enhance_content,
+        enhancement_prompt: enhance_request,
+        enhanced_result: reply,
+        product: 'SmartEmail'
       }]);
     } catch {}
 
@@ -376,7 +418,10 @@ app.post('/api/register-free-user', async (req, res) => {
 
     const { data, error } = await supabase
       .from('licenses')
-      .upsert({ email, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' })
+      .upsert(
+        { email, smartemail_tier: 'free', smartemail_expires: null },
+        { onConflict: 'email' }
+      )
       .select()
       .maybeSingle();
 
@@ -388,15 +433,24 @@ app.post('/api/register-free-user', async (req, res) => {
 });
 
 app.get('/config', (req, res) => {
-  res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
+  res.json({
+    PRO_URL: process.env.PRO_URL || '',
+    PREMIUM_URL: process.env.PREMIUM_URL || ''
+  });
 });
 
 // ---------- LICENSE VALIDATION (email-first; key fallback) ----------
 app.get('/validate-license', async (req, res) => {
   try {
-    const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
-    const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
-    if (!email && !licenseKeyRaw) return res.status(400).json({ error: 'Missing email or licenseKey' });
+    const email = typeof req.query.email === 'string'
+      ? req.query.email.trim().toLowerCase()
+      : '';
+    const licenseKeyRaw = typeof req.query.licenseKey === 'string'
+      ? req.query.licenseKey.trim()
+      : '';
+    if (!email && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Missing email or licenseKey' });
+    }
 
     let row = null;
 
@@ -427,7 +481,12 @@ app.get('/validate-license', async (req, res) => {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
         .from('licenses')
-        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
+        .insert([{
+          email,
+          license_key: newLicenseKey,
+          smartemail_tier: 'free',
+          smartemail_expires: null
+        }])
         .select()
         .maybeSingle();
       row = ins.data;
