@@ -299,14 +299,14 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
     }
 
     try {
-      await supabase.from('leads').insert([{
-        email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
-      }]);
-    } catch {}
+  await supabase.from('leads').insert([{
+    email: finalEmail, original_message: finalContent, generated_reply: reply, product: 'SmartEmail'
+  }]);
+} catch {}
 
-    // Always available; still return current tier for the badge.
-    const lic = await checkLicense(finalEmail, req.body?.licenseKey);
-    res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
+// Always available — still return current tier for the badge.
+const lic = await checkLicense(finalEmail, req.body?.licenseKey);
+res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
   } catch (err) {
     console.error('Generate route error:', err?.message || err);
     res.status(500).json({ error: 'Something went wrong.' });
