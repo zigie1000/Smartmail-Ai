@@ -21,7 +21,7 @@ import imapRoutes from './imap-reader/imapRoutes.js';
 
 dotenv.config();
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
 
 const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
@@ -191,11 +191,11 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS (EMAIL-ONLY primary; key fallback) ----------
+// ---------- LICENSE HELPERS (EMAIL-ONLY) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // If licenseKey provided, try by key first (still reading smartemail_* columns)
+  // Try license key first (any app), still read smartemail_* columns for consistency
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
@@ -204,13 +204,13 @@ async function checkLicense(email, licenseKey) {
       .maybeSingle();
 
     if (byKey.data) {
-      const tier = byKey.data.smartemail_tier || byKey.data.tier || 'free';
+      const tier    = byKey.data.smartemail_tier || byKey.data.tier || 'free';
       const expires = byKey.data.smartemail_expires || byKey.data.expires_at || null;
       return { tier, expires };
     }
   }
 
-  // Primary: by email (latest). Only email columns; NO app filter.
+  // Primary: by email (latest). No app filter.
   let { data } = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, tier, expires_at, created_at')
@@ -219,15 +219,18 @@ async function checkLicense(email, licenseKey) {
     .limit(1)
     .maybeSingle();
 
-  // If not found, create a free stub (email only).
+  // If not found, create a free stub
   if (!data) {
-    await supabase
-      .from('licenses')
-      .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
-    return { tier: 'free', expires: null, reason: 'inserted-free' };
+    try {
+      const newKey = `free_${e.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
+      await supabase
+        .from('licenses')
+        .insert([{ email: e, license_key: newKey, smartemail_tier: 'free', smartemail_expires: null }]);
+    } catch {}
+    return { tier: 'free', expires: null };
   }
 
-  const tier = data.smartemail_tier || data.tier || 'free';
+  const tier    = data.smartemail_tier || data.tier || 'free';
   const expires = data.smartemail_expires || data.expires_at || null;
   return { tier, expires };
 }
@@ -303,7 +306,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
       }]);
     } catch {}
 
-    // Generation is always available — we still return the current tier for the UI badge.
+    // Generation is always available — return current tier for badge
     const lic = await checkLicense(finalEmail, req.body?.licenseKey);
     res.json({ generatedEmail: reply, tier: lic.tier || 'free' });
   } catch (err) {
@@ -320,7 +323,7 @@ app.post('/enhance', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    const lic = await checkLicense(email, req.body?.licenseKey); // ← fixed variable
+    const lic = await checkLicense(email, req.body?.licenseKey);
     if ((lic.tier || 'free').toLowerCase() === 'free') {
       return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
     }
@@ -365,20 +368,30 @@ ${enhance_request}`.trim();
   }
 });
 
-// ---------- FREE USER REG (email-only) & CONFIG ----------
+// ---------- FREE USER & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    const { data, error } = await supabase
+    // Insert only if not present (email-only semantics)
+    const existing = await supabase
       .from('licenses')
-      .upsert({ email, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' })
-      .select()
+      .select('id')
+      .eq('email', email)
+      .limit(1)
       .maybeSingle();
 
-    if (error) return res.status(500).json({ error: 'DB error', detail: error.message });
-    res.json({ status: data ? 'inserted' : 'exists' });
+    if (!existing.data) {
+      try {
+        const licenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
+        await supabase
+          .from('licenses')
+          .insert([{ email, license_key: licenseKey, smartemail_tier: 'free', smartemail_expires: null }]);
+        return res.json({ status: 'inserted' });
+      } catch (e) {}
+    }
+    return res.json({ status: 'exists' });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Unknown error' });
   }
@@ -388,7 +401,7 @@ app.get('/config', (req, res) => {
   res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
 });
 
-// ---------- LICENSE VALIDATION (email-only primary; key fallback) ----------
+// ---------- LICENSE VALIDATION (email-first; key fallback) ----------
 app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
@@ -397,16 +410,7 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
-    if (licenseKeyRaw) {
-      const byKey = await supabase
-        .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status')
-        .eq('license_key', licenseKeyRaw)
-        .maybeSingle();
-      row = byKey.data || null;
-    }
-
-    if (!row && email) {
+    if (email) {
       const byEmail = await supabase
         .from('licenses')
         .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
@@ -417,6 +421,16 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
+    if (!row && licenseKeyRaw) {
+      const byKey = await supabase
+        .from('licenses')
+        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      row = byKey.data || null;
+    }
+
+    // If nothing found for email, create a SmartEmail-free stub
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -427,10 +441,10 @@ app.get('/validate-license', async (req, res) => {
       row = ins.data;
     }
 
-    const now = new Date();
-    const tier = (row?.smartemail_tier || row?.tier || 'free');
+    const now       = new Date();
+    const tier      = (row?.smartemail_tier || row?.tier || 'free');
     const expiresAt = (row?.smartemail_expires || row?.expires_at || null);
-    const active = tier === 'free'
+    const active    = tier === 'free'
       ? true
       : !!(expiresAt ? new Date(expiresAt) >= now : (row?.status === 'active' || row?.status === 'paid'));
 
@@ -456,29 +470,33 @@ app.use('/api/imap', imapRoutes);
 // --- SQL-backed email-only tier check (used by the front-end badge) ---
 app.post('/api/license/check', async (req, res) => {
   try {
-    const email = (req.body?.email || '').trim().toLowerCase();
-    if (!email) return res.status(400).json({ error: 'Email required' });
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Email required' });
+    }
+    const e = email.toLowerCase().trim();
 
-    const { data, error } = await supabase
+    const r = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, status, created_at')
-      .eq('email', email)
+      .eq('email', e)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (error) throw error;
+    const data = r.data;
     if (!data) return res.json({ found: false, active: false, tier: 'free' });
 
-    const tier   = (data.smartemail_tier || 'free').toLowerCase();
-    const exp    = data.smartemail_expires ? new Date(data.smartemail_expires) : null;
-    const active = (tier === 'free')
+    // Use ONLY smartemail_* to decide tier/expiry for this app
+    const tierVal = (data.smartemail_tier || 'free').toLowerCase();
+    const expires = data.smartemail_expires || null;
+    const active  = (tierVal === 'free')
       ? true
-      : !!(exp ? exp > new Date() : (data.status === 'active' || data.status === 'paid'));
+      : (!!expires ? new Date(expires) > new Date() : data.status === 'active' || data.status === 'paid');
 
-    return res.json({ found: true, active, tier });
+    return res.json({ found: true, active, tier: tierVal });
   } catch (e) {
-    // Do not block UI if SQL fails
+    // On any error, don’t block UI — just report free
     return res.json({ found: false, active: false, tier: 'free' });
   }
 });
