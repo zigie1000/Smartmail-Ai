@@ -496,11 +496,11 @@ app.post('/api/license/check', async (req, res) => {
 
     let row = null;
 
-    // 1) Prefer lookup by license key (most precise)
+    // 1) Prefer lookup by license key if provided
     if (licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
         .eq('license_key', licenseKeyRaw)
         .maybeSingle();
       row = byKey.data || null;
@@ -510,7 +510,7 @@ app.post('/api/license/check', async (req, res) => {
     if (!row && emailRaw) {
       const byEmail = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
         .eq('email', emailRaw)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -518,9 +518,24 @@ app.post('/api/license/check', async (req, res) => {
       row = byEmail.data || null;
     }
 
-    if (!row) {
-      return res.json({ found: false, active: false, tier: 'free' });
-    }
+    if (!row) return res.json({ found: false, active: false, tier: 'free' });
+
+    // 3) Resolve final tier purely from smartemail_* (no legacy columns)
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+
+    // Free is always treated as "active" for UI gating; paid must be unexpired or status=active
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? expiresAt > new Date() : (row.status === 'active' || row.status === 'paid'));
+
+    return res.json({ found: true, active, tier });
+  } catch (e) {
+    console.error('/api/license/check error:', e?.message || e);
+    // Fail-open to free so UI doesn’t break
+    return res.json({ found: false, active: false, tier: 'free' });
+  }
+});
 
     // 3) Resolve tier using smartemail_* first, falling back to legacy if needed
     const now = new Date();
