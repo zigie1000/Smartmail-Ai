@@ -124,7 +124,7 @@ app.get('/auth/microsoft', (req, res) => {
 });
 
 app.get('/auth/microsoft/callback', async (req, res) => {
-  if (!USE_MS_AUTH) return res.status(403).send('Microsoft login is disabled.');
+  if (!USE_MS_AUTH) return res.status(403).send 'Microsoft login is disabled.';
   try {
     const code = String(req.query.code || '');
     if (!code) return res.status(400).send('Missing authorization code');
@@ -199,18 +199,18 @@ app.get('/api/status', (req, res) => {
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // Prefer key if provided
+  // If a key is provided, try that first
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
-      .select('smartemail_tier, smartemail_expires, tier, expires_at, status')
+      .select('smartemail_tier, smartemail_expires, status')
       .eq('license_key', licenseKey)
       .maybeSingle();
 
     if (byKey.data) {
       return {
-        tier: byKey.data.smartemail_tier || byKey.data.tier || 'free',
-        expires: byKey.data.smartemail_expires || byKey.data.expires_at || null,
+        tier: byKey.data.smartemail_tier || 'free',
+        expires: byKey.data.smartemail_expires || null,
         status: byKey.data.status || null
       };
     }
@@ -219,23 +219,22 @@ async function checkLicense(email, licenseKey) {
   // Latest by email
   const r = await supabase
     .from('licenses')
-    .select('smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+    .select('smartemail_tier, smartemail_expires, status, created_at')
     .eq('email', e)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (!r.data) {
-    // Record free users in SQL but do not overwrite paid users.
     await supabase
       .from('licenses')
-      .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
-    return { tier: 'free', expires: null, reason: 'inserted-free' };
+      .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null, status: 'active' }, { onConflict: 'email' });
+    return { tier: 'free', expires: null, status: 'active', reason: 'inserted-free' };
   }
 
   return {
-    tier: r.data.smartemail_tier || r.data.tier || 'free',
-    expires: r.data.smartemail_expires || r.data.expires_at || null,
+    tier: r.data.smartemail_tier || 'free',
+    expires: r.data.smartemail_expires || null,
     status: r.data.status || null
   };
 }
@@ -378,10 +377,10 @@ app.post('/api/register-free-user', async (req, res) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    // If a row exists, do not overwrite a paid/active license with free
+    // If the user already has ANY license row, do not overwrite it.
     const { data: existing, error: selErr } = await supabase
       .from('licenses')
-      .select('email, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+      .select('email, smartemail_tier, smartemail_expires, status, created_at')
       .eq('email', email)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -390,20 +389,22 @@ app.post('/api/register-free-user', async (req, res) => {
     if (selErr) return res.status(500).json({ error: 'DB error', detail: selErr.message });
 
     if (existing) {
-      const legacyTier   = (existing.tier || '').toLowerCase();
-      const scopedTier   = (existing.smartemail_tier || '').toLowerCase();
-      const expires      = existing.smartemail_expires || existing.expires_at || null;
-      const activeLegacy = !!(expires ? new Date(expires) > new Date() : (existing.status === 'paid' || existing.status === 'active'));
+      const scopedTier = (existing.smartemail_tier || '').toLowerCase();
+      const expires    = existing.smartemail_expires || null;
+      const activePaid = scopedTier && scopedTier !== 'free'
+        ? (!!expires ? new Date(expires) > new Date() : (existing.status === 'active' || existing.status === 'paid'))
+        : false;
 
-      if (activeLegacy || (scopedTier && scopedTier !== 'free') || (legacyTier && legacyTier !== 'free')) {
+      if (activePaid || scopedTier) {
         return res.json({ status: 'exists' });
       }
       return res.json({ status: 'exists' });
     }
 
+    // Only create a brand-new free stub.
     const { data, error: insErr } = await supabase
       .from('licenses')
-      .insert({ email, smartemail_tier: 'free', smartemail_expires: null })
+      .insert({ email, smartemail_tier: 'free', smartemail_expires: null, status: 'active' })
       .select()
       .maybeSingle();
 
@@ -427,11 +428,10 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
-    // Email first
     if (email) {
       const byEmail = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status, created_at')
+        .select('email, license_key, smartemail_tier, smartemail_expires, status, created_at')
         .eq('email', email)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -439,40 +439,39 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
-    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, tier, expires_at, status')
+        .select('email, license_key, smartemail_tier, smartemail_expires, status')
         .eq('license_key', licenseKeyRaw)
         .maybeSingle();
       row = byKey.data || null;
     }
 
-    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
         .from('licenses')
-        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
+        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null, status: 'active' }])
         .select()
         .maybeSingle();
       row = ins.data;
     }
 
     const now = new Date();
-    const tier      = (row?.smartemail_tier || row?.tier || 'free');
-    const expiresAt = (row?.smartemail_expires || row?.expires_at || null);
-    const active    = (tier === 'free')
+    const tier      = (row?.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row?.smartemail_expires ? new Date(row.smartemail_expires) : null;
+
+    const active = (tier === 'free')
       ? true
-      : !!(expiresAt ? new Date(expiresAt) >= now : (row?.status === 'active' || row?.status === 'paid'));
+      : !!(expiresAt ? expiresAt >= now : (row?.status === 'active' || row?.status === 'paid'));
 
     return res.status(200).json({
       status: active ? 'active' : 'expired',
       tier,
       email: row?.email || null,
       licenseKey: row?.license_key || null,
-      expiresAt
+      expiresAt: row?.smartemail_expires || null
     });
   } catch (err) {
     console.error('validate-license error:', err?.message || err);
@@ -502,7 +501,7 @@ app.post('/api/license/check', async (req, res) => {
     if (licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
-        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at, tier, expires_at')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
         .eq('license_key', licenseKeyRaw)
         .maybeSingle();
       row = byKey.data || null;
@@ -512,7 +511,7 @@ app.post('/api/license/check', async (req, res) => {
     if (!row && emailRaw) {
       const byEmail = await supabase
         .from('licenses')
-        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at, tier, expires_at')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
         .eq('email', emailRaw)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -522,50 +521,16 @@ app.post('/api/license/check', async (req, res) => {
 
     if (!row) return res.json({ found: false, active: false, tier: 'free' });
 
-    // 3) Resolve final tier: prefer SmartEmail-scoped columns; fall back to legacy for migration
-    const now            = new Date();
-    const scopedTier     = (row.smartemail_tier || '').toLowerCase();
-    const scopedExpires  = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+    // 3) Resolve final tier purely from smartemail_* (no legacy columns)
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
 
-    const legacyTier     = (row.tier || '').toLowerCase();
-    const legacyExpires  = row.expires_at ? new Date(row.expires_at) : null;
-    const legacyActiveFn = (row.status === 'active' || row.status === 'paid');
+    // Free is always treated as "active" for UI gating; paid must be unexpired or status=active
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? expiresAt > new Date() : (row.status === 'active' || row.status === 'paid'));
 
-    const smartIsPaid    = scopedTier && scopedTier !== 'free';
-    const smartActive    = smartIsPaid ? (!!scopedExpires ? scopedExpires > now : legacyActiveFn) : true; // free is "active" for UI
-
-    const legacyIsPaid   = legacyTier && legacyTier !== 'free';
-    const legacyActive   = legacyIsPaid ? (!!legacyExpires ? legacyExpires > now : legacyActiveFn) : false;
-
-    let finalTier   = 'free';
-    let finalActive = true;
-
-    if (smartIsPaid && smartActive) {
-      finalTier = scopedTier;
-      finalActive = true;
-    } else if (legacyIsPaid && legacyActive) {
-      finalTier = legacyTier;
-      finalActive = true;
-
-      // Mirror legacy → smartemail_* so future checks don’t downgrade
-      try {
-        await supabase
-          .from('licenses')
-          .update({
-            smartemail_tier: legacyTier,
-            smartemail_expires: legacyExpires ? legacyExpires.toISOString() : null
-          })
-          .eq('email', row.email || emailRaw)
-          .eq('license_key', row.license_key || licenseKeyRaw);
-      } catch (mirrorErr) {
-        console.warn('Mirror smartemail_* update failed:', mirrorErr?.message || mirrorErr);
-      }
-    } else {
-      finalTier = 'free';
-      finalActive = true;
-    }
-
-    return res.json({ found: true, active: finalActive, tier: finalTier });
+    return res.json({ found: true, active, tier });
   } catch (e) {
     console.error('/api/license/check error:', e?.message || e);
     // Fail-open to free so UI doesn’t break
