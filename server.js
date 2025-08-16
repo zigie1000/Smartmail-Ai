@@ -487,6 +487,21 @@ app.get('/validate-license', async (req, res) => {
 app.get('/imap', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
+// Tier preflight for IMAP page
+app.post('/api/imap/tier', async (req, res) => {
+  try {
+    const { email = '', licenseKey = '' } = req.body || {};
+    const lic   = await checkLicense(email, licenseKey);
+    const tier  = (lic?.tier || 'free').toLowerCase();
+    const exp   = lic?.expires ? new Date(lic.expires) : null;
+    const isPaid = tier !== 'free' && (!exp || exp >= new Date());
+    res.json({ tier, isPaid });
+  } catch (e) {
+    console.error('imap tier error:', e?.message || e);
+    // Fail-open so the IMAP UI still works
+    res.status(200).json({ tier: 'free', isPaid: false });
+  }
+});
 app.use('/api/imap', imapRoutes);
 
 // --- SQL-backed email/key tier check (front-end badge) ---
