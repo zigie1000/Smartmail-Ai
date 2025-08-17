@@ -13,28 +13,28 @@ function buildConfig({ email, password, accessToken, host, port = 993, tls = tru
   if (host) tlsOptions.servername = host;
 
   return {
-  imap: {
-    user: email,
-    password: authType === 'password' ? password : undefined,
-    xoauth2,
-    host,
-    port,
-    tls,
-    tlsOptions,
+    imap: {
+      user: email,
+      password: authType === 'password' ? password : undefined,
+      xoauth2,
+      host,
+      port,
+      tls,
+      tlsOptions,
 
-    // Connection + auth timeouts
-    connTimeout: 20000,     // 20 seconds for TCP connect
-    authTimeout: 20000,     // 20 seconds for login
-    socketTimeout: 60000,   // 60 seconds inactivity
+      // more forgiving timeouts for cloud free tiers
+      connTimeout: 20000,     // 20s TCP connect
+      authTimeout: 20000,     // 20s login
+      socketTimeout: 60000,   // 60s idle
 
-    // Keepalive to avoid idle disconnects
-    keepalive: {
-      interval: 3000,       // every 3 seconds send NOOP
-      idleInterval: 300000, // 5 minutes max idle
-      forceNoop: true
+      // keepalive to avoid idle disconnects
+      keepalive: {
+        interval: 3000,       // send NOOP every 3s
+        idleInterval: 300000, // 5 min max idle
+        forceNoop: true
+      }
     }
-  }
-};
+  };
 }
 
 export async function testLogin(opts) {
@@ -62,18 +62,19 @@ export async function fetchEmails({
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // Accept tuples like ['ALL'] or ['SINCE', Date]
+    // ---- Normalize IMAP search criteria ----
+    // Accept forms: ['ALL'], ['SINCE', Date], or even ['SINCE', 'Mon Aug 05 2024 ...']
     let criteria = Array.isArray(search) ? search : ['ALL'];
 
-    // Guard: if user passed SINCE with a non-Date accidentally, try to coerce
-    if (criteria.length >= 2 && String(criteria[0]).toUpperCase() === 'SINCE' && !(criteria[1] instanceof Date)) {
-      const d = new Date(criteria[1]);
-      if (!isNaN(d.getTime())) criteria = ['SINCE', d];
-      else criteria = ['ALL'];
+    // If caller provided exactly ['SINCE', value] but value is string/number, coerce to Date
+    if (Array.isArray(criteria) && criteria[0] === 'SINCE' && criteria.length === 2) {
+      const v = criteria[1];
+      const d = (v instanceof Date) ? v : new Date(v);
+      if (!isNaN(+d)) criteria = ['SINCE', d];
+      else criteria = ['ALL']; // fallback safety
     }
 
     const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
-
     const results = await connection.search(criteria, fetchOpts);
 
     const emails = results.slice(-Math.max(1, Number(limit) || 20)).map((res, idx) => {
