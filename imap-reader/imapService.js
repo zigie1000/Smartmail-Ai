@@ -1,34 +1,48 @@
 // imapService.js — wraps imap-simple with safer defaults
+// - Fixes: IMAP "SINCE" must be a Date (server will format to DD-MMM-YYYY)
+// - Memory safety: fetch HEADERS only, cap results, sort+slice on server
+// - TLS: optional self-signed control via IMAP_ALLOW_SELF_SIGNED=1
+// - Timeouts & keepalive tuned for flaky/free hosting
 
 import imaps from 'imap-simple';
 import dns from 'dns';
 
-// Prefer IPv4 first in some hosting environments
+// Prefer IPv4 first (avoids some provider DNS oddities on free hosts)
 dns.setDefaultResultOrder?.('ipv4first');
 
-/**
- * SECURITY NOTE
- * -------------
- * We default to `rejectUnauthorized: false` because some hosts (e.g. Render Free)
- * lack system CAs and will throw DEPTH_ZERO_SELF_SIGNED_CERT. If you later install
- * system CAs, set IMAP_REJECT_UNAUTHORIZED=1 in the environment to harden TLS.
- */
-const REJECT_UNAUTHORIZED =
-  process.env.IMAP_REJECT_UNAUTHORIZED === '1' ? true : false;
+const ALLOW_SELF_SIGNED = (process.env.IMAP_ALLOW_SELF_SIGNED === '1');
 
-/** Format a JS Date to RFC-822 (dd-MMM-yyyy), e.g. 17-Aug-2025 */
-function toRfc822Date(d) {
-  const months = [
-    'Jan','Feb','Mar','Apr','May','Jun',
-    'Jul','Aug','Sep','Oct','Nov','Dec'
-  ];
-  const day = String(d.getDate());
-  const mon = months[d.getMonth()];
-  const year = d.getFullYear();
-  return `${day}-${mon}-${year}`;
+// ---- Helpers ---------------------------------------------------------------
+
+// Parse user-provided "since" (string/number/Date) into a Date, or null.
+function toDateOrNull(input) {
+  if (!input) return null;
+  if (input instanceof Date && !isNaN(input)) return input;
+  const d = new Date(input);
+  return isNaN(d) ? null : d;
 }
 
-/** Build node-imap / imap-simple connection config */
+// Decide a SINCE date from { since, rangeDays } with safe defaults.
+// If nothing provided, use 2 days by default (matches your UI default).
+function decideSinceDate({ since, rangeDays }) {
+  const fromProp = toDateOrNull(since);
+  if (fromProp) return fromProp;
+
+  const days = Number.isFinite(rangeDays) ? Number(rangeDays) : 2;
+  const ms = Math.max(1, days) * 24 * 60 * 60 * 1000;
+  return new Date(Date.now() - ms);
+}
+
+// Extract a single header string safely
+function pick(h, key, fallback = '') {
+  if (!h) return fallback;
+  const v = h[key];
+  if (!v) return fallback;
+  if (Array.isArray(v)) return (v[0] ?? fallback) + '';
+  return (v ?? fallback) + '';
+}
+
+// Build imap-simple config
 function buildConfig({
   email,
   password,
@@ -38,151 +52,187 @@ function buildConfig({
   tls = true,
   authType = 'password',
 }) {
-  const xoauth2 = authType === 'xoauth2' && accessToken ? accessToken : undefined;
+  const xoauth2 =
+    authType?.toLowerCase() === 'xoauth2' && accessToken ? accessToken : undefined;
 
-  const tlsOptions = {
-    // If your host has proper CAs installed, set IMAP_REJECT_UNAUTHORIZED=1
-    // to enable strict verification in production.
-    rejectUnauthorized: REJECT_UNAUTHORIZED ? true : false,
-  };
-
-  // SNI: ensures TLS handshake uses the intended hostname
+  const tlsOptions = {};
+  if (ALLOW_SELF_SIGNED) {
+    // When your environment sets IMAP_ALLOW_SELF_SIGNED=1, accept self-signed.
+    tlsOptions.rejectUnauthorized = false;
+  }
   if (host) tlsOptions.servername = host;
 
   return {
     imap: {
       user: email,
-      password: authType === 'password' ? password : undefined,
-      xoauth2,              // used only when provided
+      password: xoauth2 ? undefined : password,
+      xoauth2,
       host,
       port,
       tls,
       tlsOptions,
 
-      // ---- Timeouts (ms) ----
-      // node-imap options that imap-simple passes through
-      connTimeout: 20000,   // TCP connect
-      authTimeout: 20000,   // login
-      socketTimeout: 60000, // inactivity
+      // ---- Connection + auth timeouts ----
+      connTimeout: 20_000,   // 20s TCP connect
+      authTimeout: 20_000,   // 20s login
+      socketTimeout: 60_000, // 60s inactivity
 
       // ---- Keepalive to avoid idle disconnects ----
       keepalive: {
-        interval: 3000,     // send NOOP every 3s
-        idleInterval: 300000, // max idle 5 min
+        interval: 3_000,     // NOOP every 3s
+        idleInterval: 300_000, // 5min max idle
         forceNoop: true,
       },
     },
   };
 }
 
-/** Quick connectivity check */
-export async function testLogin(opts) {
-  const config = buildConfig(opts);
-  let connection;
-  try {
-    connection = await imaps.connect(config);
-    await connection.getBoxes();      // simple call to verify auth
-    await connection.end();
-    return true;
-  } catch (e) {
-    if (connection) {
-      try { await connection.end(); } catch {}
-    }
-    console.error('testLogin error:', e?.message || e);
-    return false;
-  }
-}
-
-/**
- * Fetch emails from INBOX
- * opts:
- *  - email, password | accessToken, host, port, tls, authType ('password'|'xoauth2')
- *  - rangeDays (number) — how many days back; if falsy, fetches ALL
- *  - limit (number) — cap returned results
- */
-export async function fetchEmails({
-  email,
-  password,
-  accessToken,
-  host = 'imap.gmail.com',
-  port = 993,
-  tls = true,
-  authType = 'password',
-  rangeDays,        // undefined|'All' => ALL
-  limit = 20,
-}) {
-  const config = buildConfig({
-    email,
-    password,
-    accessToken,
-    host,
-    port,
-    tls,
-    authType,
-  });
-
+// Ensure connection closes even on error
+async function withConnection(config, fn) {
   let connection;
   try {
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
-
-    // --- Build criteria ---
-    // Always start with ALL; append SINCE in RFC-822 if a range is requested.
-    const criteria = ['ALL'];
-    if (rangeDays && Number(rangeDays) > 0) {
-      const since = new Date();
-      since.setDate(since.getDate() - Number(rangeDays));
-      criteria.push(['SINCE', toRfc822Date(since)]);
-    }
-
-    // Minimal fetch — headers only; bodies can be fetched later if needed
-    const fetchOptions = {
-      bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)'],
-      struct: true,
-      markSeen: false,
-    };
-
-    const results = await connection.search(criteria, fetchOptions);
-
-    // Parse results safely
-    const emails = results
-      .slice(0, Math.max(0, Number(limit) || 0))
-      .map((res) => {
-        const headerPart = res.parts?.find(
-          (p) => p.which && p.which.startsWith('HEADER.FIELDS')
-        );
-        const h = headerPart?.body || {};
-        const subject =
-          (Array.isArray(h.subject) && h.subject[0]) || '(no subject)';
-        const from = (Array.isArray(h.from) && h.from[0]) || '';
-        const to = (Array.isArray(h.to) && h.to[0]) || '';
-        const date = (Array.isArray(h.date) && h.date[0]) || null;
-        const messageId =
-          (Array.isArray(h['message-id']) && h['message-id'][0]) || null;
-
-        return {
-          uid: res.attributes?.uid,
-          subject,
-          from,
-          to,
-          date,
-          messageId,
-        };
-      });
-
-    await connection.end();
-    return { ok: true, emails, criteriaUsed: criteria };
-  } catch (e) {
-    if (connection) {
-      try { await connection.end(); } catch {}
-    }
-    console.error('IMAP /fetch error:', e?.stack || e?.message || e);
-    return { ok: false, error: e?.message || String(e) };
+    return await fn(connection);
+  } finally {
+    try { await connection?.end(); } catch {}
   }
 }
 
-export default {
-  buildConfig,
-  testLogin,
-  fetchEmails,
-};
+// ---- Public API ------------------------------------------------------------
+
+// Lightweight login check (no message fetch).
+export async function testLogin(opts) {
+  const config = buildConfig(opts);
+  return await withConnection(config, async () => ({ ok: true }));
+}
+
+/**
+ * Fetch message headers safely.
+ *
+ * Expected opts (all optional except creds):
+ *  - email, password OR accessToken+authType='xoauth2'
+ *  - host (e.g. 'imap.gmail.com'), port (default 993), tls (default true)
+ *  - rangeDays (number) or since (Date/ISO string)
+ *  - limit (number) default 50
+ *
+ * Returns: { ok, items: [ { uid, subject, from, to, date, flags } ], stats }
+ */
+export async function fetchMail(opts) {
+  const {
+    email, password, accessToken, host, port = 993, tls = true, authType = 'password',
+    rangeDays, since, limit: rawLimit,
+  } = opts || {};
+
+  const limit = (Number(rawLimit) > 0 && Number(rawLimit) <= 200) ? Number(rawLimit) : 50;
+  const sinceDate = decideSinceDate({ since, rangeDays });
+
+  const config = buildConfig({ email, password, accessToken, host, port, tls, authType });
+
+  const fetchOptions = {
+    // HEADERS only — keeps memory low. Body/snippet can be fetched on-demand per UID elsewhere.
+    bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)'],
+    struct: true,
+    markSeen: false,
+  };
+
+  // Build server-side criteria. Using a Date object ensures correct IMAP format.
+  const criteria = ['ALL', ['SINCE', sinceDate]];
+
+  // Do all work inside a single connection.
+  return await withConnection(config, async (conn) => {
+    // Step 1: search UIDs only (no bodies) to avoid fetching too much
+    const uids = await new Promise((resolve, reject) => {
+      conn.imap.search(criteria, (err, results) => {
+        if (err) return reject(err);
+        resolve(results || []);
+      });
+    });
+
+    // If no messages, return fast.
+    if (!uids.length) {
+      return {
+        ok: true,
+        items: [],
+        stats: { totalFound: 0, fetched: 0, since: sinceDate.toISOString(), limit },
+      };
+    }
+
+    // Only fetch the newest N UIDs (server returns ascending order by UID)
+    const slice = uids.slice(-limit);
+
+    // Step 2: fetch headers for those UIDs
+    const items = await new Promise((resolve, reject) => {
+      const out = [];
+      const f = conn.imap.fetch(slice, fetchOptions);
+
+      f.on('message', (msg) => {
+        let headerObj = null;
+        let attrs = null;
+
+        msg.on('attributes', (a) => { attrs = a; });
+
+        msg.on('body', (stream/* , info */) => {
+          // imap-simple/node-imap returns header as RFC822 text — parse with imaps library helper
+          let buf = '';
+          stream.on('data', (chunk) => { buf += chunk.toString('utf8'); });
+          stream.once('end', () => {
+            // imap-simple exposes .getParts helpers, but for a single HEADER we can parse quickly:
+            // Use imaps to do it reliably:
+            try {
+              headerObj = imaps.getHeaders(buf);
+            } catch {
+              // minimal fallback: very rough parse
+              headerObj = {};
+              buf.split(/\r?\n/).forEach((line) => {
+                const m = /^([\w-]+):\s*(.*)$/.exec(line);
+                if (m) {
+                  const k = m[1].toLowerCase();
+                  headerObj[k] = headerObj[k] || [];
+                  headerObj[k].push(m[2]);
+                }
+              });
+            }
+          });
+        });
+
+        msg.once('end', () => {
+          const h = headerObj || {};
+          // Prefer header date; fall back to attributes.date if needed
+          const dateStr = pick(h, 'date', '') || (attrs?.date ? new Date(attrs.date).toUTCString() : '');
+          const parsedDate = toDateOrNull(dateStr) || (attrs?.date ? new Date(attrs.date) : null);
+
+          out.push({
+            uid: attrs?.uid ?? null,
+            flags: attrs?.flags ?? [],
+            date: parsedDate ? parsedDate.toISOString() : null,
+            subject: pick(h, 'subject', '(no subject)'),
+            from: pick(h, 'from', ''),
+            to: pick(h, 'to', ''),
+          });
+        });
+      });
+
+      f.once('error', reject);
+      f.once('end', () => resolve(out));
+    });
+
+    // Sort newest → oldest just in case server order differs; ensure limit is respected.
+    items.sort((a, b) => {
+      const ta = a.date ? Date.parse(a.date) : 0;
+      const tb = b.date ? Date.parse(b.date) : 0;
+      return tb - ta;
+    });
+
+    return {
+      ok: true,
+      items: items.slice(0, limit),
+      stats: {
+        totalFound: uids.length,
+        fetched: Math.min(items.length, limit),
+        since: sinceDate.toISOString(),
+        limit,
+      },
+    };
+  });
+}
