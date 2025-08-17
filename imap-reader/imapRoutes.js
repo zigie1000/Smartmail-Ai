@@ -173,7 +173,7 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ✅ RFC-compliant SINCE date for node-imap — must be a Date object
+    // RFC-compliant SINCE date for node-imap — pass a real Date
     const days = Math.max(0, Number(req.body.rangeDays) || 7);
     const search = days > 0
       ? ['SINCE', new Date(Date.now() - days * 864e5)]
