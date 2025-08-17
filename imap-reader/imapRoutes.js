@@ -1,14 +1,11 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Free caps for non-paid users. Email-only license lookups.
-
 import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
 
-// 🔹 Supabase client only (no 'pg' required on Render)
+// Supabase (client only)
 import { createClient as createSupabase } from '@supabase/supabase-js';
-
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 const supa = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
@@ -19,10 +16,7 @@ const router = express.Router();
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
-
-// very light email sanity (prevents DB “pattern” traps upstream)
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
-
 function rowsToSet(rows, key) {
   return new Set((rows || [])
     .map(r => String(r[key] || '').toLowerCase())
@@ -30,7 +24,7 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Tier helpers (email-first, key fallback) ---
+// ---- Tier helpers (email-first, key fallback)
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
@@ -65,7 +59,7 @@ async function isPaid(tier) {
   return tier && tier !== 'free';
 }
 
-// Personalization lists + learned weights (paid users only)
+// personalization lists + learned weights (paid only)
 async function fetchListsFromSql(userId = 'default') {
   const empty = { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
                   weights:{ email:new Map(), domain:new Map() } };
@@ -155,7 +149,7 @@ router.post('/fetch', async (req, res) => {
       licenseKey = ''
     } = req.body || {};
 
-    // block obviously bad email to avoid DB “pattern” errors down the line
+    // Basic email sanity so DB lookups don’t choke on bad patterns
     const safeEmail = isLikelyEmail(email) ? email : '';
 
     const tier = await getTier({ licenseKey, email: safeEmail });
@@ -173,17 +167,12 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ✅ RFC-compliant SINCE date for node-imap — must be [ ['SINCE', Date] ] or ['ALL']
-    let days = Number(req.body.rangeDays);
-    if (!(days >= 0)) days = 7;
-    let search = ['ALL'];
-    if (days > 0) {
-      const since = new Date(Date.now() - days * 864e5);
-      // snap to start-of-day optional; not required by imap, but fine:
-      // since.setHours(0,0,0,0);
-      search = [ ['SINCE', since] ];
-    }
-    console.log('IMAP criteria:', JSON.stringify(search));
+    // 👉 Build SINCE criterion (Date object) — it will arrive to the server as a string,
+    // but imapService will coerce it back to Date.
+    const days = Math.max(0, Number(req.body.rangeDays) || 0);
+    const search = days > 0
+      ? [ ['SINCE', new Date(Date.now() - days * 864e5)] ]
+      : ['ALL'];
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
@@ -206,7 +195,7 @@ router.post('/fetch', async (req, res) => {
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
-    res.status(500).json({ error: e?.message || 'Server error while fetching mail.' });
+    res.status(500).json({ error: 'Server error while fetching mail.' });
   }
 });
 
