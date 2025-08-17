@@ -1,12 +1,8 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Free caps for non-paid users. Email-only license lookups with safe fallbacks.
-
 import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
-
-// Supabase (service key). If envs are missing, we still run with fallbacks.
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -15,23 +11,12 @@ const supa = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
   ? createSupabase(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   : null;
 
-// Fallback / overrides via env for tier checks
-const MASTER_LICENSE = (process.env.SMARTEMAIL_MASTER_LICENSE || '').trim();  // any licenseKey == this => premium
-const DEFAULT_TIER   = (process.env.SMARTEMAIL_DEFAULT_TIER || 'free').toLowerCase(); // used when Supabase is down
-const PAID_EMAILS    = (process.env.SMARTEMAIL_PAID_EMAILS || '') // comma-separated list of paid emails
-  .split(',')
-  .map(s => s.trim().toLowerCase())
-  .filter(Boolean);
-
 const router = express.Router();
 
-const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
+const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
-
-// Very light email sanity (prevents DB “pattern” traps upstream)
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
 
-// Utils
 function rowsToSet(rows, key) {
   return new Set((rows || [])
     .map(r => String(r[key] || '').toLowerCase())
@@ -39,35 +24,23 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Tier helpers (licenseKey first, then email; with env overrides) ---
+// --- Tier helpers (email-first, key fallback) ---
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
-  const key = String(licenseKey || '').trim();
 
-  // Hard overrides via env
-  if (key && MASTER_LICENSE && key === MASTER_LICENSE) return 'premium';
-  if (em && PAID_EMAILS.includes(em)) return 'premium';
-
-  // If Supabase isn’t configured, honor DEFAULT_TIER and bail
-  if (!supa) return DEFAULT_TIER;
-
-  // 1) License key lookup
   try {
-    if (key) {
+    if (licenseKey && supa) {
       const { data } = await supa
         .from('licenses')
         .select('smartemail_tier, tier')
-        .eq('license_key', key)
+        .eq('license_key', licenseKey)
         .maybeSingle();
       if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
     }
-  } catch (e) {
-    console.warn('[tier] license_key lookup failed:', e?.message || e);
-  }
+  } catch {}
 
-  // 2) Most recent record for email
   try {
-    if (em && isLikelyEmail(em)) {
+    if (em && isLikelyEmail(em) && supa) {
       const { data } = await supa
         .from('licenses')
         .select('smartemail_tier, tier, created_at')
@@ -77,17 +50,13 @@ async function getTier({ licenseKey = '', email = '' }) {
         .maybeSingle();
       if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
     }
-  } catch (e) {
-    console.warn('[tier] email lookup failed:', e?.message || e);
-  }
+  } catch {}
 
-  // Fallback
-  return DEFAULT_TIER;
+  return 'free';
 }
-
 async function isPaid(tier) {
   if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
-  return (tier && tier !== 'free');
+  return tier && tier !== 'free';
 }
 
 // Personalization lists + learned weights (paid users only)
@@ -162,14 +131,13 @@ function applyFreeCapsIfNeeded(tier, body) {
 router.post('/tier', async (req, res) => {
   try {
     const { email = '', licenseKey = '' } = req.body || {};
-    const safeEmail = isLikelyEmail(email) ? email.trim().toLowerCase() : '';
-    const tier = await getTier({ licenseKey, email: safeEmail });
+    const tier = await getTier({ licenseKey, email });
     const paid = await isPaid(tier);
     const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
-    return res.json({ tier, isPaid: paid, notice });
+    res.json({ tier, isPaid: paid, notice });
   } catch (e) {
     console.error('IMAP /tier error:', e?.message || e);
-    return res.status(500).json({ error: 'Could not determine tier' });
+    res.status(500).json({ error: 'Could not determine tier' });
   }
 });
 
@@ -178,37 +146,35 @@ router.post('/fetch', async (req, res) => {
     const {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password',
-      licenseKey = '', rangeDays = 2, limit = 20
+      licenseKey = ''
     } = req.body || {};
 
-    const safeEmail = isLikelyEmail(email) ? email.trim() : '';
+    const safeEmail = isLikelyEmail(email) ? email : '';
 
-    // Tier + caps
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
+
     const userId = userIdFromEmail(safeEmail || 'anon');
     const caps = applyFreeCapsIfNeeded(tier, req.body);
-
-    // Free-plan pacing (per email)
     if (caps.isFree && caps.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
       if (now - last < caps.minFetchMs) {
-        const wait = Math.ceil((caps.minFetchMs - (now - last)) / 1000);
+        const wait = Math.ceil((caps.minFetchMs - (now - last))/1000);
         return res.status(429).json({ error: `Please wait ${wait}s (free plan limit).` });
       }
       lastFetchAt.set(userId, now);
     }
 
-    // RFC-compliant SINCE Date for node-imap
-    const daysNum = Math.max(0, Number(rangeDays) || 0);
-    const sinceDate = new Date(Date.now() - daysNum * 864e5);
-    const search = daysNum > 0 ? ['SINCE', sinceDate] : ['ALL'];
+    // Compute SINCE as a real Date; imapService will normalize again
+    const days = Math.max(0, Number(req.body.rangeDays) || 7);
+    const search = days > 0
+      ? ['SINCE', new Date(Date.now() - days * 864e5)]
+      : ['ALL'];
 
-    // Fetch
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      search, limit: Number(limit) || 20
+      search, limit: Number(req.body.limit) || 20, rangeDays: days
     });
 
     const lists = paid
@@ -224,10 +190,10 @@ router.post('/fetch', async (req, res) => {
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for more range, higher limits, VIP boosts, and learning.'
       : null;
 
-    return res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
+    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
-    return res.status(500).json({ error: 'Server error while fetching mail.' });
+    res.status(500).json({ error: 'Server error while fetching mail.' });
   }
 });
 
@@ -235,10 +201,10 @@ router.post('/test', async (req, res) => {
   try {
     const { email = '', password = '', accessToken = '', host = '', port = 993, tls = true, authType = 'password' } = req.body || {};
     const ok = await testLogin({ email, password, accessToken, host, port, tls, authType });
-    return res.json({ ok: !!ok });
+    res.json({ ok: !!ok });
   } catch (e) {
     console.error('IMAP /test error:', e?.message || e);
-    return res.status(500).json({ ok: false, error: 'IMAP login failed' });
+    res.status(500).json({ ok: false, error: 'IMAP login failed' });
   }
 });
 
@@ -253,19 +219,12 @@ router.post('/classify', async (req, res) => {
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
-    const norm = (items || []).map((e, i) => ({
-      id: e.id ?? e.uid ?? String(i + 1),
-      from: e.from || '', fromEmail: e.fromEmail || '', fromDomain: e.fromDomain || '',
-      to: e.to || '', subject: e.subject || '', snippet: e.snippet || e.text || '',
-      date: e.date || '', headers: e.headers || {}, hasIcs: !!e.hasIcs,
-      attachTypes: e.attachTypes || [], unread: !!e.unread, flagged: !!e.flagged,
-      contentType: e.contentType || ''
-    }));
+    const norm = normalizeForClassifier(items);
     const results = await classifyEmails(norm, { userId, lists });
-    return res.json(results);
+    res.json(results);
   } catch (e) {
     console.error('IMAP /classify error:', e?.message || e);
-    return res.status(500).json({ error: 'Classification failed' });
+    res.status(500).json({ error: 'Classification failed' });
   }
 });
 
@@ -306,10 +265,10 @@ router.post('/feedback', async (req, res) => {
       console.log('[feedback] no DB, ignored');
     }
 
-    return res.json({ ok:true });
+    res.json({ ok:true });
   } catch (e) {
     console.error('IMAP /feedback error:', e?.message || e);
-    return res.status(500).json({ ok:false, error:'failed to save feedback' });
+    res.status(500).json({ ok:false, error:'failed to save feedback' });
   }
 });
 
