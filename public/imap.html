@@ -379,36 +379,36 @@
   }
 
   // ---- Tier preflight ----
-async function checkTier() {
-  try {
-    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
-    const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
+  async function checkTier() {
+    try {
+      const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+      const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
 
-    if (!email && !licenseKey) { setTierUI("free", false); return; }
+      if (!email && !licenseKey) { setTierUI("free", false); return; }
 
-    const resp = await fetch("/api/imap/tier", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, licenseKey })
-    });
+      const resp = await fetch("/api/imap/tier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, licenseKey })
+      });
 
-    let data = {};
-    try { data = await resp.json(); } catch {}
+      let data = {};
+      try { data = await resp.json(); } catch {}
 
-    if (resp.ok && data && typeof data.tier === "string") {
-      const tier = data.tier || "free";
-      setTierUI(tier, !!data.isPaid);
-      if (data.notice) setMessage("ok", data.notice);
-      console.log("✅ IMAP license check:", tier, "paid:", !!data.isPaid);
-    } else {
+      if (resp.ok && data && typeof data.tier === "string") {
+        const tier = data.tier || "free";
+        setTierUI(tier, !!data.isPaid);
+        if (data.notice) setMessage("ok", data.notice);
+        console.log("✅ IMAP license check:", tier, "paid:", !!data.isPaid);
+      } else {
+        setTierUI("free", false);
+        console.warn("❌ IMAP license check failed:", data);
+      }
+    } catch (e) {
+      console.error("⚠️ IMAP checkTier error:", e);
       setTierUI("free", false);
-      console.warn("❌ IMAP license check failed:", data);
     }
-  } catch (e) {
-    console.error("⚠️ IMAP checkTier error:", e);
-    setTierUI("free", false);
   }
-}
 
   // ---- Networking ----
   async function fetchAndClassify(){
@@ -423,62 +423,60 @@ async function checkTier() {
         if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
         if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
       }
-// If XOAUTH2 is selected, require a non-empty access token
-if ((payload.authType || "").toLowerCase() === "xoauth2" &&
-    !String(payload.accessToken || "").trim()) {
-  list.innerHTML = "";
-  setMessage("err", "XOAUTH2 selected — paste a valid access token first.");
-  return;
-}
 
-// If Gmail + password, gently warn if it doesn't look like an App Password
-if ((payload.authType || "").toLowerCase() === "password" &&
-    /imap\.gmail\.com$/i.test(payload.host || "") &&
-    String(payload.password || "").trim().length < 16) {
-  setMessage("err", "Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
-  // continue anyway; user may still want to try
-}
       const payload = {
-  email: $("email").value || "",
-  password: $("password").value || "",
-  host: $("host").value || "",
-  port: Number($("port").value || 993),
-  tls: ($("tls").value || "on") !== "off",
-  rangeDays: Number($("range").value || 2),
-  limit: Number($("limit").value || 20),
-  authType: $("authType").value || "password",
-  accessToken: $("accessToken")?.value || "",
-  licenseKey:
-    $("licenseKey")?.value ||
-    localStorage.getItem("smartemail.licenseKey") ||
-    localStorage.getItem("licenseKey") ||
-    ""
-};
+        email: $("email").value||"",
+        password: $("password").value||"",
+        host: $("host").value||"",
+        port: Number($("port").value||993),
+        tls: ($("tls").value||"on")!=="off",
+        rangeDays: Number($("range").value||2),
+        limit: Number($("limit").value||20),
+        authType: $("authType").value||"password",
+        accessToken: $("accessToken")?.value||"",
+        licenseKey:
+          $("licenseKey")?.value ||
+          localStorage.getItem('smartemail.licenseKey') ||
+          localStorage.getItem('licenseKey') ||
+          ""
+      };
 
-     // Fill host from Provider preset if missing
-if (!payload.host) {
-  const p = $("provider").value;
-  const P = {
-    gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
-    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
-    yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
-    icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
-  };
-  if (P[p]) {
-    $("host").value = P[p].host;
-    $("port").value = P[p].port;
-    $("tls").value  = P[p].tls;
-    payload.host    = P[p].host;
-  }
-}
-if (!payload.host) {
-  list.innerHTML = "";
-  setMessage("err", "IMAP host is required. Choose a Provider or enter the host.");
-  return;
-}
-        if (P[p]) { $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; payload.host = P[p].host; }
+      // XOAUTH2 requires a token
+      if ((payload.authType||"").toLowerCase()==="xoauth2" &&
+          !String(payload.accessToken||"").trim()) {
+        list.innerHTML = "";
+        setMessage("err","XOAUTH2 selected — paste a valid access token first.");
+        return;
       }
-      if (!payload.host) { list.innerHTML=""; setMessage("err","IMAP host is required. Choose a Provider or enter the host."); return; }
+
+      // If Gmail with password, nudge about App Passwords
+      if ((payload.authType||"").toLowerCase()==="password" &&
+          /imap\.gmail\.com$/i.test(payload.host||"") &&
+          String(payload.password||"").trim().length < 16) {
+        setMessage("err","Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
+      }
+
+      // Fill host from preset if missing
+      if (!payload.host) {
+        const p = $("provider").value;
+        const P = {
+          gmail:   { host:"imap.gmail.com",        port:993, tls:"on" },
+          outlook: { host:"outlook.office365.com", port:993, tls:"on" },
+          yahoo:   { host:"imap.mail.yahoo.com",   port:993, tls:"on" },
+          icloud:  { host:"imap.mail.me.com",      port:993, tls:"on" }
+        };
+        if (P[p]) {
+          $("host").value = P[p].host;
+          $("port").value = P[p].port;
+          $("tls").value  = P[p].tls;
+          payload.host    = P[p].host;
+        }
+      }
+      if (!payload.host) {
+        list.innerHTML = "";
+        setMessage("err","IMAP host is required. Choose a Provider or enter the host.");
+        return;
+      }
 
       saveForm();
 
@@ -487,28 +485,33 @@ if (!payload.host) {
       const t = setTimeout(()=>controller.abort(), timeoutMs);
 
       const resp = await fetch("/api/imap/fetch",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify(payload), signal: controller.signal
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
       clearTimeout(t);
 
-      if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
+      if(!resp.ok){
+        const errj = await resp.json().catch(()=>({}));
+        throw new Error(errj?.error || `Fetch failed (${resp.status})`);
+      }
       const data = await resp.json();
 
       const emails = Array.isArray(data?.emails) ? data.emails : [];
-      state.emails = emails.map((e,i)=>({...e, id: e.id ?? e.uid ?? String(i+1)}));
+      state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
       state.view = state.emails.slice();
-      state.page=1; render();
+      state.page = 1;
+      render();
 
-      // --- Apply tier from server response ---
+      // Apply tier/notice from server
       if (data && typeof data.tier === 'string') {
-        setTierUI(data.tier, data.tier !== 'free'); // paid = tier !== 'free'
+        setTierUI(data.tier, data.tier !== 'free');
       }
-      if (data && data.notice) {
-        setMessage("ok", data.notice);
-      }
+      if (data && data.notice) setMessage("ok", data.notice);
+
       setMessage("ok", `Fetched ${state.emails.length} emails.`);
-    } catch(err){
+    }catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
         ? "Request timed out. Try a shorter range or check network."
@@ -526,8 +529,10 @@ if (!payload.host) {
       }
 
       const payload = {
-        email: $("email").value||"", password: $("password").value||"",
-        host: $("host").value||"", port: Number($("port").value||993),
+        email: $("email").value||"",
+        password: $("password").value||"",
+        host: $("host").value||"",
+        port: Number($("port").value||993),
         tls: ($("tls").value||"on")!=="off",
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||""
@@ -536,8 +541,10 @@ if (!payload.host) {
       const controller = new AbortController();
       const t = setTimeout(()=>controller.abort(), (/icloud/i.test(provider)? 60000 : 30000));
       const resp = await fetch("/api/imap/test",{
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload), signal: controller.signal
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
       clearTimeout(t);
 
@@ -551,7 +558,12 @@ if (!payload.host) {
 
   function applyProviderPreset(){
     const p = $("provider").value;
-    const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
+    const P = {
+      gmail:{host:"imap.gmail.com",port:993,tls:"on"},
+      outlook:{host:"outlook.office365.com",port:993,tls:"on"},
+      yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"},
+      icloud:{host:"imap.mail.me.com",port:993,tls:"on"}
+    };
     if(P[p]){ $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; }
     saveForm();
   }
@@ -584,11 +596,9 @@ if (!payload.host) {
   // Init
   loadForm(); applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-  // Auto pull key from SmartEmail storage, if present
   if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
     $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
   }
-  // Tier preflight
   checkTier();
   state.view = []; render();
 })();
