@@ -381,7 +381,8 @@
 // ---- Tier preflight ----
 async function checkTier() {
   try {
-    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+    // use same storage keys as index.html
+const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
 const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
 
     if (!email && !licenseKey) {
@@ -389,7 +390,24 @@ const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey")
       return;
     }
 
-    const payload = { email, licenseKey };
+    const payload = {
+  email,
+  password: $("password")?.value || "",
+  host: $("host")?.value || "",
+  port: Number($("port")?.value) || 993,
+  tls: (($("tls")?.value || "on") !== "off"),
+  rangeDays: (() => {
+    // map “All” to 0, otherwise a positive number
+    const raw = String($("range")?.value || "All").trim().toLowerCase();
+    if (raw === "all" || raw === "" || raw === "0") return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  })(),
+  limit: Number($("limit")?.value) || 50,
+  authType: ($("authType")?.value || "password"),
+  accessToken: $("accessToken")?.value || "",
+  licenseKey
+};
     const resp = await fetch("/api/license/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
