@@ -434,7 +434,7 @@ async function checkTier() {
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
-        licenseKey: (
+        licenseKey: 
           $("licenseKey")?.value ||
           localStorage.getItem('smartemail.licenseKey') ||
           localStorage.getItem('licenseKey') ||
