@@ -378,42 +378,44 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
-// ---- Tier preflight ----
-async function checkTier() {
-  try {
-    // use same storage keys as index.html
-    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
-    const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
+  // ---- Tier preflight ----
+  async function checkTier() {
+    try {
+      const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+      const licenseKey = (
+        $("licenseKey")?.value ||
+        localStorage.getItem("smartemail.licenseKey") ||
+        localStorage.getItem("licenseKey") ||
+        ""
+      ).trim();
 
-    if (!email && !licenseKey) {
+      if (!email && !licenseKey) {
+        setTierUI("free", false);
+        return;
+      }
+
+      const resp = await fetch("/api/imap/tier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, licenseKey })
+      });
+
+      let data = {};
+      try { data = await resp.json(); } catch {}
+
+      if (resp.ok && typeof data.tier === "string") {
+        setTierUI(data.tier, !!data.isPaid);
+        if (data.notice) setMessage("ok", data.notice);
+        console.log("✅ IMAP tier:", data.tier);
+      } else {
+        setTierUI("free", false);
+        console.warn("❌ IMAP tier check failed:", data);
+      }
+    } catch (e) {
+      console.error("⚠️ IMAP checkTier error:", e);
       setTierUI("free", false);
-      return;
     }
-
-    const payload = { email, licenseKey };
-
-    const resp = await fetch("/api/imap/tier", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await resp.json().catch(() => ({}));
-
-    if (resp.ok && data && data.active) {
-      const tier = data.tier || "free";   // value from smartemail_tier column
-      setTierUI(tier, true);
-      if (data.notice) setMessage("ok", data.notice);
-      console.log("✅ IMAP license check:", tier);
-    } else {
-      setTierUI("free", false);
-      console.warn("❌ IMAP license check failed:", data);
-    }
-  } catch (e) {
-    console.error("⚠️ IMAP checkTier error:", e);
-    setTierUI("free", false);
   }
-}
 
   // ---- Networking ----
   async function fetchAndClassify(){
@@ -440,11 +442,21 @@ async function checkTier() {
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
         licenseKey: (
-  $("#licenseKey")?.value
-  || localStorage.getItem('smartemail.licenseKey')
-  || localStorage.getItem('licenseKey')
-  || ""
-)
+          $("licenseKey")?.value ||
+          localStorage.getItem('smartemail.licenseKey') ||
+          localStorage.getItem('licenseKey') ||
+          ""
+        )
+      };
+
+      // Fill host from preset if missing
+      if (!payload.host) {
+        const p = $("provider").value;
+        const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
+        if (P[p]) { $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; payload.host = P[p].host; }
+      }
+      if (!payload.host) { list.innerHTML=""; setMessage("err","IMAP host is required. Choose a Provider or enter the host."); return; }
+
       saveForm();
 
       const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
@@ -460,21 +472,20 @@ async function checkTier() {
       if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
       const data = await resp.json();
 
-const emails = Array.isArray(data?.emails) ? data.emails : [];
-state.emails = emails.map((e,i)=>({...e, id: e.id ?? e.uid ?? String(i+1)}));
-state.view = state.emails.slice();
-state.page=1; render();
+      const emails = Array.isArray(data?.emails) ? data.emails : [];
+      state.emails = emails.map((e,i)=>({...e, id: e.id ?? e.uid ?? String(i+1)}));
+      state.view = state.emails.slice();
+      state.page=1; render();
 
-// --- Apply tier from server response ---
-if (data && typeof data.tier === 'string') {
-  setTierUI(data.tier, data.tier !== 'free'); // paid = tier !== 'free'
-}
-if (data && data.notice) {
-  setMessage("ok", data.notice);
-}
-setMessage("ok", `Fetched ${state.emails.length} emails.`);
-
-    }catch(err){
+      // --- Apply tier from server response ---
+      if (data && typeof data.tier === 'string') {
+        setTierUI(data.tier, data.tier !== 'free'); // paid = tier !== 'free'
+      }
+      if (data && data.notice) {
+        setMessage("ok", data.notice);
+      }
+      setMessage("ok", `Fetched ${state.emails.length} emails.`);
+    } catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
         ? "Request timed out. Try a shorter range or check network."
