@@ -13,17 +13,28 @@ function buildConfig({ email, password, accessToken, host, port = 993, tls = tru
   if (host) tlsOptions.servername = host;
 
   return {
-    imap: {
-      user: email,
-      password: authType === 'password' ? password : undefined,
-      xoauth2,
-      host,
-      port,
-      tls,
-      tlsOptions,
-      authTimeout: 10000
+  imap: {
+    user: email,
+    password: authType === 'password' ? password : undefined,
+    xoauth2,
+    host,
+    port,
+    tls,
+    tlsOptions,
+
+    // Connection + auth timeouts
+    connTimeout: 20000,     // 20 seconds for TCP connect
+    authTimeout: 20000,     // 20 seconds for login
+    socketTimeout: 60000,   // 60 seconds inactivity
+
+    // Keepalive to avoid idle disconnects
+    keepalive: {
+      interval: 3000,       // every 3 seconds send NOOP
+      idleInterval: 300000, // 5 minutes max idle
+      forceNoop: true
     }
-  };
+  }
+};
 }
 
 export async function testLogin(opts) {
