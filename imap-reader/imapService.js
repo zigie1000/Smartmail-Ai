@@ -1,157 +1,188 @@
-// imapService.js — stable, OOM-safe, classifier-friendly
-import Imap from 'imap-simple';
-import libmime from 'libmime';
+// imapService.js — wraps imap-simple with safer defaults
 
-// ---- helpers ---------------------------------------------------------------
+import imaps from 'imap-simple';
+import dns from 'dns';
 
-function rfc3501Date(d) {
-  // IMAP expects e.g. 17-Aug-2025 (UTC date is fine; server interprets local)
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const dt = new Date(d);
-  const day = String(dt.getDate()).padStart(2, '0');
-  return `${day}-${months[dt.getMonth()]}-${dt.getFullYear()}`;
+// Prefer IPv4 first in some hosting environments
+dns.setDefaultResultOrder?.('ipv4first');
+
+/**
+ * SECURITY NOTE
+ * -------------
+ * We default to `rejectUnauthorized: false` because some hosts (e.g. Render Free)
+ * lack system CAs and will throw DEPTH_ZERO_SELF_SIGNED_CERT. If you later install
+ * system CAs, set IMAP_REJECT_UNAUTHORIZED=1 in the environment to harden TLS.
+ */
+const REJECT_UNAUTHORIZED =
+  process.env.IMAP_REJECT_UNAUTHORIZED === '1' ? true : false;
+
+/** Format a JS Date to RFC-822 (dd-MMM-yyyy), e.g. 17-Aug-2025 */
+function toRfc822Date(d) {
+  const months = [
+    'Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec'
+  ];
+  const day = String(d.getDate());
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day}-${mon}-${year}`;
 }
 
-function decodeHeader(val) {
-  if (!val) return '';
-  try { return libmime.decodeWords(String(val)); } catch { return String(val); }
-}
-
-function htmlToText(html) {
-  try {
-    // very light, no deps: strip tags & collapse whitespace
-    return String(html)
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/\s+/g, ' ')
-      .trim();
-  } catch { return ''; }
-}
-
+/** Build node-imap / imap-simple connection config */
 function buildConfig({
-  email, password, accessToken, host = 'imap.gmail.com', port = 993,
-  tls = true, authType = 'password'
+  email,
+  password,
+  accessToken,
+  host,
+  port = 993,
+  tls = true,
+  authType = 'password',
 }) {
-  const cfg = {
+  const xoauth2 = authType === 'xoauth2' && accessToken ? accessToken : undefined;
+
+  const tlsOptions = {
+    // If your host has proper CAs installed, set IMAP_REJECT_UNAUTHORIZED=1
+    // to enable strict verification in production.
+    rejectUnauthorized: REJECT_UNAUTHORIZED ? true : false,
+  };
+
+  // SNI: ensures TLS handshake uses the intended hostname
+  if (host) tlsOptions.servername = host;
+
+  return {
     imap: {
       user: email,
-      host, port, tls: !!tls,
-      authTimeout: 20000,
-      connTimeout: 20000,
-      socketTimeout: 60000
-    }
+      password: authType === 'password' ? password : undefined,
+      xoauth2,              // used only when provided
+      host,
+      port,
+      tls,
+      tlsOptions,
+
+      // ---- Timeouts (ms) ----
+      // node-imap options that imap-simple passes through
+      connTimeout: 20000,   // TCP connect
+      authTimeout: 20000,   // login
+      socketTimeout: 60000, // inactivity
+
+      // ---- Keepalive to avoid idle disconnects ----
+      keepalive: {
+        interval: 3000,     // send NOOP every 3s
+        idleInterval: 300000, // max idle 5 min
+        forceNoop: true,
+      },
+    },
   };
-  if (authType === 'password') {
-    cfg.imap.password = password;
-  } else if (authType === 'xoauth2' && accessToken) {
-    // imap-simple passes xoauth2 token through to node-imap
-    cfg.imap.xoauth2 = accessToken;
-  }
-  return cfg;
 }
 
-function buildCriteria({ rangeDays }) {
-  if (Number.isFinite(rangeDays) && rangeDays > 0) {
-    const since = new Date(Date.now() - rangeDays * 24 * 3600 * 1000);
-    return ['ALL', ['SINCE', rfc3501Date(since)]];
-  }
-  return ['ALL'];
-}
-
-// Extract best-effort plain text from fetched parts
-function extractText(parts) {
-  const textPart = parts.find(p => /^TEXT$/i.test(p.which));
-  if (textPart?.body) return String(textPart.body);
-
-  // Sometimes we only get BODY[] as one giant chunk; fall back, but cap size.
-  const bodyPart = parts.find(p => /^BODY\[\]$/i.test(p.which));
-  if (bodyPart?.body) {
-    const asText = htmlToText(bodyPart.body);
-    return asText || String(bodyPart.body);
-  }
-  return '';
-}
-
-// ---- API -------------------------------------------------------------------
-
-export async function fetchEmails(
-  account,                    // { email, password|accessToken, host, port, tls, authType }
-  { rangeDays = 0, limit = 20 } = {}
-) {
-  let conn;
+/** Quick connectivity check */
+export async function testLogin(opts) {
+  const config = buildConfig(opts);
+  let connection;
   try {
-    const config = buildConfig(account);
-    const criteria = buildCriteria({ rangeDays });
-
-    conn = await Imap.connect(config);
-    await conn.openBox('INBOX');
-
-    // Keep it small: headers + TEXT + BODY[] (fallback). No attachments.
-    const fetchOptions = {
-      bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT', 'BODY[]'],
-      struct: true,
-      markSeen: false
-    };
-
-    const results = await conn.search(criteria, fetchOptions);
-
-    // Normalize and cap sizes to avoid OOM on free dynos
-    const MAX_BODY = 70_000; // ~70KB body cap
-    const items = results.slice(0, Math.max(0, limit)).map(msg => {
-      const parts = msg.parts || [];
-      const header = parts.find(p => /^HEADER/i.test(p.which))?.body || {};
-      const fromRaw = header.from?.[0] || '';
-      const subjectRaw = header.subject?.[0] || '';
-      const dateRaw = header.date?.[0] || null;
-
-      let body = extractText(parts);
-      if (body.length > MAX_BODY) body = body.slice(0, MAX_BODY);
-
-      const subject = decodeHeader(subjectRaw) || '(no subject)';
-
-      return {
-        id: msg.attributes?.uid,
-        uid: msg.attributes?.uid,
-        from: decodeHeader(fromRaw),
-        subject,
-        date: dateRaw ? new Date(dateRaw).toISOString() : null,
-        text: body,
-        snippet: body.slice(0, 220),
-
-        // leave these undefined so your classifier can populate them later
-        importance: undefined,
-        intent: undefined,
-        urgency: undefined
-      };
-    });
-
-    return { items, hasMore: results.length > limit };
-  } catch (err) {
-    console.error('IMAP fetch error:', err);
-    throw err;
-  } finally {
-    if (conn) {
-      try { await conn.end(); } catch (e) { /* ignore */ }
-    }
-  }
-}
-
-export async function testLogin(account) {
-  let conn;
-  try {
-    const config = buildConfig(account);
-    conn = await Imap.connect(config);
-    await conn.getBoxes();
+    connection = await imaps.connect(config);
+    await connection.getBoxes();      // simple call to verify auth
+    await connection.end();
     return true;
   } catch (e) {
+    if (connection) {
+      try { await connection.end(); } catch {}
+    }
     console.error('testLogin error:', e?.message || e);
     return false;
-  } finally {
-    if (conn) { try { await conn.end(); } catch {} }
   }
 }
+
+/**
+ * Fetch emails from INBOX
+ * opts:
+ *  - email, password | accessToken, host, port, tls, authType ('password'|'xoauth2')
+ *  - rangeDays (number) — how many days back; if falsy, fetches ALL
+ *  - limit (number) — cap returned results
+ */
+export async function fetchEmails({
+  email,
+  password,
+  accessToken,
+  host = 'imap.gmail.com',
+  port = 993,
+  tls = true,
+  authType = 'password',
+  rangeDays,        // undefined|'All' => ALL
+  limit = 20,
+}) {
+  const config = buildConfig({
+    email,
+    password,
+    accessToken,
+    host,
+    port,
+    tls,
+    authType,
+  });
+
+  let connection;
+  try {
+    connection = await imaps.connect(config);
+    await connection.openBox('INBOX');
+
+    // --- Build criteria ---
+    // Always start with ALL; append SINCE in RFC-822 if a range is requested.
+    const criteria = ['ALL'];
+    if (rangeDays && Number(rangeDays) > 0) {
+      const since = new Date();
+      since.setDate(since.getDate() - Number(rangeDays));
+      criteria.push(['SINCE', toRfc822Date(since)]);
+    }
+
+    // Minimal fetch — headers only; bodies can be fetched later if needed
+    const fetchOptions = {
+      bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)'],
+      struct: true,
+      markSeen: false,
+    };
+
+    const results = await connection.search(criteria, fetchOptions);
+
+    // Parse results safely
+    const emails = results
+      .slice(0, Math.max(0, Number(limit) || 0))
+      .map((res) => {
+        const headerPart = res.parts?.find(
+          (p) => p.which && p.which.startsWith('HEADER.FIELDS')
+        );
+        const h = headerPart?.body || {};
+        const subject =
+          (Array.isArray(h.subject) && h.subject[0]) || '(no subject)';
+        const from = (Array.isArray(h.from) && h.from[0]) || '';
+        const to = (Array.isArray(h.to) && h.to[0]) || '';
+        const date = (Array.isArray(h.date) && h.date[0]) || null;
+        const messageId =
+          (Array.isArray(h['message-id']) && h['message-id'][0]) || null;
+
+        return {
+          uid: res.attributes?.uid,
+          subject,
+          from,
+          to,
+          date,
+          messageId,
+        };
+      });
+
+    await connection.end();
+    return { ok: true, emails, criteriaUsed: criteria };
+  } catch (e) {
+    if (connection) {
+      try { await connection.end(); } catch {}
+    }
+    console.error('IMAP /fetch error:', e?.stack || e?.message || e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+export default {
+  buildConfig,
+  testLogin,
+  fetchEmails,
+};
