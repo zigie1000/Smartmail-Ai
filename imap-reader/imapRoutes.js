@@ -155,9 +155,7 @@ router.post('/fetch', async (req, res) => {
       licenseKey = ''
     } = req.body || {};
 
-    // block obviously bad email to avoid DB “pattern” errors down the line
     const safeEmail = isLikelyEmail(email) ? email : '';
-
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
@@ -173,11 +171,11 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-   // Build node-imap search: SINCE must receive a real Date object
-const rd = Number(req.body.rangeDays);
-const useSince = Number.isFinite(rd) && rd > 0;
-const since = new Date(Date.now() - (useSince ? rd : 7) * 864e5); // fallback 7 days
-const search = useSince ? ['SINCE', since] : ['ALL'];
+    // Fix: node-imap requires Date object for SINCE
+    const rd = Number(req.body.rangeDays);
+    const useSince = Number.isFinite(rd) && rd > 0;
+    const since = new Date(Date.now() - (useSince ? rd : 7) * 864e5);
+    const search = useSince ? ['SINCE', since] : ['ALL'];
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
