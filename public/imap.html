@@ -456,9 +456,20 @@ async function checkTier() {
       if(!resp.ok){ const errj=await resp.json().catch(()=>({})); throw new Error(errj?.error||`Fetch failed (${resp.status})`); }
       const data = await resp.json();
 
-      const emails = Array.isArray(data?.emails)?data.emails:[];
-      state.emails = emails.map((e,i)=>({ id:e.id ?? e.uid ?? String(i+1), ...e }));
-      state.view = state.emails.slice(); state.page=1; render();
+const emails = Array.isArray(data?.emails) ? data.emails : [];
+state.emails = emails.map((e,i)=>({...e, id: e.id ?? e.uid ?? String(i+1)}));
+state.view = state.emails.slice();
+state.page=1; render();
+
+// --- Apply tier from server response ---
+if (data.tier) {
+  setTierUI(data.tier, data.tier !== 'free');
+}
+if (data.notice) {
+  setMessage("ok", data.notice);
+}
+
+setMessage("ok", `Fetched ${state.emails.length} emails.`);
 
       if (data?.tier) setTierUI(data.tier, data.tier !== 'free');
       if (data?.notice) setMessage("ok", data.notice);
