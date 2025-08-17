@@ -22,15 +22,13 @@ function buildConfig({ email, password, accessToken, host, port = 993, tls = tru
       tls,
       tlsOptions,
 
-      // more forgiving timeouts for cloud free tiers
-      connTimeout: 20000,     // 20s TCP connect
-      authTimeout: 20000,     // 20s login
-      socketTimeout: 60000,   // 60s idle
-
-      // keepalive to avoid idle disconnects
+      // timeouts and keepalive to reduce flakiness on cold free instances
+      connTimeout: 20000,     // 20s to establish TCP
+      authTimeout: 20000,     // 20s for login
+      socketTimeout: 60000,   // 60s inactivity before giving up
       keepalive: {
-        interval: 3000,       // send NOOP every 3s
-        idleInterval: 300000, // 5 min max idle
+        interval: 3000,       // every 3s send NOOP while idling
+        idleInterval: 300000, // 5 min max idle before NOOPs
         forceNoop: true
       }
     }
@@ -62,17 +60,20 @@ export async function fetchEmails({
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // ---- Normalize IMAP search criteria ----
-    // Accept forms: ['ALL'], ['SINCE', Date], or even ['SINCE', 'Mon Aug 05 2024 ...']
+    // Expect: array of criteria, each a string or ['SINCE', Date]
     let criteria = Array.isArray(search) ? search : ['ALL'];
 
-    // If caller provided exactly ['SINCE', value] but value is string/number, coerce to Date
-    if (Array.isArray(criteria) && criteria[0] === 'SINCE' && criteria.length === 2) {
-      const v = criteria[1];
-      const d = (v instanceof Date) ? v : new Date(v);
-      if (!isNaN(+d)) criteria = ['SINCE', d];
-      else criteria = ['ALL']; // fallback safety
-    }
+    // Coerce SINCE tuples: the second element must be a real Date
+    criteria = criteria.map(c => {
+      if (Array.isArray(c) && String(c[0]).toUpperCase() === 'SINCE') {
+        const v = c[1];
+        const d = (v instanceof Date) ? v : new Date(v);
+        return ['SINCE', d];
+      }
+      return c;
+    });
+
+    console.log('imap-simple criteria used:', JSON.stringify(criteria));
 
     const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
     const results = await connection.search(criteria, fetchOpts);
@@ -111,6 +112,7 @@ export async function fetchEmails({
     return { items: emails, hasMore: false, nextCursor: null };
   } catch (e) {
     if (connection) try { await connection.end(); } catch {}
+    // Bubble the exact message so the route can show it
     throw e;
   }
 }
