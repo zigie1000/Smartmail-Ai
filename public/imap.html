@@ -425,22 +425,21 @@ async function checkTier() {
       }
 
       const payload = {
-        email: $("email").value||"",
-        password: $("password").value||"",
-        host: $("host").value||"",
-        port: Number($("port").value||993),
-        tls: ($("tls").value||"on")!=="off",
-        rangeDays: Number($("range").value||2),
-        limit: Number($("limit").value||20),
-        authType: $("authType").value||"password",
-        accessToken: $("accessToken")?.value||"",
-        licenseKey: 
-          $("licenseKey")?.value ||
-          localStorage.getItem('smartemail.licenseKey') ||
-          localStorage.getItem('licenseKey') ||
-          ""
-        )
-      };
+  email: $("email").value || "",
+  password: $("password").value || "",
+  host: $("host").value || "",
+  port: Number($("port").value || 993),
+  tls: ($("tls").value || "on") !== "off",
+  rangeDays: Number($("range").value || 2),
+  limit: Number($("limit").value || 20),
+  authType: $("authType").value || "password",
+  accessToken: $("accessToken")?.value || "",
+  licenseKey:
+    $("licenseKey")?.value ||
+    localStorage.getItem("smartemail.licenseKey") ||
+    localStorage.getItem("licenseKey") ||
+    ""
+};
 
       // Fill host from preset if missing
       if (!payload.host) {
