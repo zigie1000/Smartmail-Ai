@@ -381,8 +381,8 @@
 // ---- Tier preflight ----
 async function checkTier() {
   try {
-    const email = ($("#email")?.value || "").trim();
-    const licenseKey = ($("#licenseKey")?.value || localStorage.getItem("smartemail.licenseKey") || "").trim();
+    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
 
     if (!email && !licenseKey) {
       setTierUI("free", false);
