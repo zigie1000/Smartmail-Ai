@@ -403,14 +403,15 @@
       let data = {};
       try { data = await resp.json(); } catch {}
 
-      if (resp.ok && typeof data.tier === "string") {
-        setTierUI(data.tier, !!data.isPaid);
-        if (data.notice) setMessage("ok", data.notice);
-        console.log("✅ IMAP tier:", data.tier);
-      } else {
-        setTierUI("free", false);
-        console.warn("❌ IMAP tier check failed:", data);
-      }
+          if (resp.ok && data && typeof data.tier === "string") {
+      const tier = data.tier || "free";
+      setTierUI(tier, !!data.isPaid);
+      if (data.notice) setMessage("ok", data.notice);
+      console.log("✅ IMAP license check:", tier, "paid:", !!data.isPaid);
+    } else {
+      setTierUI("free", false);
+      console.warn("❌ IMAP license check failed:", data);
+    }
     } catch (e) {
       console.error("⚠️ IMAP checkTier error:", e);
       setTierUI("free", false);
