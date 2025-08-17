@@ -1,238 +1,235 @@
-// imapService.js — wraps imap-simple with safer defaults
-// - Fixes: IMAP "SINCE" must be a Date (server will format to DD-MMM-YYYY)
-// - Memory safety: fetch HEADERS only, cap results, sort+slice on server
-// - TLS: optional self-signed control via IMAP_ALLOW_SELF_SIGNED=1
-// - Timeouts & keepalive tuned for flaky/free hosting
-
+// server/services/imapService.js
+// ESM module
 import imaps from 'imap-simple';
-import dns from 'dns';
+import { simpleParser } from 'mailparser';
 
-// Prefer IPv4 first (avoids some provider DNS oddities on free hosts)
-dns.setDefaultResultOrder?.('ipv4first');
+/**
+ * Build imap-simple config from request options
+ */
+function buildImapConfig(opts = {}) {
+  const {
+    email = '',
+    password = '',
+    host = 'imap.gmail.com',
+    port = 993,
+    tls = true,
+    authType = 'password', // 'password' | 'xoauth2'
+    accessToken = '',
+    allowSelfSigned = false, // safety valve for non-public IMAP hosts
+    connectionTimeoutMs = 10000, // 10s default on free tier
+    idleTimeoutMs = 8000,
+  } = opts;
 
-const ALLOW_SELF_SIGNED = (process.env.IMAP_ALLOW_SELF_SIGNED === '1');
+  const auth = authType === 'xoauth2'
+    ? { user: email, xoauth2: accessToken }
+    : { user: email, pass: password };
 
-// ---- Helpers ---------------------------------------------------------------
-
-// Parse user-provided "since" (string/number/Date) into a Date, or null.
-function toDateOrNull(input) {
-  if (!input) return null;
-  if (input instanceof Date && !isNaN(input)) return input;
-  const d = new Date(input);
-  return isNaN(d) ? null : d;
-}
-
-// Decide a SINCE date from { since, rangeDays } with safe defaults.
-// If nothing provided, use 2 days by default (matches your UI default).
-function decideSinceDate({ since, rangeDays }) {
-  const fromProp = toDateOrNull(since);
-  if (fromProp) return fromProp;
-
-  const days = Number.isFinite(rangeDays) ? Number(rangeDays) : 2;
-  const ms = Math.max(1, days) * 24 * 60 * 60 * 1000;
-  return new Date(Date.now() - ms);
-}
-
-// Extract a single header string safely
-function pick(h, key, fallback = '') {
-  if (!h) return fallback;
-  const v = h[key];
-  if (!v) return fallback;
-  if (Array.isArray(v)) return (v[0] ?? fallback) + '';
-  return (v ?? fallback) + '';
-}
-
-// Build imap-simple config
-function buildConfig({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password',
-}) {
-  const xoauth2 =
-    authType?.toLowerCase() === 'xoauth2' && accessToken ? accessToken : undefined;
-
+  // TLS options
   const tlsOptions = {};
-  if (ALLOW_SELF_SIGNED) {
-    // When your environment sets IMAP_ALLOW_SELF_SIGNED=1, accept self-signed.
+  if (allowSelfSigned) {
+    // Only enable if explicitly requested
     tlsOptions.rejectUnauthorized = false;
   }
-  if (host) tlsOptions.servername = host;
 
   return {
     imap: {
-      user: email,
-      password: xoauth2 ? undefined : password,
-      xoauth2,
+      user: auth.user,
+      password: auth.pass,
+      xoauth2: auth.xoauth2,
       host,
       port,
-      tls,
+      tls: !!tls,
       tlsOptions,
-
-      // ---- Connection + auth timeouts ----
-      connTimeout: 20_000,   // 20s TCP connect
-      authTimeout: 20_000,   // 20s login
-      socketTimeout: 60_000, // 60s inactivity
-
-      // ---- Keepalive to avoid idle disconnects ----
+      authTimeout: connectionTimeoutMs,
+      connTimeout: connectionTimeoutMs,
       keepalive: {
-        interval: 3_000,     // NOOP every 3s
-        idleInterval: 300_000, // 5min max idle
+        interval: idleTimeoutMs,
+        idleInterval: idleTimeoutMs,
         forceNoop: true,
       },
     },
+    onmail: () => {},
+    // imap-simple option: how many messages to fetch per batch internally
+    // (smaller batches help memory on free dynos)
+    fetchOptions: { bodies: ['HEADER', 'TEXT'], markSeen: false },
   };
 }
 
-// Ensure connection closes even on error
-async function withConnection(config, fn) {
+/**
+ * Open an IMAP box safely and return {conn, boxName}
+ */
+async function openBox(conn, boxName = 'INBOX') {
+  await conn.openBox(boxName);
+  return boxName;
+}
+
+/**
+ * Convert UI "rangeDays" into an IMAP SINCE Date.
+ * imap-simple requires: ['SINCE', Date]
+ */
+function sinceDateFromRange(rangeDays = 2) {
+  const days = Number.isFinite(+rangeDays) ? +rangeDays : 2;
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - Math.max(0, days));
+  // IMPORTANT: return a Date, not a string
+  return d;
+}
+
+/**
+ * Parse a single message safely
+ */
+async function parseMessage(msg) {
+  // imap-simple returns parts in msg.parts; we find the full raw source if present
+  const all = msg.parts?.find(p => p.which === 'TEXT') || msg.parts?.[0];
+  const buffer = Buffer.from(all?.body ?? '', 'utf8');
+  let parsed;
+  try {
+    parsed = await simpleParser(buffer);
+  } catch {
+    parsed = { subject: '', date: msg.attributes?.date || new Date(), text: '' };
+  }
+
+  const header = msg.parts?.find(p => p.which === 'HEADER')?.body || {};
+  const subject =
+    parsed.subject?.trim() ||
+    header.subject?.[0]?.trim() ||
+    '(no subject)';
+
+  const from =
+    parsed.from?.text ||
+    header.from?.[0] ||
+    '';
+
+  return {
+    uid: msg.attributes?.uid,
+    date: msg.attributes?.date || parsed.date || new Date(),
+    subject,
+    from,
+    preview: (parsed.text || parsed.textAsHtml || '').toString().slice(0, 400),
+    headers: parsed.headers ? Object.fromEntries(parsed.headers) : header,
+  };
+}
+
+/**
+ * Test credentials only (no heavy fetching)
+ */
+export async function testLogin(opts = {}) {
+  const config = buildImapConfig(opts);
   let connection;
   try {
     connection = await imaps.connect(config);
-    await connection.openBox('INBOX');
-    return await fn(connection);
+    await openBox(connection, 'INBOX');
+    return { ok: true };
+  } catch (err) {
+    // Surface common TLS / cert messages clearly
+    const msg = (err && err.message) || String(err);
+    return { ok: false, error: msg };
   } finally {
     try { await connection?.end(); } catch {}
   }
 }
 
-// ---- Public API ------------------------------------------------------------
-
-// Lightweight login check (no message fetch).
-export async function testLogin(opts) {
-  const config = buildConfig(opts);
-  return await withConnection(config, async () => ({ ok: true }));
-}
-
 /**
- * Fetch message headers safely.
- *
- * Expected opts (all optional except creds):
- *  - email, password OR accessToken+authType='xoauth2'
- *  - host (e.g. 'imap.gmail.com'), port (default 993), tls (default true)
- *  - rangeDays (number) or since (Date/ISO string)
- *  - limit (number) default 50
- *
- * Returns: { ok, items: [ { uid, subject, from, to, date, flags } ], stats }
+ * Fetch mail with filters and sane defaults.
+ * Expected opts:
+ *  - rangeDays (number)
+ *  - limit (number)
+ *  - mailbox (string, default "INBOX")
+ *  - authType/password/accessToken, host/port/tls, etc.
  */
-export async function fetchMail(opts) {
+export async function fetchMail(opts = {}) {
   const {
-    email, password, accessToken, host, port = 993, tls = true, authType = 'password',
-    rangeDays, since, limit: rawLimit,
-  } = opts || {};
+    rangeDays = 2,
+    limit = 20,
+    mailbox = 'INBOX',
+    priority = 'all', // passthrough UI fields (not used server-side)
+    intent = 'all',
+    action = 'all',
+    time = 'all',
+  } = opts;
 
-  const limit = (Number(rawLimit) > 0 && Number(rawLimit) <= 200) ? Number(rawLimit) : 50;
-  const sinceDate = decideSinceDate({ since, rangeDays });
+  // Guardrails for free dynos
+  const hardCap = Math.min(Math.max(+limit || 20, 1), 100);
 
-  const config = buildConfig({ email, password, accessToken, host, port, tls, authType });
+  const config = buildImapConfig(opts);
 
-  const fetchOptions = {
-    // HEADERS only — keeps memory low. Body/snippet can be fetched on-demand per UID elsewhere.
-    bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)'],
-    struct: true,
-    markSeen: false,
-  };
+  let connection;
+  try {
+    connection = await imaps.connect(config);
+    await openBox(connection, mailbox);
 
-  // Build server-side criteria. Using a Date object ensures correct IMAP format.
-  const criteria = ['ALL', ['SINCE', sinceDate]];
-
-  // Do all work inside a single connection.
-  return await withConnection(config, async (conn) => {
-    // Step 1: search UIDs only (no bodies) to avoid fetching too much
-    const uids = await new Promise((resolve, reject) => {
-      conn.imap.search(criteria, (err, results) => {
-        if (err) return reject(err);
-        resolve(results || []);
-      });
-    });
-
-    // If no messages, return fast.
-    if (!uids.length) {
-      return {
-        ok: true,
-        items: [],
-        stats: { totalFound: 0, fetched: 0, since: sinceDate.toISOString(), limit },
-      };
+    // Build IMAP search criteria
+    const sinceDate = sinceDateFromRange(rangeDays);
+    const criteria = ['ALL']; // base
+    // Add SINCE only if rangeDays > 0
+    if (Number.isFinite(+rangeDays) && +rangeDays > 0) {
+      criteria.push(['SINCE', sinceDate]); // NOTE: Date, not string
     }
 
-    // Only fetch the newest N UIDs (server returns ascending order by UID)
-    const slice = uids.slice(-limit);
+    // Log (useful when you check Render)
+    console.log('IMAP criteria (server-side):', JSON.stringify(criteria));
 
-    // Step 2: fetch headers for those UIDs
-    const items = await new Promise((resolve, reject) => {
-      const out = [];
-      const f = conn.imap.fetch(slice, fetchOptions);
+    // Fetch minimal headers first to keep memory low
+    const fetchOpts = {
+      bodies: ['HEADER', 'TEXT'],
+      struct: false,
+      markSeen: false,
+    };
 
-      f.on('message', (msg) => {
-        let headerObj = null;
-        let attrs = null;
+    const results = await connection.search(criteria, fetchOpts);
 
-        msg.on('attributes', (a) => { attrs = a; });
+    // Sort newest first and slice to limit
+    const sorted = results
+      .sort((a, b) => new Date(b.attributes?.date || 0) - new Date(a.attributes?.date || 0))
+      .slice(0, hardCap);
 
-        msg.on('body', (stream/* , info */) => {
-          // imap-simple/node-imap returns header as RFC822 text — parse with imaps library helper
-          let buf = '';
-          stream.on('data', (chunk) => { buf += chunk.toString('utf8'); });
-          stream.once('end', () => {
-            // imap-simple exposes .getParts helpers, but for a single HEADER we can parse quickly:
-            // Use imaps to do it reliably:
-            try {
-              headerObj = imaps.getHeaders(buf);
-            } catch {
-              // minimal fallback: very rough parse
-              headerObj = {};
-              buf.split(/\r?\n/).forEach((line) => {
-                const m = /^([\w-]+):\s*(.*)$/.exec(line);
-                if (m) {
-                  const k = m[1].toLowerCase();
-                  headerObj[k] = headerObj[k] || [];
-                  headerObj[k].push(m[2]);
-                }
-              });
-            }
-          });
-        });
-
-        msg.once('end', () => {
-          const h = headerObj || {};
-          // Prefer header date; fall back to attributes.date if needed
-          const dateStr = pick(h, 'date', '') || (attrs?.date ? new Date(attrs.date).toUTCString() : '');
-          const parsedDate = toDateOrNull(dateStr) || (attrs?.date ? new Date(attrs.date) : null);
-
-          out.push({
-            uid: attrs?.uid ?? null,
-            flags: attrs?.flags ?? [],
-            date: parsedDate ? parsedDate.toISOString() : null,
-            subject: pick(h, 'subject', '(no subject)'),
-            from: pick(h, 'from', ''),
-            to: pick(h, 'to', ''),
-          });
-        });
-      });
-
-      f.once('error', reject);
-      f.once('end', () => resolve(out));
-    });
-
-    // Sort newest → oldest just in case server order differs; ensure limit is respected.
-    items.sort((a, b) => {
-      const ta = a.date ? Date.parse(a.date) : 0;
-      const tb = b.date ? Date.parse(b.date) : 0;
-      return tb - ta;
-    });
+    // Parse sequentially to avoid large parallel buffers on free tier
+    const parsed = [];
+    for (const msg of sorted) {
+      // eslint-disable-next-line no-await-in-loop
+      const item = await parseMessage(msg);
+      parsed.push(item);
+    }
 
     return {
       ok: true,
-      items: items.slice(0, limit),
-      stats: {
-        totalFound: uids.length,
-        fetched: Math.min(items.length, limit),
-        since: sinceDate.toISOString(),
-        limit,
+      items: parsed,
+      meta: {
+        count: parsed.length,
+        appliedLimit: hardCap,
+        criteriaLogged: true,
+        ui: { priority, intent, action, time },
       },
     };
-  });
+  } catch (err) {
+    const msg = (err && err.message) || String(err);
+
+    // Common helpful hint for self-signed hosts
+    if (msg.includes('SELF_SIGNED_CERT') || msg.includes('self-signed certificate')) {
+      return {
+        ok: false,
+        error:
+          'TLS certificate is self-signed. If this IMAP host is internal, enable `allowSelfSigned` on the request (server will set tlsOptions.rejectUnauthorized=false).',
+      };
+    }
+
+    // Timeouts are common on free instances that spin down
+    if (msg.toLowerCase().includes('timeout')) {
+      return {
+        ok: false,
+        error:
+          'IMAP connection timed out. Free instances can sleep; try a shorter range or retry once the dyno is warm.',
+      };
+    }
+
+    return { ok: false, error: msg };
+  } finally {
+    try { await connection?.end(); } catch {}
+  }
 }
+
+/**
+ * Back-compat export for existing routes:
+ * routes can keep: import { fetchEmails, testLogin } from './imapService.js'
+ */
+export { fetchMail as fetchEmails };
