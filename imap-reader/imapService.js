@@ -6,17 +6,11 @@ dns.setDefaultResultOrder?.('ipv4first');
 const ALLOW_SELF_SIGNED = (process.env.IMAP_ALLOW_SELF_SIGNED === '1');
 
 function buildConfig({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  const xoauth2 = (authType === 'xoauth2' && accessToken)
-    ? accessToken
-    : undefined;
+  const xoauth2 = (authType === 'xoauth2' && accessToken) ? accessToken : undefined;
 
   const tlsOptions = {};
-  if (ALLOW_SELF_SIGNED) {
-    tlsOptions.rejectUnauthorized = false;
-  }
-  if (host) {
-    tlsOptions.servername = host;
-  }
+  if (ALLOW_SELF_SIGNED) tlsOptions.rejectUnauthorized = false;
+  if (host) tlsOptions.servername = host;
 
   return {
     imap: {
@@ -54,12 +48,13 @@ export async function fetchEmails({ email, password, accessToken, host, port = 9
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
+    // Accept tuples like ['ALL', ['SINCE', Date]]
     const criteria = Array.isArray(search) ? search : ['ALL'];
     const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
 
     const results = await connection.search(criteria, fetchOpts);
 
-    const emails = results.slice(-limit).map((res, idx) => {
+    const emails = results.slice(-Math.max(1, Number(limit) || 20)).map((res, idx) => {
       const header = res.parts.find(p => p.which === 'HEADER')?.body || {};
       const text = res.parts.find(p => p.which === 'TEXT')?.body || '';
 
@@ -90,10 +85,9 @@ export async function fetchEmails({ email, password, accessToken, host, port = 9
     });
 
     await connection.end();
-    return { items: emails, nextCursor: null, hasMore: false };
+    return { items: emails, hasMore: false, nextCursor: null };
   } catch (e) {
     if (connection) try { await connection.end(); } catch {}
-    console.error('IMAP /fetch error:', e?.message || e);
     throw e;
   }
 }
