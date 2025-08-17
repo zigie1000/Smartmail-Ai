@@ -439,8 +439,12 @@ async function checkTier() {
         limit: Number($("limit").value||20),
         authType: $("authType").value||"password",
         accessToken: $("accessToken")?.value||"",
-        licenseKey: $("licenseKey").value || localStorage.getItem('smartemail.licenseKey') || ""
-      };
+        licenseKey: (
+  $("#licenseKey")?.value
+  || localStorage.getItem('smartemail.licenseKey')
+  || localStorage.getItem('licenseKey')
+  || ""
+)
       saveForm();
 
       const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
