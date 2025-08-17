@@ -235,9 +235,24 @@ const emailInput=document.getElementById("emailInput"); const hiddenEmailField=d
   const re=/^[^\s@]+@[^\s@]+\.[^\s@]+$/; if(!re.test(email)){ alert("Please enter a valid email address."); btn.disabled=false; btn.innerText="Continue"; return; }
   localStorage.setItem("userEmail",email); if(hiddenEmailField) hiddenEmailField.value=email;
   try{ await syncTierFromSQL(email); }catch(_){}
-  try{ const res=await fetch("/api/register-free-user",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})}); await res.json(); }catch(e){
-    if(!String(e?.message||'').toLowerCase().includes("duplicate")) alert("Something went wrong while saving your email. Please try again.");
+  try {
+  const res = await fetch("/api/register-free-user", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+  await res.json().catch(() => ({}));  // tolerate empty/invalid JSON
+} catch (e) {
+  const msg = String(e?.message || '').toLowerCase();
+  if (
+    !msg.includes("duplicate") &&
+    !msg.includes("pattern") &&
+    !msg.includes("did not match")
+  ) {
+    alert("Something went wrong while saving your email. Please try again.");
   }
+}
+  
   hideEmailPrompt();
   setTimeout(()=>{ if(statusMsg) statusMsg.innerText="🔍 Checking license (post-registration)..."; log("📡 Post-reg license check."); detectAndSyncLicense(false); },700);
   btn.disabled=false; btn.innerText="Continue";
