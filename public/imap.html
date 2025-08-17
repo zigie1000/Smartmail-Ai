@@ -462,19 +462,14 @@ state.view = state.emails.slice();
 state.page=1; render();
 
 // --- Apply tier from server response ---
-if (data.tier) {
-  setTierUI(data.tier, data.tier !== 'free');
+if (data && typeof data.tier === 'string') {
+  setTierUI(data.tier, data.tier !== 'free'); // paid = tier !== 'free'
 }
-if (data.notice) {
+if (data && data.notice) {
   setMessage("ok", data.notice);
 }
-
 setMessage("ok", `Fetched ${state.emails.length} emails.`);
 
-      if (data?.tier) setTierUI(data.tier, data.tier !== 'free');
-      if (data?.notice) setMessage("ok", data.notice);
-
-      setMessage("ok", "Fetched "+state.emails.length+" emails.");
     }catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
