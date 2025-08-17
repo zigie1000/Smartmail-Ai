@@ -379,31 +379,23 @@
   }
 
   // ---- Tier preflight ----
-  async function checkTier() {
-    try {
-      const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
-      const licenseKey = (
-        $("licenseKey")?.value ||
-        localStorage.getItem("smartemail.licenseKey") ||
-        localStorage.getItem("licenseKey") ||
-        ""
-      ).trim();
+async function checkTier() {
+  try {
+    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+    const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
 
-      if (!email && !licenseKey) {
-        setTierUI("free", false);
-        return;
-      }
+    if (!email && !licenseKey) { setTierUI("free", false); return; }
 
-      const resp = await fetch("/api/imap/tier", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, licenseKey })
-      });
+    const resp = await fetch("/api/imap/tier", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, licenseKey })
+    });
 
-      let data = {};
-      try { data = await resp.json(); } catch {}
+    let data = {};
+    try { data = await resp.json(); } catch {}
 
-          if (resp.ok && data && typeof data.tier === "string") {
+    if (resp.ok && data && typeof data.tier === "string") {
       const tier = data.tier || "free";
       setTierUI(tier, !!data.isPaid);
       if (data.notice) setMessage("ok", data.notice);
@@ -412,11 +404,11 @@
       setTierUI("free", false);
       console.warn("❌ IMAP license check failed:", data);
     }
-    } catch (e) {
-      console.error("⚠️ IMAP checkTier error:", e);
-      setTierUI("free", false);
-    }
+  } catch (e) {
+    console.error("⚠️ IMAP checkTier error:", e);
+    setTierUI("free", false);
   }
+}
 
   // ---- Networking ----
   async function fetchAndClassify(){
