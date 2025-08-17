@@ -70,7 +70,7 @@ async function upsertLicense({ email, tier, durationDays, stripeRefs = {} }) {
     license_key: licenseKey,                 // set/refresh a key (optional)
     smartemail_tier: tier,                   // authoritative for this app
     smartemail_expires: expiresAt.toISOString(),
-    status: 'active',
+   // status: 'active',
     // helpful Stripe refs for support/debug
     stripe_customer: stripeRefs.customer || null,
     stripe_subscription: stripeRefs.subscription || null,
