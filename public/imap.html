@@ -455,10 +455,27 @@ if ((payload.authType || "").toLowerCase() === "password" &&
     ""
 };
 
-      // Fill host from preset if missing
-      if (!payload.host) {
-        const p = $("provider").value;
-        const P = { gmail:{host:"imap.gmail.com",port:993,tls:"on"}, outlook:{host:"outlook.office365.com",port:993,tls:"on"}, yahoo:{host:"imap.mail.yahoo.com",port:993,tls:"on"}, icloud:{host:"imap.mail.me.com",port:993,tls:"on"} };
+     // Fill host from Provider preset if missing
+if (!payload.host) {
+  const p = $("provider").value;
+  const P = {
+    gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
+    outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
+    yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
+    icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
+  };
+  if (P[p]) {
+    $("host").value = P[p].host;
+    $("port").value = P[p].port;
+    $("tls").value  = P[p].tls;
+    payload.host    = P[p].host;
+  }
+}
+if (!payload.host) {
+  list.innerHTML = "";
+  setMessage("err", "IMAP host is required. Choose a Provider or enter the host.");
+  return;
+}
         if (P[p]) { $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; payload.host = P[p].host; }
       }
       if (!payload.host) { list.innerHTML=""; setMessage("err","IMAP host is required. Choose a Provider or enter the host."); return; }
