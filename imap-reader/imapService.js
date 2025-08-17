@@ -48,11 +48,24 @@ export async function fetchEmails({ email, password, accessToken, host, port = 9
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // Accept tuples like ['ALL', ['SINCE', Date]]
-    const criteria = Array.isArray(search) ? search : ['ALL'];
-    const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
+    // Accept tuples like ['SINCE', Date] or ['ALL', ['SINCE', Date]]
+let criteria = Array.isArray(search) ? search : ['ALL'];
 
-    const results = await connection.search(criteria, fetchOpts);
+// If caller passed a single SINCE tuple (['SINCE', Date]), wrap it as a list
+if (criteria[0] === 'SINCE') criteria = [criteria];
+
+// Normalize any SINCE tuples so the second element is a real Date
+criteria = criteria.map(c => {
+  if (Array.isArray(c) && c[0] === 'SINCE') {
+    const v = c[1];
+    return ['SINCE', (v instanceof Date ? v : new Date(v))];
+  }
+  return c;
+});
+
+const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
+
+const results = await connection.search(criteria, fetchOpts);
 
     const emails = results.slice(-Math.max(1, Number(limit) || 20)).map((res, idx) => {
       const header = res.parts.find(p => p.which === 'HEADER')?.body || {};
