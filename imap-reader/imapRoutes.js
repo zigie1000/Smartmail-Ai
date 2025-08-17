@@ -5,6 +5,8 @@ import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
+
+// 🔹 Supabase client only (no 'pg' required on Render)
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -15,20 +17,23 @@ const supa = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
 
 const router = express.Router();
 
-// utils
-const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
+const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
+
+// very light email sanity (prevents DB “pattern” traps upstream)
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
+
 function rowsToSet(rows, key) {
-  return new Set((rows || []).map(r => String(r[key] || '').toLowerCase()).filter(Boolean));
+  return new Set((rows || [])
+    .map(r => String(r[key] || '').toLowerCase())
+    .filter(Boolean));
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// ---------- Tier helpers ----------
+// --- Tier helpers (email-first, key fallback) ---
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
-  // Try license key
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -40,7 +45,6 @@ async function getTier({ licenseKey = '', email = '' }) {
     }
   } catch {}
 
-  // Then latest by email
   try {
     if (em && isLikelyEmail(em) && supa) {
       const { data } = await supa
@@ -61,15 +65,13 @@ async function isPaid(tier) {
   return tier && tier !== 'free';
 }
 
-// ---------- Personalization (paid only) ----------
+// Personalization lists + learned weights (paid users only)
 async function fetchListsFromSql(userId = 'default') {
   const empty = { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
                   weights:{ email:new Map(), domain:new Map() } };
   if (!supa) return empty;
   try {
-    const [
-      vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights
-    ] = await Promise.all([
+    const [vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights] = await Promise.all([
       supa.from('vip_senders').select('email'),
       supa.from('vip_domains').select('domain'),
       supa.from('legal_domains').select('domain'),
@@ -153,7 +155,7 @@ router.post('/fetch', async (req, res) => {
       licenseKey = ''
     } = req.body || {};
 
-    // safely sanitize email before DB usage
+    // block obviously bad email to avoid DB “pattern” errors down the line
     const safeEmail = isLikelyEmail(email) ? email : '';
 
     const tier = await getTier({ licenseKey, email: safeEmail });
@@ -161,24 +163,27 @@ router.post('/fetch', async (req, res) => {
 
     const userId = userIdFromEmail(safeEmail || 'anon');
     const caps = applyFreeCapsIfNeeded(tier, req.body);
-
-    // simple rate limit for free
     if (caps.isFree && caps.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
       if (now - last < caps.minFetchMs) {
-        const wait = Math.ceil((caps.minFetchMs - (now - last)) / 1000);
+        const wait = Math.ceil((caps.minFetchMs - (now - last))/1000);
         return res.status(429).json({ error: `Please wait ${wait}s (free plan limit).` });
       }
       lastFetchAt.set(userId, now);
     }
 
-    // ✅ Build RFC-compliant IMAP search:
-    // node-imap requires a Date object for SINCE
-    const days = Math.max(0, Number(req.body.rangeDays ?? 7));
-    const search = days > 0
-      ? ['SINCE', new Date(Date.now() - days * 864e5)]
-      : ['ALL'];
+    // ✅ RFC-compliant SINCE date for node-imap — must be [ ['SINCE', Date] ] or ['ALL']
+    let days = Number(req.body.rangeDays);
+    if (!(days >= 0)) days = 7;
+    let search = ['ALL'];
+    if (days > 0) {
+      const since = new Date(Date.now() - days * 864e5);
+      // snap to start-of-day optional; not required by imap, but fine:
+      // since.setHours(0,0,0,0);
+      search = [ ['SINCE', since] ];
+    }
+    console.log('IMAP criteria:', JSON.stringify(search));
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
@@ -201,7 +206,7 @@ router.post('/fetch', async (req, res) => {
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
-    res.status(500).json({ error: 'Server error while fetching mail.' });
+    res.status(500).json({ error: e?.message || 'Server error while fetching mail.' });
   }
 });
 
