@@ -423,7 +423,21 @@ async function checkTier() {
         if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
         if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
       }
+// If XOAUTH2 is selected, require a non-empty access token
+if ((payload.authType || "").toLowerCase() === "xoauth2" &&
+    !String(payload.accessToken || "").trim()) {
+  list.innerHTML = "";
+  setMessage("err", "XOAUTH2 selected — paste a valid access token first.");
+  return;
+}
 
+// If Gmail + password, gently warn if it doesn't look like an App Password
+if ((payload.authType || "").toLowerCase() === "password" &&
+    /imap\.gmail\.com$/i.test(payload.host || "") &&
+    String(payload.password || "").trim().length < 16) {
+  setMessage("err", "Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
+  // continue anyway; user may still want to try
+}
       const payload = {
   email: $("email").value || "",
   password: $("password").value || "",
