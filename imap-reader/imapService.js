@@ -42,8 +42,8 @@ export async function testLogin(opts) {
 }
 
 export async function fetchEmails({
-  email, password, accessToken, host, port = 993,
-  tls = true, authType = 'password', search = ['ALL'], limit = 20
+  email, password, accessToken, host, port = 993, tls = true, authType = 'password',
+  search = ['ALL'], limit = 20
 }) {
   const config = buildConfig({ email, password, accessToken, host, port, tls, authType });
   let connection;
@@ -51,18 +51,18 @@ export async function fetchEmails({
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // Normalize SINCE into a proper Date tuple for node-imap
+    // Accept tuples like ['ALL'] or ['SINCE', Date]
     let criteria = Array.isArray(search) ? search : ['ALL'];
-    if (criteria[0] === 'SINCE') criteria = [criteria];
-    criteria = criteria.map(c => {
-      if (Array.isArray(c) && c[0] === 'SINCE') {
-        const v = c[1];
-        return ['SINCE', (v instanceof Date ? v : new Date(v))];
-      }
-      return c;
-    });
+
+    // Guard: if user passed SINCE with a non-Date accidentally, try to coerce
+    if (criteria.length >= 2 && String(criteria[0]).toUpperCase() === 'SINCE' && !(criteria[1] instanceof Date)) {
+      const d = new Date(criteria[1]);
+      if (!isNaN(d.getTime())) criteria = ['SINCE', d];
+      else criteria = ['ALL'];
+    }
 
     const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
+
     const results = await connection.search(criteria, fetchOpts);
 
     const emails = results.slice(-Math.max(1, Number(limit) || 20)).map((res, idx) => {
