@@ -1,5 +1,5 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Free caps for non-paid users. Email-first license lookups.
+// Free caps for non-paid users. Email-only license lookups.
 
 import express from 'express';
 import crypto from 'crypto';
@@ -30,6 +30,7 @@ function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 // --- Tier helpers (email-first, key fallback) ---
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
+
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -40,6 +41,7 @@ async function getTier({ licenseKey = '', email = '' }) {
       if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
     }
   } catch {}
+
   try {
     if (em && supa) {
       const { data } = await supa
@@ -52,19 +54,18 @@ async function getTier({ licenseKey = '', email = '' }) {
       if (data) return String(data.smartemail_tier || data.tier || 'free').toLowerCase();
     }
   } catch {}
+
   return 'free';
 }
 async function isPaid(tier) {
   if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
-  return !!tier && tier !== 'free';
+  return tier && tier !== 'free';
 }
 
 // Personalization lists + learned weights (paid users only)
 async function fetchListsFromSql(userId = 'default') {
-  const empty = {
-    vip: new Set(), legal: new Set(), government: new Set(), bulk: new Set(),
-    weights: { email: new Map(), domain: new Map() }
-  };
+  const empty = { vip: new Set(), legal: new Set(), government: new Set(), bulk: new Set(),
+    weights: { email: new Map(), domain: new Map() } };
   if (!supa) return empty;
   try {
     const [vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights] = await Promise.all([
@@ -87,7 +88,7 @@ async function fetchListsFromSql(userId = 'default') {
       const prob = (pos + 2) / (pos + neg + 5);
       const logit = Math.log(Math.max(1e-6, prob / (1 - prob)));
       const v = clamp(logit, -4, 4);
-      if (String(r.kind) === 'email')  wEmail.set(String(r.identity).toLowerCase(), v);
+      if (String(r.kind) === 'email') wEmail.set(String(r.identity).toLowerCase(), v);
       if (String(r.kind) === 'domain') wDomain.set(String(r.identity).toLowerCase(), v);
     });
 
@@ -117,16 +118,14 @@ function normalizeForClassifier(items) {
   }));
 }
 
-// ==============================
-// Free-tier caps & throttling
-// ==============================
+// ---------- Free-tier caps ----------
 const lastFetchAt = new Map(); // key=userId
 function applyFreeCapsIfNeeded(tier, body) {
   const isFree = !tier || tier === 'free';
   const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
   if (isFree) {
     body.rangeDays = Math.min(Number(body.rangeDays || 7), caps.rangeMax);
-    body.limit     = Math.min(Number(body.limit || 20),   caps.limitMax);
+    body.limit = Math.min(Number(body.limit || 20), caps.limitMax);
   }
   return caps;
 }
@@ -158,8 +157,6 @@ router.post('/fetch', async (req, res) => {
 
     const userId = userIdFromEmail(email);
     const caps = applyFreeCapsIfNeeded(tier, req.body);
-
-    // Throttle free tier a bit to prevent hammering
     if (caps.isFree && caps.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -170,8 +167,8 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ✅ FIX: build criteria in compound form to satisfy IMAP libs
-    // (node-imap, imapflow compat): ['ALL', ['SINCE', Date]]
+    // ✅ Send SINCE in a compound/tuple form accepted by imap-simple/node-imap
+    //    Example: ['ALL', ['SINCE', Date]]
     const rd = Number(req.body.rangeDays);
     const sinceDate = Number.isFinite(rd) && rd > 0
       ? new Date(Date.now() - rd * 864e5)
@@ -180,8 +177,7 @@ router.post('/fetch', async (req, res) => {
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email, password, accessToken, host, port, tls, authType,
-      search,
-      limit: Number(req.body.limit) || 20
+      search, limit: Number(req.body.limit) || 20
     });
 
     const lists = paid
@@ -231,54 +227,6 @@ router.post('/classify', async (req, res) => {
   } catch (e) {
     console.error('IMAP /classify error:', e?.message || e);
     res.status(500).json({ error: 'Classification failed' });
-  }
-});
-
-router.post('/feedback', async (req, res) => {
-  try {
-    const { label, fromEmail = '', fromDomain = '', email: ownerEmail = '', licenseKey = '' } = req.body || {};
-    const tier = await getTier({ licenseKey, email: ownerEmail });
-    const paid = await isPaid(tier);
-    if (!paid) {
-      return res.status(402).json({ ok: false, error: 'Upgrade to enable learning (Important ⭐).' });
-    }
-    if (!label || (!fromEmail && !fromDomain)) {
-      return res.status(400).json({ ok: false, error: 'label and fromEmail/fromDomain required' });
-    }
-
-    const userId = userIdFromEmail(ownerEmail);
-    const important = label === 'important';
-    const pos = important ? 1 : 0;
-    const neg = important ? 0 : 1;
-
-    if (supa) {
-      try {
-        await supa.rpc('increment_feedback_h', {
-          p_user_id: userId,
-          p_kind: fromEmail ? 'email' : 'domain',
-          p_identity: fromEmail || fromDomain,
-          p_pos: pos, p_neg: neg
-        });
-      } catch {
-        const payload = {
-          user_id: userId,
-          kind: (fromEmail ? 'email' : 'domain'),
-          identity: (fromEmail || fromDomain).toLowerCase(),
-          pos: 0, neg: 0
-        };
-        await supa.from('mail_importance_feedback').upsert(payload, { onConflict: 'user_id,kind,identity' });
-        await supa.from('mail_importance_feedback')
-          .update({ pos, neg, updated_at: new Date().toISOString() })
-          .eq('user_id', userId).eq('kind', payload.kind).eq('identity', payload.identity);
-      }
-    } else {
-      console.log('[feedback] no DB, ignored');
-    }
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('IMAP /feedback error:', e?.message || e);
-    res.status(500).json({ ok: false, error: 'failed to save feedback' });
   }
 });
 
