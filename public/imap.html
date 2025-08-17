@@ -378,22 +378,40 @@
     window.location.href = "/index.html?" + params.toString();
   }
 
-  // -------- Tier preflight --------
-  async function checkTier() {
-    try {
-      const payload = { email: $("email").value||"", licenseKey: $("licenseKey").value||localStorage.getItem('smartemail.licenseKey')||"" };
-      const resp = await fetch("/api/imap/tier",{ method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-      const data = await resp.json().catch(()=>({}));
-      if (resp.ok) {
-        setTierUI(data.tier || 'free', !!data.isPaid);
-        if (data.notice) setMessage('ok', data.notice);
-      } else {
-        setTierUI('free', false);
-      }
-    } catch (_) {
-      setTierUI('free', false);
+// ---- Tier preflight ----
+async function checkTier() {
+  try {
+    const email = ($("#email")?.value || "").trim();
+    const licenseKey = ($("#licenseKey")?.value || localStorage.getItem("smartemail.licenseKey") || "").trim();
+
+    if (!email && !licenseKey) {
+      setTierUI("free", false);
+      return;
     }
+
+    const payload = { email, licenseKey };
+    const resp = await fetch("/api/license/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok && data && data.active) {
+      const tier = data.tier || "free";   // <-- comes from smartemail_tier
+      setTierUI(tier, true);
+      if (data.notice) setMessage("ok", data.notice);
+      console.log("✅ IMAP license check: " + tier);
+    } else {
+      setTierUI("free", false);
+      console.warn("❌ IMAP license check failed:", data);
+    }
+  } catch (e) {
+    console.error("⚠️ IMAP checkTier error:", e);
+    setTierUI("free", false);
   }
+}
 
   // ---- Networking ----
   async function fetchAndClassify(){
