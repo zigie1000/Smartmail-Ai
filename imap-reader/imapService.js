@@ -1,25 +1,22 @@
-// imapService.js — wraps imap-simple with safer defaults (RFC-compliant SINCE + resilient timeouts)
+// imapService.js — safe wrapper around imap-simple
+
 import imaps from 'imap-simple';
 import dns from 'dns';
 dns.setDefaultResultOrder?.('ipv4first');
 
 const ALLOW_SELF_SIGNED = (process.env.IMAP_ALLOW_SELF_SIGNED === '1');
 
-/**
- * Format a JS Date as RFC-3501 compatible (IMAP) date: "dd-MMM-yyyy"
- * Example: 17-Aug-2025
- */
-function toImapSinceDate(d) {
-  const dt = (d instanceof Date && !isNaN(d)) ? d : new Date(d);
-  if (!(dt instanceof Date) || isNaN(dt)) return null;
-
-  const day = String(dt.getDate()).padStart(2, '0');
-  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()];
-  const year = dt.getFullYear();
-  return `${day}-${mon}-${year}`;
+/** Format Date for IMAP 'SINCE' — must be DD-MMM-YYYY (RFC 3501) */
+function formatImapDate(d) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${dd}-${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-function buildConfig({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
+function buildConfig({
+  email, password, accessToken,
+  host, port = 993, tls = true, authType = 'password'
+}) {
   const xoauth2 = (authType === 'xoauth2' && accessToken) ? accessToken : undefined;
 
   const tlsOptions = {};
@@ -27,7 +24,6 @@ function buildConfig({ email, password, accessToken, host, port = 993, tls = tru
   if (host) tlsOptions.servername = host;
 
   return {
-    // These fields are passed through to node-imap via imap-simple
     imap: {
       user: email,
       password: authType === 'password' ? password : undefined,
@@ -37,18 +33,18 @@ function buildConfig({ email, password, accessToken, host, port = 993, tls = tru
       tls,
       tlsOptions,
 
-      // More forgiving timeouts for cold starts / slow networks
-      connTimeout: 60000,   // ms to establish TCP
-      authTimeout: 30000,   // ms for login
-      socketTimeout: 90000, // ms inactivity before closing
+      // timeouts (ms)
+      connTimeout: 20000,   // TCP connect
+      authTimeout: 20000,   // login
+      socketTimeout: 60000, // idle socket
+    },
 
-      // Keepalive to avoid idle disconnects during long searches
-      keepalive: {
-        interval: 3000,     // send NOOP every 3s
-        idleInterval: 300000, // if idle, at most 5 min
-        forceNoop: true
-      }
-    }
+    // keepalive: prevent idle disconnects (imap-simple / node-imap)
+    keepalive: {
+      interval: 3000,       // send NOOP every 3s
+      idleInterval: 300000, // max 5 min idle
+      forceNoop: true,
+    },
   };
 }
 
@@ -61,22 +57,31 @@ export async function testLogin(opts) {
     await connection.end();
     return true;
   } catch (e) {
-    if (connection) { try { await connection.end(); } catch {} }
+    try { if (connection) await connection.end(); } catch {}
     console.error('testLogin error:', e?.message || e);
     return false;
   }
 }
 
 /**
- * fetchEmails
- * @param {Object} params
- * @param {string[]} [params.search=['ALL']] standard imap-simple criteria OR will be built from rangeDays
- * @param {number}   [params.limit=20]
- * @param {number}   [params.rangeDays] if provided, we add a SINCE <dd-MMM-yyyy> clause
+ * Fetch emails with optional SINCE window and limit
+ * @param {object} params
+ * @param {string} params.email
+ * @param {string} [params.password]
+ * @param {string} [params.accessToken]
+ * @param {string} params.host
+ * @param {number} [params.port=993]
+ * @param {boolean} [params.tls=true]
+ * @param {'password'|'xoauth2'} [params.authType='password']
+ * @param {number} [params.rangeDays=7]  // 0 or falsy => ALL
+ * @param {number} [params.limit=20]
+ * @returns {Promise<{ items: Array, nextCursor: null, hasMore: boolean }>}
  */
 export async function fetchEmails({
-  email, password, accessToken, host, port = 993, tls = true, authType = 'password',
-  search = ['ALL'], limit = 20, rangeDays
+  email, password, accessToken,
+  host, port = 993, tls = true, authType = 'password',
+  rangeDays = 7,
+  limit = 20,
 }) {
   const config = buildConfig({ email, password, accessToken, host, port, tls, authType });
 
@@ -85,88 +90,59 @@ export async function fetchEmails({
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // --- Build criteria safely ---
-    let criteria;
-    try {
-      // Normalize provided search array (accept tuple forms)
-      const base = Array.isArray(search) && search.length ? search : ['ALL'];
-
-      // If a single SINCE tuple snuck in as ['SINCE', <date-like>], ensure 2nd element is a Date
-      const normalized = base.map(c => {
-        if (Array.isArray(c) && c[0] && String(c[0]).toUpperCase() === 'SINCE') {
-          const v = c[1];
-          const d = (v instanceof Date) ? v : new Date(v);
-          return ['SINCE', d];
-        }
-        return c;
-      });
-
-      // If rangeDays is provided, append our RFC-compliant SINCE
-      if (Number.isFinite(+rangeDays) && +rangeDays > 0) {
-        const sinceJsDate = new Date(Date.now() - (+rangeDays) * 864e5);
-        const sinceStr = toImapSinceDate(sinceJsDate);
-        if (sinceStr) normalized.push(['SINCE', sinceStr]);
-      }
-
-      // Finally, coerce any SINCE Date to RFC string
-      criteria = normalized.map(c => {
-        if (Array.isArray(c) && c[0] && String(c[0]).toUpperCase() === 'SINCE') {
-          const v = c[1];
-          // Accept already-formatted strings; otherwise convert Date to "dd-MMM-yyyy"
-          if (typeof v === 'string') return ['SINCE', v];
-          const s = toImapSinceDate(v);
-          return s ? ['SINCE', s] : null;
-        }
-        return c;
-      }).filter(Boolean);
-
-      if (!Array.isArray(criteria) || !criteria.length) criteria = ['ALL'];
-    } catch {
+    // ---- Build criteria (IMPORTANT: each operand is an item; ['SINCE', date] must be one item) ----
+    let criteria = [];
+    if (Number(rangeDays) > 0) {
+      const sinceDate = new Date(Date.now() - Number(rangeDays) * 864e5);
+      const imapSince = formatImapDate(sinceDate);
+      criteria = [[ 'SINCE', imapSince ]];         // ✅ Correct shape + format
+    } else {
       criteria = ['ALL'];
     }
 
-    // Log criteria for diagnostics (you saw this in Render logs)
-    try { console.log('IMAP criteria (server-side):', JSON.stringify(criteria)); } catch {}
+    // Debug log (helps confirm shape on Render)
+    console.log('IMAP criteria (server-side):', JSON.stringify(criteria));
 
-    const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
-    const results = await connection.search(criteria, fetchOpts);
+    // Fetch headers + text (you can tailor this to your existing mapping)
+    const fetchOptions = {
+      bodies: ['HEADER', 'TEXT'],
+      markSeen: false,
+      struct: true,
+    };
 
-    const emails = results
-      .slice(-Math.max(1, Number(limit) || 20))
-      .map((res, idx) => {
-        const header = res.parts.find(p => p.which === 'HEADER')?.body || {};
-        const text = res.parts.find(p => p.which === 'TEXT')?.body || '';
+    const results = await connection.search(criteria, fetchOptions);
 
-        const fromHdr = (header.from && header.from[0]) || '';
-        const subject = (header.subject && header.subject[0]) || '';
-        const date = (header.date && header.date[0]) || '';
+    // Map results to a simple shape your frontend expects
+    const items = results.slice(0, Math.max(1, Number(limit) || 20)).map(r => {
+      const header = imaps.getParts(r.parts).find(p => p.which === 'HEADER')?.body || {};
+      const textPart = imaps.getParts(r.parts).find(p => p.which === 'TEXT')?.body;
 
-        const fromEmail = /<([^>]+)>/.exec(fromHdr)?.[1] || fromHdr;
-        const fromDomain = (fromEmail.split('@')[1] || '').toLowerCase();
+      const subject = header.subject?.[0] || '(no subject)';
+      const from = header.from?.[0] || '';
+      const to = header.to?.[0] || '';
+      const date = header.date?.[0] ? new Date(header.date[0]).toISOString() : null;
 
-        return {
-          id: res.attributes.uid || String(idx + 1),
-          uid: res.attributes.uid,
-          from: fromHdr,
-          fromEmail,
-          fromDomain,
-          to: ((header.to && header.to[0]) || ''),
-          subject,
-          snippet: String(text).slice(0, 500),
-          text: String(text).slice(0, 2000),
-          date,
-          unread: !res.attributes.flags?.includes('\\Seen'),
-          flagged: res.attributes.flags?.includes('\\Flagged') || false,
-          headers: header,
-          hasIcs: /text\/calendar/i.test(res.parts?.map(p => p.attributes?.contentType).join(' ') || ''),
-          attachTypes: []
-        };
-      });
+      return {
+        uid: r.attributes?.uid,
+        id: r.attributes?.uid,
+        subject,
+        from,
+        to,
+        date,
+        snippet: typeof textPart === 'string' ? textPart.slice(0, 500) : '',
+        importance: 'unimportant',
+        intent: 'other',
+        urgency: 0,
+        action_required: false,
+      };
+    });
 
     await connection.end();
-    return { items: emails, hasMore: false, nextCursor: null };
+
+    return { items, nextCursor: null, hasMore: false };
   } catch (e) {
-    if (connection) { try { await connection.end(); } catch {} }
+    try { if (connection) await connection.end(); } catch {}
+    console.error('imap fetch error:', e?.message || e);
     throw e;
   }
 }
