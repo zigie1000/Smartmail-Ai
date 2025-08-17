@@ -173,9 +173,11 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    const search = Number(req.body.rangeDays) > 0
-      ? ['SINCE', new Date(Date.now() - Number(req.body.rangeDays) * 864e5)]
-      : ['ALL'];
+   // RFC-compliant SINCE date for node-imap
+const since = new Date(Date.now() - Number(req.body.rangeDays) * 864e5);
+const search = Number(req.body.rangeDays) > 0
+  ? ['SINCE', since.toDateString()]
+  : ['ALL'];
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
