@@ -382,32 +382,16 @@
 async function checkTier() {
   try {
     // use same storage keys as index.html
-const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
-const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
+    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
+    const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey") || "").trim();
 
     if (!email && !licenseKey) {
       setTierUI("free", false);
       return;
     }
 
-    const payload = {
-  email,
-  password: $("password")?.value || "",
-  host: $("host")?.value || "",
-  port: Number($("port")?.value) || 993,
-  tls: (($("tls")?.value || "on") !== "off"),
-  rangeDays: (() => {
-    // map “All” to 0, otherwise a positive number
-    const raw = String($("range")?.value || "All").trim().toLowerCase();
-    if (raw === "all" || raw === "" || raw === "0") return 0;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  })(),
-  limit: Number($("limit")?.value) || 50,
-  authType: ($("authType")?.value || "password"),
-  accessToken: $("accessToken")?.value || "",
-  licenseKey
-};
+    const payload = { email, licenseKey };
+
     const resp = await fetch("/api/license/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -417,10 +401,10 @@ const licenseKey = ($("licenseKey")?.value || localStorage.getItem("licenseKey")
     const data = await resp.json().catch(() => ({}));
 
     if (resp.ok && data && data.active) {
-      const tier = data.tier || "free";   // <-- comes from smartemail_tier
+      const tier = data.tier || "free";   // value from smartemail_tier column
       setTierUI(tier, true);
       if (data.notice) setMessage("ok", data.notice);
-      console.log("✅ IMAP license check: " + tier);
+      console.log("✅ IMAP license check:", tier);
     } else {
       setTierUI("free", false);
       console.warn("❌ IMAP license check failed:", data);
