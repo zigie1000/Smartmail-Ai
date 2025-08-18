@@ -1,11 +1,10 @@
-// imapService.js
-// Robust IMAP fetch + optional login test using ImapFlow.
-// Fixes: ensures SINCE/BEFORE use real Date objects and correct search structure.
+// imapService.js — Robust IMAP fetch using ImapFlow.
+// Accepts search either as an object ({ since: Date }) or an IMAP criteria array
+// (e.g., ['SINCE', Date, 'BEFORE', Date]) for monthly windows.
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-// Small helper: create a client safely
 function makeClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
   const auth =
     authType === 'xoauth2'
@@ -21,20 +20,16 @@ function makeClient({ host, port = 993, tls = true, authType = 'password', email
   });
 }
 
-// Normalize a message into your item shape
 function toItem({ meta, body, flags }) {
   const fromAddr = (meta.envelope.from && meta.envelope.from[0]) || {};
   const fromEmail = (fromAddr.address || '').toLowerCase();
   const fromDomain = fromEmail.split('@')[1] || '';
-
   const snippet =
     (body.text && body.text.slice(0, 240)) ||
     (body.html && body.html.replace(/<[^>]+>/g, ' ').slice(0, 240)) ||
     '';
-
   const contentType =
-    (body.headers && body.headers.get && body.headers.get('content-type')) ||
-    '';
+    (body.headers && body.headers.get && body.headers.get('content-type')) || '';
 
   const attachTypes = [];
   let hasIcs = false;
@@ -42,9 +37,7 @@ function toItem({ meta, body, flags }) {
     for (const a of body.attachments) {
       const ct = (a.contentType || '').toLowerCase();
       attachTypes.push(ct);
-      if (ct.includes('text/calendar') || (a.filename || '').toLowerCase().endsWith('.ics')) {
-        hasIcs = true;
-      }
+      if (ct.includes('text/calendar') || (a.filename || '').toLowerCase().endsWith('.ics')) hasIcs = true;
     }
   }
 
@@ -54,19 +47,13 @@ function toItem({ meta, body, flags }) {
     from: fromAddr.name || fromEmail || '',
     fromEmail,
     fromDomain,
-    to:
-      (meta.envelope.to || [])
-        .map(t => t.address)
-        .filter(Boolean)
-        .join(', ') || '',
+    to: (meta.envelope.to || []).map(t => t.address).filter(Boolean).join(', ') || '',
     subject: meta.envelope.subject || '',
     snippet,
     date: meta.internalDate ? new Date(meta.internalDate).toISOString() : '',
     headers: (() => {
       const h = {};
-      if (body.headers && body.headers.forEach) {
-        body.headers.forEach((v, k) => (h[k] = v));
-      }
+      if (body.headers && body.headers.forEach) body.headers.forEach((v, k) => (h[k] = v));
       return h;
     })(),
     hasIcs,
@@ -77,59 +64,28 @@ function toItem({ meta, body, flags }) {
   };
 }
 
-/**
- * Fetch emails from INBOX.
- * Options:
- *   email, password, accessToken, host, port, tls, authType
- *   search: {} | { since?: Date, before?: Date } | { rangeDays?: number }
- *   limit: number
- */
 export async function fetchEmails({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password',
-  search = {},
-  limit = 20
+  email, password, accessToken, host, port = 993, tls = true, authType = 'password',
+  search = ['ALL'], limit = 20
 }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
-
-  // Build search safely: honor explicit since/before if provided;
-  // otherwise support legacy { rangeDays } usage.
-  let since, before;
-  if (search && (search.since instanceof Date || search.before instanceof Date)) {
-    since = search.since instanceof Date ? search.since : undefined;
-    before = search.before instanceof Date ? search.before : undefined;
-  } else if (search && typeof search.rangeDays !== 'undefined') {
-    const rangeDays = Math.max(0, Number(search.rangeDays || 0));
-    if (rangeDays > 0) since = new Date(Date.now() - rangeDays * 864e5);
-  }
-
   try {
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
       let uids;
-      if (since || before) {
-        const q = {};
-        if (since) q.since = since;
-        if (before) q.before = before;
-        uids = await client.search(q);
+      if (Array.isArray(search)) {
+        // e.g., ['SINCE', Date, 'BEFORE', Date] or ['ALL']
+        uids = await client.search(search);
       } else {
-        uids = await client.search({}); // ALL
+        // object form, e.g., { since: Date }
+        uids = await client.search(search || {});
       }
-
       if (uids.length > limit) uids = uids.slice(-limit);
 
       const items = [];
       for await (const msg of client.fetch(uids, {
-        envelope: true,
-        flags: true,
-        internalDate: true,
-        source: true
+        envelope: true, flags: true, internalDate: true, source: true
       })) {
         const parsed = await simpleParser(msg.source);
         items.push(
@@ -140,31 +96,18 @@ export async function fetchEmails({
           })
         );
       }
-
       return { items, nextCursor: null, hasMore: false };
     } finally {
       lock.release();
     }
   } catch (err) {
-    const m = String(err && err.message) || 'IMAP fetch failed';
-    throw new Error(`IMAP /fetch error: ${m}`);
+    throw new Error(`IMAP /fetch error: ${String(err?.message || err)}`);
   } finally {
-    try { await client.logout(); } catch {}
+    try { await client.logout(); } catch { /* noop */ }
   }
 }
 
-/**
- * Lightweight connectivity test (safe to delete later).
- */
-export async function testLogin({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password'
-}) {
+export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
   try {
     await client.connect();
@@ -173,6 +116,6 @@ export async function testLogin({
   } catch {
     return false;
   } finally {
-    try { await client.logout(); } catch {}
+    try { await client.logout(); } catch { /* noop */ }
   }
 }
