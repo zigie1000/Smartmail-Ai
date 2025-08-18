@@ -1,114 +1,127 @@
-// imapService.js
+// imapService.js — wraps imap-simple with safer defaults
 import imaps from 'imap-simple';
-import { simpleParser } from 'mailparser';
+import dns from 'dns';
 
-const defaultPort = 993;
+// Prefer IPv4 first to avoid weird IPv6 resolution issues on some hosts
+dns.setDefaultResultOrder?.('ipv4first');
 
-function asImapConfig({ email, password, accessToken, host, port, tls, authType }) {
-  const xoauth2 = authType === 'oauth' && accessToken
-    ? `user=${email}\x01auth=Bearer ${accessToken}\x01\x01`
-    : null;
+const ALLOW_SELF_SIGNED = (process.env.IMAP_ALLOW_SELF_SIGNED === '1');
+
+// Build imap-simple config
+function buildConfig({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
+  const xoauth2 = (authType === 'xoauth2' && accessToken) ? accessToken : undefined;
+
+  const tlsOptions = {};
+  // allow self-signed (only if you *really* need this)
+  if (ALLOW_SELF_SIGNED) tlsOptions.rejectUnauthorized = false;
+  // SNI server name if provided
+  if (host) tlsOptions.servername = host;
+
+  // Slightly longer timeout for slower providers (iCloud etc.)
+  const authTimeout = (/mail\.me\.com$/i.test(host) || /icloud/i.test(host)) ? 20000 : 12000;
 
   return {
     imap: {
-      user: xoauth2 ? undefined : email,
-      password: xoauth2 ? undefined : password,
+      user: email,
+      password: authType === 'password' ? password : undefined,
       xoauth2,
-      host: host || 'imap.gmail.com',
-      port: Number(port || defaultPort),
-      tls: tls !== false,
-      // keep this permissive to avoid “self-signed certificate” on some hosts
-      tlsOptions: { rejectUnauthorized: false, servername: host || 'imap.gmail.com' },
-      connTimeout: 15000,
-      authTimeout: 15000
+      host,
+      port,
+      tls,
+      tlsOptions,
+      authTimeout
     }
   };
 }
 
-// --- make sure criteria contains a real Date if SINCE is used
-function normalizeCriteria(search) {
-  if (!Array.isArray(search) || search.length === 0) return ['ALL'];
-  if (String(search[0]).toUpperCase() !== 'SINCE') return search;
-
-  const v = search[1];
-  if (v instanceof Date) return ['SINCE', v];
-  // v might be a number or string; coerce to Date
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? ['ALL'] : ['SINCE', d];
-}
-
-async function withMailbox(cfg, fn) {
-  const connection = await imaps.connect(cfg);
+// Optional convenience endpoint for the UI "Test Login" button.
+// Safe to delete later along with the route that calls it.
+export async function testLogin(opts = {}) {
+  const config = buildConfig(opts);
+  let connection;
   try {
-    await connection.openBox('INBOX');
-    return await fn(connection);
-  } finally {
-    try { await connection.end(); } catch {}
+    connection = await imaps.connect(config);
+    await connection.getBoxes();   // light call that requires successful auth
+    await connection.end();
+    return true;
+  } catch (e) {
+    if (connection) { try { await connection.end(); } catch {} }
+    console.error('testLogin error:', e?.message || e);
+    return false;
   }
 }
 
-export async function testLogin(opts) {
-  const cfg = asImapConfig(opts || {});
-  await withMailbox(cfg, async () => true);
-  return true;
-}
-
+// Main fetcher used by /api/imap/fetch
 export async function fetchEmails({
-  email, password, accessToken, host, port, tls, authType,
-  search = ['ALL'], limit = 20
+  email,
+  password,
+  accessToken,
+  host,
+  port = 993,
+  tls = true,
+  authType = 'password',
+  search = ['ALL'],
+  limit = 20
 }) {
-  const cfg = asImapConfig({ email, password, accessToken, host, port, tls, authType });
-  const criteria = normalizeCriteria(search);
-  const fetchOptions = {
-    bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)'], // headers only for speed/memory
-    struct: true,
-    markSeen: false
-  };
+  const config = buildConfig({ email, password, accessToken, host, port, tls, authType });
+  let connection;
+  try {
+    connection = await imaps.connect(config);
+    await connection.openBox('INBOX');
 
-  return await withMailbox(cfg, async (connection) => {
-    // NOTE: log a *copy* for debugging so we don’t mutate the real criteria
-    const dbg = Array.isArray(criteria) && criteria[0] === 'SINCE'
-      ? ['SINCE', criteria[1].toISOString()]
-      : criteria;
-    console.log('IMAP criteria (server-side):', dbg);
+    // IMPORTANT: For node-imap/imap-simple, criteria must be like:
+    //   ['ALL']  OR  ['SINCE', DateObj]
+    // If a string is passed to SINCE, node-imap throws "Incorrect number of arguments".
+    const criteria = Array.isArray(search) ? search : ['ALL'];
 
-    const uids = await connection.search(criteria, { byUid: true });
-    const take = uids.slice(-Math.max(1, Math.min(limit, 200))); // cap
-    if (take.length === 0) return { items: [], nextCursor: null, hasMore: false };
+    // Basic fetch options; don't mark seen
+    const fetchOpts = { bodies: ['HEADER', 'TEXT'], markSeen: false };
 
-    const messages = await connection.fetch(take, fetchOptions);
+    const results = await connection.search(criteria, fetchOpts);
 
-    const items = [];
-    for (const m of messages) {
-      const hdr = m.parts?.find(p => p.which && p.which.startsWith('HEADER'))?.body || {};
-      const subject = (hdr.subject && hdr.subject[0]) || '(no subject)';
-      const from = (hdr.from && hdr.from[0]) || '';
-      const date = (hdr.date && hdr.date[0]) || '';
+    const emails = results
+      .slice(-Math.max(1, Number(limit) || 20)) // take the last N (most recent) results
+      .map((res, idx) => {
+        const header = res.parts.find(p => p.which === 'HEADER')?.body || {};
+        const text = res.parts.find(p => p.which === 'TEXT')?.body || '';
 
-      // very small snippet from text/plain if available (avoid big bodies)
-      let snippet = '';
-      try {
-        const textPart = m.parts?.find(p => p.which === 'TEXT');
-        if (textPart?.body) {
-          const parsed = await simpleParser(textPart.body);
-          snippet = (parsed.text || '').slice(0, 160);
-        }
-      } catch {}
+        const fromHdr  = (header.from && header.from[0]) || '';
+        const subject  = (header.subject && header.subject[0]) || '';
+        const date     = (header.date && header.date[0]) || '';
 
-      items.push({
-        id: m.attributes?.uid,
-        uid: m.attributes?.uid,
-        subject,
-        from,
-        date,
-        snippet,
-        unread: !m.attributes?.flags?.includes('\\Seen'),
-        flagged: m.attributes?.flags?.includes('\\Flagged'),
-        hasIcs: !!m.attributes?.struct?.some?.(s => s.subtype === 'CALENDAR')
+        const fromEmail = /<([^>]+)>/.exec(fromHdr)?.[1] || fromHdr;
+        const fromDomain = (fromEmail.split('@')[1] || '').toLowerCase();
+
+        // Try to detect calendar content across returned parts
+        const contentTypes = (res.parts || [])
+          .map(p => p?.attributes?.contentType || '')
+          .join(' ');
+        const hasIcs = /text\/calendar/i.test(contentTypes);
+
+        return {
+          id: res.attributes?.uid || String(idx + 1),
+          uid: res.attributes?.uid,
+          from: fromHdr,
+          fromEmail,
+          fromDomain,
+          to: ((header.to && header.to[0]) || ''),
+          subject,
+          snippet: String(text).slice(0, 500),
+          text: String(text).slice(0, 2000),
+          date,
+          unread: !(res.attributes?.flags || []).includes('\\Seen'),
+          flagged: (res.attributes?.flags || []).includes('\\Flagged') || false,
+          headers: header,
+          hasIcs,
+          attachTypes: []
+        };
       });
-    }
 
-    // no pagination cursor for now (simple last-N fetch)
-    return { items, nextCursor: null, hasMore: false };
-  });
+    await connection.end();
+    return { items: emails, hasMore: false, nextCursor: null };
+  } catch (e) {
+    if (connection) { try { await connection.end(); } catch {} }
+    // Bubble up to routes; routes will shape the error response
+    throw e;
+  }
 }
