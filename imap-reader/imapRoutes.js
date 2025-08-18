@@ -1,12 +1,11 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Uses smartemail_tier only (per your schema). Keeps testLogin but isolated.
+// MONTH-ONLY FETCH: requests specify one calendar month (e.g. "2025-08").
+// We convert that to { since: Date, before: Date } and fetch only that month.
 
 import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
-
-// Supabase (service role)
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -19,8 +18,6 @@ const router = express.Router();
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
-
-// Basic sanity check to avoid DB pattern errors
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
 
 function rowsToSet(rows, key) {
@@ -30,12 +27,10 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Tier helpers (email-first, key fallback) ---
-// IMPORTANT: Only read the 'smartemail_tier' column from 'licenses'
+// ---------- Tier helpers ----------
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
-  // Lookup by license key
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -43,13 +38,10 @@ async function getTier({ licenseKey = '', email = '' }) {
         .select('smartemail_tier')
         .eq('license_key', licenseKey)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by license key failed:', e?.message || e); }
 
-  // Fallback by email (newest record)
   try {
     if (em && isLikelyEmail(em) && supa) {
       const { data } = await supa
@@ -59,9 +51,7 @@ async function getTier({ licenseKey = '', email = '' }) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by email failed:', e?.message || e); }
 
@@ -73,7 +63,7 @@ async function isPaid(tier) {
   return !!tier && tier !== 'free';
 }
 
-// Personalization lists + learned weights (paid users only)
+// ---------- Personalization + weights (paid only) ----------
 async function fetchListsFromSql(userId = 'default') {
   const empty = {
     vip: new Set(),
@@ -136,36 +126,50 @@ function normalizeForClassifier(items) {
   }));
 }
 
-// ---------- Free-tier caps ----------
+// ---------- Free-tier caps (unchanged) ----------
 const lastFetchAt = new Map(); // key=userId
 function applyFreeCapsIfNeeded(tier, body) {
   const isFree = !tier || tier === 'free';
-  const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
+  const caps = { isFree, limitMax: 20, minFetchMs: 30_000 };
+  // Month-only fetch means we do NOT alter month bounds here,
+  // only cap the number of returned messages.
   if (isFree) {
-    body.rangeDays = Math.min(Number(body.rangeDays || 7), caps.rangeMax);
-    body.limit     = Math.min(Number(body.limit || 20),   caps.limitMax);
+    body.limit = Math.min(Number(body.limit || 20), caps.limitMax);
   }
   return caps;
 }
 
-/* ---- NEW: tiny normalizer so UI 'time'/'range' map to rangeDays ---- */
-function normalizeRangeDays(candidate) {
-  if (candidate == null) return null;
+// ---------- Month helpers ----------
+/** Accepts: "YYYY-MM", "this-month", "last-month". Returns { since, before } or null. */
+function monthBounds(input) {
+  const now = new Date();
 
-  // handle object forms like {label:'Last 7 days', value:7}
-  if (typeof candidate === 'object') {
-    if (typeof candidate.value === 'number') return Math.max(0, candidate.value | 0);
-    candidate = candidate.label ?? '';
+  const startOfMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  const addMonths = (d, n) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
+
+  let start, end;
+
+  if (typeof input === 'string') {
+    const s = input.trim().toLowerCase();
+
+    if (s === 'this-month') {
+      start = startOfMonth(now);
+      end = addMonths(start, 1);
+    } else if (s === 'last-month') {
+      end = startOfMonth(now);
+      start = addMonths(end, -1);
+    } else if (/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) {
+      const [y, m] = s.split('-').map(Number);
+      start = new Date(Date.UTC(y, m - 1, 1));
+      end = new Date(Date.UTC(y, m, 1));
+    }
   }
 
-  const s = String(candidate).trim().toLowerCase();
-  if (!s || s === 'all' || s === 'everything') return null;
-  const m = s.match(/(\d+)/);
-  if (m) return Math.max(0, parseInt(m[1], 10));
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  if (start && end) return { since: start, before: end };
+  // Fallback: default to this month
+  const s = startOfMonth(now);
+  return { since: s, before: addMonths(s, 1) };
 }
-// --------------------------------------------------------------------
 
 // ---------- ROUTES ----------
 router.post('/tier', async (req, res) => {
@@ -173,7 +177,7 @@ router.post('/tier', async (req, res) => {
     const { email = '', licenseKey = '' } = req.body || {};
     const tier = await getTier({ licenseKey, email });
     const paid = await isPaid(tier);
-    const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
+    const notice = paid ? null : 'Free plan: up to 20 emails per request.';
     res.json({ tier, isPaid: paid, notice });
   } catch (e) {
     console.error('IMAP /tier error:', e?.message || e);
@@ -186,12 +190,11 @@ router.post('/fetch', async (req, res) => {
     const {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password',
-      licenseKey = ''
+      licenseKey = '',
+      month // <-- NEW: "YYYY-MM" | "this-month" | "last-month"
     } = req.body || {};
 
-    // protect DB: only use plausible email for tier lookup + userId
     const safeEmail = isLikelyEmail(email) ? email : '';
-
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
@@ -207,14 +210,12 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    /* ✅ critical fix: collapse legacy fields to ONE number and
-       pass as search: { rangeDays } so imapService builds SINCE(Date) */
-    const legacy = req.body.rangeDays ?? req.body.range ?? req.body.time ?? null;
-    const rangeDays = normalizeRangeDays(legacy);
+    // Month-only bounds
+    const bounds = monthBounds(month);
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      search: { rangeDays },                            // <-- single source of truth
+      search: { since: bounds.since, before: bounds.before },           // <—
       limit: Number(req.body.limit) || 20
     });
 
@@ -227,11 +228,12 @@ router.post('/fetch', async (req, res) => {
     const cls = await classifyEmails(norm, { userId, lists });
     const merged = (items || []).map((it, i) => ({ ...it, ...(cls[i] || {}) }));
 
+    const monthLabel = bounds.since.toISOString().slice(0,7);
     const notice = !paid
-      ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for more range, higher limits, VIP boosts, and learning.'
+      ? `Free plan: one month per request (showing ${monthLabel}), up to ${req.body.limit || 20} emails.`
       : null;
 
-    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
+    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice, month: monthLabel });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
     res.status(500).json({ error: 'Server error while fetching mail.' });
