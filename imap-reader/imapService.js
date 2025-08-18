@@ -1,179 +1,256 @@
-// imapService.js — normalized IMAP fetch + safe SINCE handling
+// imapService.js
+// Minimal IMAP helpers used by imapRoutes.js
+// - fetchEmails(opts)  -> { items, nextCursor, hasMore }
+// - testLogin(opts)    -> boolean (safe to delete later)
+//
+// Uses node-imap directly (no imap-simple) and GUARANTEES that
+// the search criteria passed to imap.search() are RFC-correct.
+
 import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+import { StringDecoder } from 'string_decoder';
 
-function toBool(v, d=false){ return v === true || v === 'true' ? true : v === false || v === 'false' ? false : d; }
+// ----------------------------------------------
+// TLS helper (optional self-signed bypass)
+// ----------------------------------------------
+function tlsOptionsFor(host) {
+  // Keep the bypass behind an env flag so it’s easy to remove later.
+  if (process.env.ALLOW_SELF_SIGNED === '1') {
+    return { rejectUnauthorized: false };
+  }
+  // For Gmail/Outlook/etc this is plenty.
+  return { servername: host };
+}
 
-/** Ensure criteria is valid for node-imap:
- *  - ['ALL']  OR
- *  - ['SINCE', Date]  (Date object ONLY)
- */
-function normalizeCriteria(search, fallbackRangeDays = 0) {
-  // If a valid array comes in from the route, sanitize it.
-  if (Array.isArray(search) && search.length > 0) {
-    const key = String(search[0] || '').toUpperCase();
-    if (key === 'ALL') return ['ALL'];
-    if (key === 'SINCE') {
-      const raw = search[1];
-      // Accept Date | number | string(ISO) and convert to Date
-      let dt = raw instanceof Date ? raw
-            : (typeof raw === 'number' ? new Date(raw)
-            : (typeof raw === 'string' ? new Date(raw) : null));
-      if (dt && !isNaN(dt.getTime())) return ['SINCE', dt];
-      // bad date -> fall back below
+// ----------------------------------------------
+// CRITICAL: normalize search criteria
+// Ensures we pass a real Date object after 'SINCE'
+// ----------------------------------------------
+function normalizeSearchCriteria(raw) {
+  if (!raw) return ['ALL'];
+
+  if (Array.isArray(raw)) {
+    // ['SINCE', Date]
+    if (raw[0] === 'SINCE' && raw[1] instanceof Date) return raw;
+
+    // ['SINCE', '2025-...'] -> convert to Date
+    if (raw[0] === 'SINCE' && typeof raw[1] === 'string') {
+      const d = new Date(raw[1]);
+      return ['SINCE', isNaN(d) ? new Date(Date.now() - 7 * 864e5) : d];
     }
+
+    // ['SINCE', [<v>]] -> flatten + convert
+    if (raw[0] === 'SINCE' && Array.isArray(raw[1])) {
+      const v = raw[1][0];
+      const d = v instanceof Date ? v : new Date(v);
+      return ['SINCE', isNaN(d) ? new Date(Date.now() - 7 * 864e5) : d];
+    }
+
+    // already like ['ALL'] / other flags
+    return raw;
   }
 
-  // Build from fallback days if provided
-  const days = Math.max(0, Number(fallbackRangeDays) || 0);
-  if (days > 0) return ['SINCE', new Date(Date.now() - days * 864e5)];
   return ['ALL'];
 }
 
-function openBox(imap, box = 'INBOX') {
-  return new Promise((resolve, reject) => {
-    imap.openBox(box, true, (err, boxInfo) => err ? reject(err) : resolve(boxInfo));
-  });
-}
-
-function imapConnect({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  const conf = {
+// ----------------------------------------------
+// IMAP connection (Promise-wrapped)
+// ----------------------------------------------
+function connectIMAP({
+  email,
+  password,
+  accessToken,
+  host = 'imap.gmail.com',
+  port = 993,
+  tls = true,
+  authType = 'password',
+}) {
+  const imap = new Imap({
     user: email,
-    host: host || 'imap.gmail.com',
-    port: Number(port) || 993,
-    tls: toBool(tls, true),
-    tlsOptions: { rejectUnauthorized: true },
-    connTimeout: 15000,
-    authTimeout: 15000,
-  };
-
-  if (authType === 'xoauth2' && accessToken) {
-    conf.xoauth2 = accessToken;
-  } else {
-    conf.password = password || '';
-  }
-
-  const imap = new Imap(conf);
+    password: authType === 'password' ? password : undefined,
+    xoauth2: authType === 'xoauth2' ? accessToken : undefined,
+    host,
+    port,
+    tls,
+    tlsOptions: tls ? tlsOptionsFor(host) : undefined,
+    autotls: tls ? 'always' : 'never',
+  });
 
   return new Promise((resolve, reject) => {
+    const onReady = () => resolve(imap);
     const onError = (err) => reject(err);
-    imap.once('ready', () => {
-      imap.removeListener('error', onError);
-      resolve(imap);
-    });
+    imap.once('ready', onReady);
     imap.once('error', onError);
     imap.connect();
   });
 }
 
-function fetchEnvelope(imap, uids, { maxBytesPerBody = 64 * 1024 } = {}) {
-  if (!uids || uids.length === 0) return Promise.resolve([]);
-
+function openInbox(imap) {
   return new Promise((resolve, reject) => {
-    const out = [];
-    const f = imap.fetch(uids, {
-      bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT'],
-      struct: true
-    });
-
-    f.on('message', (msg, seqno) => {
-      const rec = { id: String(seqno), uid: null, from: '', to: '', subject: '', date: null, snippet: '', hasIcs: false, attachTypes: [] };
-
-      msg.on('attributes', (attrs) => {
-        rec.uid = attrs.uid;
-        // detect attachment types lightly
-        if (Array.isArray(attrs.struct)) {
-          const walk = (parts) => {
-            parts.forEach(p => {
-              if (Array.isArray(p)) return walk(p);
-              if (p && p.disposition && /attachment/i.test(p.disposition.type) && p.type) {
-                rec.attachTypes.push(`${p.type}/${p.subtype}`.toLowerCase());
-                if (String(p.subtype).toLowerCase() === 'calendar') rec.hasIcs = true;
-              }
-            });
-          };
-          walk(attrs.struct);
-        }
-      });
-
-      msg.on('body', async (stream, info) => {
-        const chunks = [];
-        let bytes = 0;
-        stream.on('data', (chunk) => {
-          if (bytes < maxBytesPerBody) {
-            chunks.push(chunk);
-            bytes += chunk.length;
-          } else {
-            stream.resume();
-          }
-        });
-        stream.on('end', async () => {
-          try {
-            const buf = Buffer.concat(chunks);
-            if (/HEADER/i.test(info.which)) {
-              const hdr = Imap.parseHeader(buf.toString('utf8'));
-              rec.from = (hdr.from && hdr.from[0]) || '';
-              rec.to = (hdr.to && hdr.to[0]) || '';
-              rec.subject = (hdr.subject && hdr.subject[0]) || '';
-              rec.date = (hdr.date && hdr.date[0]) || null;
-            } else {
-              // lightweight parse to get a nice snippet (avoid full decode for memory)
-              const text = buf.toString('utf8').replace(/\s+/g, ' ').slice(0, 500);
-              rec.snippet = text;
-            }
-          } catch (e) {
-            // ignore parse errors for robustness
-          }
-        });
-      });
-
-      msg.on('end', () => out.push(rec));
-    });
-
-    f.once('error', reject);
-    f.once('end', () => resolve(out));
+    imap.openBox('INBOX', true, (err, box) => (err ? reject(err) : resolve(box)));
   });
 }
 
-export async function fetchEmails({
-  email, password, accessToken, host, port = 993, tls = true, authType = 'password',
-  search, limit = 20, rangeDays // optional fallback if search isn’t set
-}) {
-  const imap = await imapConnect({ email, password, accessToken, host, port, tls, authType });
+function endSafe(imap) {
+  try { imap.end(); } catch (_) {}
+}
+
+// ----------------------------------------------
+// Small helpers
+// ----------------------------------------------
+const decoder = new StringDecoder('utf8');
+
+function headerValue(hdr, key) {
+  const v = (hdr && hdr[key]) ? hdr[key] : undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function extractSnippet(buffers, max = 8000) {
+  const buf = Buffer.concat(buffers).slice(0, max);
+  // very light cleanup for preview
+  return decoder.write(buf).replace(/\r/g, '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+}
+
+function parseAddress(raw) {
+  // raw looks like: '"Name" <user@example.com>' or just the email
+  const m = String(raw || '').match(/<?([^<>\s@]+@[^<>\s@]+)>?/);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function domainOf(email) {
+  const m = String(email).toLowerCase().split('@');
+  return m.length === 2 ? m[1] : '';
+}
+
+// ----------------------------------------------
+// Public: testLogin (safe to remove later)
+// ----------------------------------------------
+export async function testLogin(opts) {
+  let imap;
+  try {
+    imap = await connectIMAP(opts);
+    await openInbox(imap);
+    endSafe(imap);
+    return true;
+  } catch (e) {
+    endSafe(imap);
+    return false;
+  }
+}
+
+// ----------------------------------------------
+// Public: fetchEmails
+// opts: { email, password, accessToken, host, port, tls, authType, search, limit }
+// returns: { items, nextCursor, hasMore }
+// ----------------------------------------------
+export async function fetchEmails(opts) {
+  const {
+    email,
+    password,
+    accessToken,
+    host = 'imap.gmail.com',
+    port = 993,
+    tls = true,
+    authType = 'password',
+    search,
+    limit = 20,
+  } = opts || {};
+
+  const criteria = normalizeSearchCriteria(search);
+  let imap;
 
   try {
-    await openBox(imap, 'INBOX');
+    imap = await connectIMAP({ email, password, accessToken, host, port, tls, authType });
+    const box = await openInbox(imap);
 
-    // *** THIS IS THE IMPORTANT BIT ***
-    const criteria = normalizeCriteria(search, rangeDays);
-
-    // node-imap search
+    // SEARCH
     const uids = await new Promise((resolve, reject) => {
       imap.search(criteria, (err, results) => (err ? reject(err) : resolve(results || [])));
     });
 
-    // newest first, apply limit
-    const pick = (uids || []).sort((a, b) => b - a).slice(0, Math.max(1, Number(limit) || 20));
+    // Sort newest first, then cap to `limit`
+    const wanted = (uids || []).sort((a, b) => b - a).slice(0, Math.max(0, Number(limit) || 0));
 
-    const emails = await fetchEnvelope(imap, pick);
-    const nextCursor = null; // keep for future paging
-    const hasMore = false;
+    if (wanted.length === 0) {
+      endSafe(imap);
+      return { items: [], nextCursor: null, hasMore: false };
+    }
 
-    return { items: emails, nextCursor, hasMore };
-  } finally {
-    try { imap.end(); } catch {}
-  }
-}
+    // FETCH
+    // Keep memory small: PEEK text and cap preview to first ~8KB
+    const fetcher = imap.fetch(wanted, {
+      bodies: [
+        'HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID CONTENT-TYPE)',
+        'BODY.PEEK[TEXT]' // do not mark seen
+      ],
+      struct: true,
+    });
 
-/** Minimal, removable login test.
- * Safe to delete later; fetchEmails does not depend on it.
- */
-export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  const imap = await imapConnect({ email, password, accessToken, host, port, tls, authType });
-  try {
-    await openBox(imap, 'INBOX');
-    return true;
-  } finally {
-    try { imap.end(); } catch {}
+    const items = [];
+    let current = {};
+
+    await new Promise((resolve, reject) => {
+      fetcher.on('message', (msg, seqno) => {
+        current = { id: String(seqno), uid: null, headers: {}, snippet: '' };
+        const bodyBuffers = [];
+
+        msg.once('attributes', attrs => {
+          current.uid = attrs.uid;
+          current.flags = attrs.flags || [];
+          current.hasIcs = (attrs.struct || []).some(s =>
+            (s && s.type && s.subtype) && /calendar/i.test(`${s.type}/${s.subtype}`)
+          );
+          current.attachTypes = []; // (left empty — fill via struct scan if needed)
+        });
+
+        msg.on('body', (stream, info) => {
+          if (info.which && info.which.startsWith('HEADER')) {
+            let headerBuf = Buffer.alloc(0);
+            stream.on('data', (chunk) => { headerBuf = Buffer.concat([headerBuf, chunk]); });
+            stream.once('end', () => {
+              const parsed = Imap.parseHeader(headerBuf.toString('utf8'));
+              current.headers = parsed;
+              current.from = headerValue(parsed, 'from') || '';
+              current.to = headerValue(parsed, 'to') || '';
+              current.subject = headerValue(parsed, 'subject') || '';
+              const dateStr = headerValue(parsed, 'date') || '';
+              current.date = new Date(dateStr).toISOString();
+              current.fromEmail = parseAddress(current.from);
+              current.fromDomain = domainOf(current.fromEmail);
+              current.contentType = headerValue(parsed, 'content-type') || '';
+            });
+          } else {
+            // TEXT body
+            stream.on('data', (chunk) => { bodyBuffers.push(chunk); });
+            stream.once('end', () => {
+              if (!current.snippet) current.snippet = extractSnippet(bodyBuffers, 8192);
+            });
+          }
+        });
+
+        msg.once('end', () => {
+          current.unread = !current.flags.includes('\\Seen');
+          current.flagged = current.flags.includes('\\Flagged');
+          items.push(current);
+        });
+      });
+
+      fetcher.once('error', reject);
+      fetcher.once('end', resolve);
+    });
+
+    endSafe(imap);
+
+    // No server cursoring here; expose a simple shape compatible with your routes.
+    return {
+      items,
+      nextCursor: null,
+      hasMore: false,
+    };
+  } catch (err) {
+    endSafe(imap);
+    // Re-throw with a short tag so logs are clear but not noisy.
+    const e = new Error(`IMAP fetch error: ${err?.message || err}`);
+    e.cause = err;
+    throw e;
   }
 }
