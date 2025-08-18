@@ -1,5 +1,6 @@
-// imapService.js
-// Robust IMAP fetch + optional login test using ImapFlow.
+// imapService.js — Month-bound IMAP fetch using ImapFlow.
+// Accepts search: { since?: Date, before?: Date } and limit.
+// (We still export testLogin and keep the rest unchanged.)
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -74,8 +75,13 @@ function toItem({ meta, body, flags }) {
   };
 }
 
-// Accept only search.rangeDays (number of days back)
-// Everything else (time/range strings) is normalized in the route.
+/**
+ * Fetch emails from INBOX for a single calendar month.
+ * Params:
+ *   email, password, accessToken, host, port, tls, authType
+ *   search: { since?: Date, before?: Date }   // MONTH BOUNDS
+ *   limit: number
+ */
 export async function fetchEmails({
   email,
   password,
@@ -89,23 +95,20 @@ export async function fetchEmails({
 }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
 
-  const rangeDays = Math.max(0, Number(search.rangeDays || 0));
-  const sinceDate = rangeDays > 0 ? new Date(Date.now() - rangeDays * 864e5) : null;
+  // Build ImapFlow search object. We only support month bounds here.
+  const since = search && search.since instanceof Date ? search.since : null;
+  const before = search && search.before instanceof Date ? search.before : null;
 
   try {
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
-      let uids;
-      if (sinceDate) {
-        uids = await client.search({ since: sinceDate }); // Date object (correct for IMAP)
-      } else {
-        uids = await client.search({});
-      }
+      let criteria = {};
+      if (since) criteria.since = since;
+      if (before) criteria.before = before;
 
-      if (uids.length > limit) {
-        uids = uids.slice(-limit);
-      }
+      let uids = await client.search(criteria); // ImapFlow formats IMAP query properly
+      if (uids.length > limit) uids = uids.slice(-limit); // newest N
 
       const items = [];
       for await (const msg of client.fetch(uids, {
@@ -132,12 +135,19 @@ export async function fetchEmails({
     const m = String(err && err.message) || 'IMAP fetch failed';
     throw new Error(`IMAP /fetch error: ${m}`);
   } finally {
-    try { await client.logout(); } catch {}
+    try { await client.logout(); } catch { /* noop */ }
   }
 }
 
+/** Lightweight connectivity test (safe to delete later). */
 export async function testLogin({
-  email, password, accessToken, host, port = 993, tls = true, authType = 'password'
+  email,
+  password,
+  accessToken,
+  host,
+  port = 993,
+  tls = true,
+  authType = 'password'
 }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
   try {
@@ -147,6 +157,6 @@ export async function testLogin({
   } catch {
     return false;
   } finally {
-    try { await client.logout(); } catch {}
+    try { await client.logout(); } catch { /* noop */ }
   }
 }
