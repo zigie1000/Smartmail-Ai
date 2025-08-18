@@ -1,10 +1,11 @@
-// imapService.js — Month-bound IMAP fetch using ImapFlow.
-// Accepts search: { since?: Date, before?: Date } and limit.
-// (We still export testLogin and keep the rest unchanged.)
+// imapService.js
+// Robust IMAP fetch + optional login test using ImapFlow.
+// Adds: OPTIONAL month-based search (YYYY-MM) alongside existing rangeDays.
 
 import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser';
+import { simpleParser } from 'mailparser'; // npm i mailparser
 
+// Small helper: create a client safely
 function makeClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
   const auth =
     authType === 'xoauth2'
@@ -20,6 +21,19 @@ function makeClient({ host, port = 993, tls = true, authType = 'password', email
   });
 }
 
+// --- NEW: parse YYYY-MM into [since, before]
+function monthToRange(monthStr) {
+  // monthStr must be like '2025-08'
+  if (typeof monthStr !== 'string' || !/^\d{4}-\d{2}$/.test(monthStr)) return null;
+  const [y, m] = monthStr.split('-').map(Number);
+  const since = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));     // first day of month (UTC)
+  const before = new Date(Date.UTC(y, m, 1, 0, 0, 0));        // first day of next month (UTC)
+  return { since, before };
+}
+
+/**
+ * Normalize a MessageEnvelope+structure to the shape your classifier expects.
+ */
 function toItem({ meta, body, flags }) {
   const fromAddr = (meta.envelope.from && meta.envelope.from[0]) || {};
   const fromEmail = (fromAddr.address || '').toLowerCase();
@@ -76,10 +90,10 @@ function toItem({ meta, body, flags }) {
 }
 
 /**
- * Fetch emails from INBOX for a single calendar month.
- * Params:
+ * Fetch emails from INBOX.
+ * Options:
  *   email, password, accessToken, host, port, tls, authType
- *   search: { since?: Date, before?: Date }   // MONTH BOUNDS
+ *   search: { rangeDays?: number, month?: 'YYYY-MM' }  // month is NEW
  *   limit: number
  */
 export async function fetchEmails({
@@ -95,20 +109,42 @@ export async function fetchEmails({
 }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
 
-  // Build ImapFlow search object. We only support month bounds here.
-  const since = search && search.since instanceof Date ? search.since : null;
-  const before = search && search.before instanceof Date ? search.before : null;
+  // Build search safely:
+  // Priority: month → else rangeDays → else all
+  let sinceDate = null;
+  let beforeDate = null;
+
+  if (search.month) {
+    const rng = monthToRange(search.month);
+    if (rng) {
+      sinceDate = rng.since;
+      beforeDate = rng.before;
+    }
+  }
+
+  if (!sinceDate && typeof search.rangeDays !== 'undefined') {
+    const rangeDays = Math.max(0, Number(search.rangeDays || 0));
+    if (rangeDays > 0) {
+      sinceDate = new Date(Date.now() - rangeDays * 864e5);
+    }
+  }
 
   try {
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
-      let criteria = {};
-      if (since) criteria.since = since;
-      if (before) criteria.before = before;
+      // ImapFlow search supports { since, before }
+      // If neither is set, pass {} to fetch all.
+      const criteria = {};
+      if (sinceDate) criteria.since = sinceDate;
+      if (beforeDate) criteria.before = beforeDate;
 
-      let uids = await client.search(criteria); // ImapFlow formats IMAP query properly
-      if (uids.length > limit) uids = uids.slice(-limit); // newest N
+      let uids = await client.search(criteria);
+
+      // Take last N (newest)
+      if (uids.length > limit) {
+        uids = uids.slice(-limit);
+      }
 
       const items = [];
       for await (const msg of client.fetch(uids, {
@@ -127,7 +163,11 @@ export async function fetchEmails({
         );
       }
 
-      return { items, nextCursor: null, hasMore: false };
+      return {
+        items,
+        nextCursor: null,
+        hasMore: false
+      };
     } finally {
       lock.release();
     }
@@ -135,11 +175,13 @@ export async function fetchEmails({
     const m = String(err && err.message) || 'IMAP fetch failed';
     throw new Error(`IMAP /fetch error: ${m}`);
   } finally {
-    try { await client.logout(); } catch { /* noop */ }
+    try { await client.logout(); } catch {}
   }
 }
 
-/** Lightweight connectivity test (safe to delete later). */
+/**
+ * Lightweight connectivity test (safe to delete later).
+ */
 export async function testLogin({
   email,
   password,
@@ -157,6 +199,6 @@ export async function testLogin({
   } catch {
     return false;
   } finally {
-    try { await client.logout(); } catch { /* noop */ }
+    try { await client.logout(); } catch {}
   }
 }
