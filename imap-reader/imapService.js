@@ -1,292 +1,281 @@
-// imapService.js  — ESM module
-// Works with node-imap (CJS). Keep extremely defensive around inputs.
+// imapService.js — node-imap helper used by imapRoutes.js
+// Guarantees: accepts search arrays from the route; fixes SINCE date arg;
+// lightweight fetch to avoid OOM; optional self-signed CA handling.
 
 import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+import { inspect } from 'util';
+import { Buffer } from 'node:buffer';
 
-/** Build a safe IMAP connection */
-function createConnection({
-  email = '',
-  password = '',
-  accessToken = '',
-  host = 'imap.gmail.com',
-  port = 993,
-  tls = true,
-  authType = 'password',
-}) {
-  const imapConfig = {
-    user: email,
-    host,
-    port: Number(port) || 993,
-    tls: !!tls,
-    // SNI + CA verification; Gmail is properly signed — do NOT disable.
-    tlsOptions: { servername: host, rejectUnauthorized: true },
-    autotls: 'always',
-  };
+const DEFAULT_HOST = 'imap.gmail.com';
+const DEFAULT_PORT = 993;
 
-  if (authType === 'oauth2' && accessToken) {
-    imapConfig.xoauth2 = Buffer.from(
-      `user=${email}\x01auth=Bearer ${accessToken}\x01\x01`,
-      'utf-8'
-    ).toString('base64');
-  } else {
-    imapConfig.password = password || '';
+/** Convert a variety of inputs to a real Date, or null if invalid */
+function toDate(v) {
+  if (v instanceof Date && !isNaN(v)) return v;
+  if (typeof v === 'number') {
+    const d = new Date(v);
+    return isNaN(d) ? null : d;
+  }
+  if (typeof v === 'string') {
+    // Allow ISO strings coming from JSON serialization
+    const d = new Date(v);
+    return isNaN(d) ? null : d;
+  }
+  return null;
+}
+
+/** Normalize node-imap style search criteria */
+function normalizeCriteria(search) {
+  // Expected from route: ['ALL']  OR  ['SINCE', Date]
+  if (!Array.isArray(search) || search.length === 0) return ['ALL'];
+
+  // If something like ["SINCE", "2025-08-11T...Z"] slipped in, fix it:
+  const key = String(search[0] || '').toUpperCase();
+  if ((key === 'SINCE' || key === 'BEFORE' || key === 'ON') && search.length >= 2) {
+    const fixed = toDate(search[1]);
+    if (fixed) return [key, fixed];
+    // If date is bad, fall back to ALL to avoid throwing
+    return ['ALL'];
   }
 
-  return new Imap(imapConfig);
+  // If already valid, return as-is.
+  return search;
 }
 
-/** Promisified connect/open/close helpers */
-function imapConnect(imap) {
+/** Create an IMAP connection (node-imap) */
+function createImap({ email, password, host, port, tls, authType }) {
+  const allowSelfSigned = process.env.ALLOW_SELF_SIGNED === '1';
+  const useSystemCA = process.env.USE_SYSTEM_CA === '1';
+
+  const imap = new Imap({
+    user: email,
+    password: authType === 'password' ? password : password, // placeholder for XOAUTH2 if added later
+    xoauth2: authType === 'xoauth2' ? password : undefined,
+    host: host || DEFAULT_HOST,
+    port: Number(port || DEFAULT_PORT),
+    tls: tls !== false,
+    tlsOptions: {
+      // If you really must, you can allow self-signed by env.
+      rejectUnauthorized: allowSelfSigned ? false : true
+    },
+    autotls: 'always', // be strict with TLS negotiation
+    keepalive: {
+      idleInterval: 30000,
+      forceNoop: true
+    }
+  });
+
+  // Optional: let node use system CAs if container has them
+  if (useSystemCA) {
+    // no explicit change required if the environment has proper CA bundle;
+    // kept for clarity/documentation
+  }
+
+  return imap;
+}
+
+/** Promisified open/close helpers */
+function openInbox(imap, box = 'INBOX') {
   return new Promise((resolve, reject) => {
-    const cleanupError = (err) => reject(err || new Error('IMAP connect error'));
-    imap.once('ready', () => resolve());
-    imap.once('error', cleanupError);
-    imap.connect();
+    imap.openBox(box, true, (err, boxInfo) => (err ? reject(err) : resolve(boxInfo)));
   });
 }
-
-function imapOpenBox(imap, mailbox = 'INBOX') {
-  return new Promise((resolve, reject) => {
-    imap.openBox(mailbox, true, (err, box) => (err ? reject(err) : resolve(box)));
-  });
-}
-
-function imapEnd(imap) {
+function endImap(imap) {
   return new Promise((resolve) => {
     try {
       imap.end();
-      imap.once('end', resolve);
-      setTimeout(resolve, 1000);
-    } catch {
-      resolve();
-    }
+    } catch {}
+    imap.once('end', () => resolve());
+  });
+}
+function imapSearch(imap, criteria) {
+  return new Promise((resolve, reject) => {
+    imap.search(criteria, (err, results) => (err ? reject(err) : resolve(results || [])));
   });
 }
 
-/** Ensure node-imap gets a Date *object* after SINCE */
-function normalizeSearchCriteria(search, rangeDays, nowMs = Date.now()) {
-  // If caller passed an explicit, already-correct array (e.g. ['ALL'])
-  // keep it — but upgrade any SINCE strings to Date objects.
-  if (Array.isArray(search) && search.length) {
-    const up = [...search];
-    for (let i = 0; i < up.length; i++) {
-      if (String(up[i]).toUpperCase() === 'SINCE') {
-        // Next token must be a Date object
-        const nxt = up[i + 1];
-        if (!(nxt instanceof Date)) {
-          const asDate = new Date(nxt || 0);
-          // Fallback: if invalid, use now - 7d
-          up[i + 1] = Number.isFinite(asDate.getTime())
-            ? asDate
-            : new Date(nowMs - 7 * 864e5);
-        }
-      }
-    }
-    return up;
-  }
+/** Fetch a safe subset of data for a list of message IDs (seqnos) */
+function fetchLight(imap, seqnos) {
+  return new Promise((resolve, reject) => {
+    if (!seqnos || seqnos.length === 0) return resolve([]);
 
-  // Otherwise, synthesize from rangeDays
-  const days = Math.max(0, Number(rangeDays) || 0);
-  if (days > 0) {
-    // node-imap expects a Date, not an ISO string
-    return ['SINCE', new Date(nowMs - days * 864e5)];
-  }
-  return ['ALL'];
-}
+    const items = [];
+    // Grab headers + a tiny chunk of text for snippet. Use PEEK to avoid setting \Seen.
+    const fetcher = imap.fetch(seqnos, {
+      bodies: [
+        'HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID CONTENT-TYPE)',
+        'TEXT[]<0.1024>' // first 1KB only for snippet
+      ],
+      struct: true
+    });
 
-/** Pull just enough content to classify (headers + short text snippet) */
-async function fetchBatch(imap, uids) {
-  const items = [];
-  if (!uids || !uids.length) return items;
-
-  // Small, memory-safe fetch options
-  const fetcher = imap.fetch(uids, {
-    bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT[]'],
-    struct: true,
-  });
-
-  const byUid = new Map();
-
-  await new Promise((resolve, reject) => {
     fetcher.on('message', (msg, seqno) => {
-      let uid = null;
-      let headersRaw = '';
-      let textRaw = '';
-      let dateHeader = '';
-
-      msg.on('attributes', (attrs) => {
-        uid = attrs.uid;
-        byUid.set(uid, byUid.get(uid) || { attrs });
-      });
+      const entry = { uid: seqno, headers: {}, text: '' };
 
       msg.on('body', (stream, info) => {
+        const isHeader = typeof info.which === 'string' && info.which.startsWith('HEADER.FIELDS');
+        const isSnippet = typeof info.which === 'string' && info.which.startsWith('TEXT');
+
         const chunks = [];
         stream.on('data', (c) => chunks.push(c));
-        stream.once('end', async () => {
-          const buf = Buffer.concat(chunks);
-          const which = (info.which || '').toUpperCase();
+        stream.once('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
 
-          if (which.includes('HEADER')) {
-            headersRaw = buf.toString('utf8');
-          } else if (which.includes('TEXT')) {
-            // Avoid large memory: only keep a small snippet
-            textRaw = buf.toString('utf8').slice(0, 8000);
+          if (isHeader) {
+            // crude header parse (node-imap doesn’t parse for us here)
+            const lines = raw.split(/\r?\n/);
+            lines.forEach((line) => {
+              const m = line.match(/^([A-Za-z\-]+):\s*(.*)$/);
+              if (m) {
+                entry.headers[m[1].toLowerCase()] = m[2];
+              }
+            });
+          } else if (isSnippet) {
+            entry.text = raw.replace(/\s+/g, ' ').trim().slice(0, 1000);
           }
         });
       });
 
-      msg.once('end', async () => {
-        // Parse headers safely
-        let from = '';
-        let to = '';
-        let subject = '';
-        let date = '';
+      msg.once('attributes', (attrs) => {
+        entry.attrs = attrs || {};
+      });
+
+      msg.once('end', () => {
+        // Build friendly fields
+        const h = entry.headers || {};
+        const from = h['from'] || '';
+        const to = h['to'] || '';
+        const subject = h['subject'] || '';
+        const date = h['date'] || '';
+        const contentType = h['content-type'] || '';
+
+        // Attempt to extract the email/domain from "From"
         let fromEmail = '';
         let fromDomain = '';
-
-        try {
-          const parsed = await simpleParser(headersRaw);
-          from = (parsed.from && parsed.from.text) || '';
-          to = (parsed.to && parsed.to.text) || '';
-          subject = parsed.subject || '';
-          date = parsed.date ? parsed.date.toISOString() : '';
-          dateHeader = parsed.date || '';
-          if (parsed.from && parsed.from.value && parsed.from.value[0]) {
-            fromEmail = parsed.from.value[0].address || '';
-            fromDomain = (fromEmail.split('@')[1] || '').toLowerCase();
-          }
-        } catch {
-          // noop
-        }
-
-        const snippet =
-          textRaw
-            .replace(/\s+/g, ' ')
-            .replace(/=\r?\n/g, '') // quoted-printable leftovers
-            .slice(0, 280);
+        const m = from.match(/<([^>]+)>/);
+        if (m) fromEmail = m[1].toLowerCase();
+        else if (from.includes('@')) fromEmail = from.toLowerCase().replace(/^.*\s|\s.*$/g, '');
+        if (fromEmail.includes('@')) fromDomain = fromEmail.split('@').pop();
 
         items.push({
-          id: String(uid || seqno),
-          uid: uid || seqno,
+          id: String(entry.uid),
+          uid: entry.uid,
           from,
           fromEmail,
           fromDomain,
           to,
           subject,
-          snippet,
-          date: date || (dateHeader ? new Date(dateHeader).toISOString() : ''),
-          unread: !!(byUid.get(uid)?.attrs?.flags && !byUid.get(uid).attrs.flags.includes('\\Seen')),
-          flagged: !!(byUid.get(uid)?.attrs?.flags && byUid.get(uid).attrs.flags.includes('\\Flagged')),
-          hasIcs: /text\/calendar/i.test(headersRaw),
-          attachTypes: [], // keep spot for your classifier
-          headers: {}, // keep spot for your classifier
-          contentType: '', // keep spot for your classifier
+          date,
+          snippet: entry.text || '',
+          unread: !(entry.attrs?.flags || []).includes('\\Seen'),
+          flagged: (entry.attrs?.flags || []).includes('\\Flagged'),
+          hasIcs: /text\/calendar/i.test(contentType),
+          attachTypes: [], // can be filled by walking struct if needed later
+          contentType
         });
       });
     });
 
-    fetcher.once('error', reject);
-    fetcher.once('end', resolve);
+    fetcher.once('error', (err) => reject(err));
+    fetcher.once('end', () => resolve(items));
   });
-
-  // Sort descending by internal date
-  items.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  return items;
 }
 
-/**
- * Public: fetchEmails
- * @param {Object} opts - { email,password,accessToken,host,port,tls,authType, search, limit, rangeDays }
- * @returns {Promise<{items: Array, nextCursor: null, hasMore: boolean}>}
- */
-export async function fetchEmails(opts = {}) {
-  const {
-    email = '',
-    password = '',
-    accessToken = '',
-    host = 'imap.gmail.com',
-    port = 993,
-    tls = true,
-    authType = 'password',
-    search = null,
-    limit = 20,
-    rangeDays = 0,
-  } = opts;
-
-  const imap = createConnection({
+/** Public: fetch emails */
+export async function fetchEmails({
+  email = '',
+  password = '',
+  accessToken = '', // not used yet; reserved for XOAUTH2
+  host = DEFAULT_HOST,
+  port = DEFAULT_PORT,
+  tls = true,
+  authType = 'password',
+  search = ['ALL'],
+  limit = 20
+}) {
+  const imap = createImap({
     email,
-    password,
-    accessToken,
+    password: authType === 'xoauth2' ? accessToken : password,
     host,
     port,
     tls,
-    authType,
+    authType
   });
 
+  // Important: make sure criteria are valid for node-imap
+  const criteria = normalizeCriteria(search);
+
+  const items = [];
+  let hadError = null;
+
+  await new Promise((resolve) => {
+    imap.once('ready', resolve);
+    imap.once('error', (err) => {
+      hadError = err;
+      resolve();
+    });
+    imap.connect();
+  });
+  if (hadError) {
+    try { imap.destroy(); } catch {}
+    throw hadError;
+  }
+
   try {
-    await imapConnect(imap);
-    await imapOpenBox(imap, 'INBOX');
+    await openInbox(imap, 'INBOX');
 
-    const criteria = normalizeSearchCriteria(search, rangeDays);
-    // DEBUG (optional): console.log('IMAP criteria (normalized):', criteria);
+    const results = await imapSearch(imap, criteria); // seq numbers
+    // results can be huge; keep only the newest N
+    const chosen = results.slice(-Math.max(0, Number(limit) || 0));
 
-    const uids = await new Promise((resolve, reject) => {
-      imap.search(criteria, (err, results) => (err ? reject(err) : resolve(results || [])));
+    const fetched = await fetchLight(imap, chosen);
+    items.push(...fetched);
+  } finally {
+    await endImap(imap);
+  }
+
+  // Simple cursor stubs for now
+  return { items, nextCursor: null, hasMore: false };
+}
+
+/** Public: isolated test login (safe to delete later) */
+export async function testLogin({
+  email = '',
+  password = '',
+  accessToken = '',
+  host = DEFAULT_HOST,
+  port = DEFAULT_PORT,
+  tls = true,
+  authType = 'password'
+}) {
+  const imap = createImap({
+    email,
+    password: authType === 'xoauth2' ? accessToken : password,
+    host,
+    port,
+    tls,
+    authType
+  });
+
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    imap.once('ready', async () => {
+      try {
+        await openInbox(imap, 'INBOX');
+        resolved = true;
+        resolve(true);
+      } catch {
+        resolve(false);
+      } finally {
+        await endImap(imap);
+      }
     });
 
-    if (!uids.length) {
-      await imapEnd(imap);
-      return { items: [], nextCursor: null, hasMore: false };
-    }
+    imap.once('error', () => {
+      if (!resolved) resolve(false);
+    });
 
-    // Latest first, cap to limit
-    const capped = uids.slice(-Number(limit || 20));
-    const items = await fetchBatch(imap, capped);
-
-    await imapEnd(imap);
-    return { items, nextCursor: null, hasMore: uids.length > capped.length };
-  } catch (err) {
-    // Bubble a concise error up to routes; they log details
-    throw new Error(`IMAP fetch error: ${err?.message || String(err)}`);
-  } finally {
-    try { imap.state && imap.state !== 'disconnected' && imap.end(); } catch {}
-  }
-}
-
-/**
- * Public: testLogin
- * Connects and opens INBOX, then disconnects.
- * Return true/false only — easy to remove later without side effects.
- */
-export async function testLogin(opts = {}) {
-  const {
-    email = '',
-    password = '',
-    accessToken = '',
-    host = 'imap.gmail.com',
-    port = 993,
-    tls = true,
-    authType = 'password',
-  } = opts;
-
-  const imap = createConnection({
-    email,
-    password,
-    accessToken,
-    host,
-    port,
-    tls,
-    authType,
+    imap.connect();
   });
-
-  try {
-    await imapConnect(imap);
-    await imapOpenBox(imap, 'INBOX');
-    await imapEnd(imap);
-    return true;
-  } catch {
-    try { imap.end(); } catch {}
-    return false;
-  }
 }
