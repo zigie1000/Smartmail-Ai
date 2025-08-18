@@ -5,8 +5,6 @@ import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
-
-// Supabase (service role)
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -19,8 +17,6 @@ const router = express.Router();
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
-
-// Basic sanity check to avoid DB pattern errors
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
 
 function rowsToSet(rows, key) {
@@ -31,11 +27,9 @@ function rowsToSet(rows, key) {
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 // --- Tier helpers (email-first, key fallback) ---
-// IMPORTANT: Only read the 'smartemail_tier' column from 'licenses'
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
-  // Lookup by license key
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -43,13 +37,10 @@ async function getTier({ licenseKey = '', email = '' }) {
         .select('smartemail_tier')
         .eq('license_key', licenseKey)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by license key failed:', e?.message || e); }
 
-  // Fallback by email (newest record)
   try {
     if (em && isLikelyEmail(em) && supa) {
       const { data } = await supa
@@ -59,9 +50,7 @@ async function getTier({ licenseKey = '', email = '' }) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by email failed:', e?.message || e); }
 
@@ -73,7 +62,6 @@ async function isPaid(tier) {
   return !!tier && tier !== 'free';
 }
 
-// Personalization lists + learned weights (paid users only)
 async function fetchListsFromSql(userId = 'default') {
   const empty = {
     vip: new Set(),
@@ -170,9 +158,7 @@ router.post('/fetch', async (req, res) => {
       licenseKey = ''
     } = req.body || {};
 
-    // protect DB: only use plausible email for tier lookup + userId
     const safeEmail = isLikelyEmail(email) ? email : '';
-
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
@@ -188,32 +174,25 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ==== PRECISION ADD: support month window ====
-    // Accept either:
-    //  - rangeMonth: "YYYY-MM"  → { since: firstOfMonth, before: firstOfNextMonth }
-    //  - rangeDays:  <number>   → { since: now - days }
-    //  - otherwise               → {} (ALL)
-    let search = {};
-    const { rangeMonth } = req.body || {};
-    if (rangeMonth) {
-      const [yy, mm] = String(rangeMonth).split('-').map(Number);
-      if (!Number.isNaN(yy) && !Number.isNaN(mm) && yy > 1900 && mm >= 1 && mm <= 12) {
-        const start = new Date(yy, mm - 1, 1);
-        const end   = new Date(yy, mm, 1);
-        search = { since: start, before: end };
-      }
+    // ----- NEW: optional month filter (YYYY-MM)
+    // Highest priority if provided; otherwise fall back to existing rangeDays.
+    const monthStr = String(req.body.month || '').trim(); // e.g. "2025-08"
+    let criteria;
+    if (/^\d{4}-\d{2}$/.test(monthStr)) {
+      const [y, m] = monthStr.split('-').map(n => parseInt(n, 10));
+      const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+      const end   = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // first day of next month
+      criteria = ['SINCE', start, 'BEFORE', end];
     } else {
       const days = Math.max(0, Number(req.body.rangeDays) || 0);
-      if (days > 0) {
-        search = { since: new Date(Date.now() - days * 864e5) };
-      }
+      criteria = days > 0
+        ? ['SINCE', new Date(Date.now() - days * 864e5)]
+        : ['ALL'];
     }
-    // =============================================
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      search,
-      limit: Number(req.body.limit) || 20
+      search: criteria, limit: Number(req.body.limit) || 20
     });
 
     const lists = paid
