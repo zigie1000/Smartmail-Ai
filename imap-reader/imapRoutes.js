@@ -167,7 +167,7 @@ router.post('/fetch', async (req, res) => {
     const {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password',
-      licenseKey = '', month = '' // <-- NEW: optional 'YYYY-MM'
+      licenseKey = ''
     } = req.body || {};
 
     // protect DB: only use plausible email for tier lookup + userId
@@ -188,15 +188,32 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ✅ Minimal change: if month provided, prefer it; else keep existing rangeDays
-    const days = Math.max(0, Number(req.body.rangeDays) || 0);
-    const search = month
-      ? { month }                                 // e.g., "2025-08"
-      : (days > 0 ? { rangeDays: days } : {});   // previous behavior
+    // ==== PRECISION ADD: support month window ====
+    // Accept either:
+    //  - rangeMonth: "YYYY-MM"  → { since: firstOfMonth, before: firstOfNextMonth }
+    //  - rangeDays:  <number>   → { since: now - days }
+    //  - otherwise               → {} (ALL)
+    let search = {};
+    const { rangeMonth } = req.body || {};
+    if (rangeMonth) {
+      const [yy, mm] = String(rangeMonth).split('-').map(Number);
+      if (!Number.isNaN(yy) && !Number.isNaN(mm) && yy > 1900 && mm >= 1 && mm <= 12) {
+        const start = new Date(yy, mm - 1, 1);
+        const end   = new Date(yy, mm, 1);
+        search = { since: start, before: end };
+      }
+    } else {
+      const days = Math.max(0, Number(req.body.rangeDays) || 0);
+      if (days > 0) {
+        search = { since: new Date(Date.now() - days * 864e5) };
+      }
+    }
+    // =============================================
 
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      search, limit: Number(req.body.limit) || 20
+      search,
+      limit: Number(req.body.limit) || 20
     });
 
     const lists = paid
