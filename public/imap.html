@@ -263,6 +263,17 @@
   </div>
 
 <script>
+
+function updateMonthUI(){
+  const hasMonth = !!(($("monthStr")?.value || "").trim());
+  $("range").disabled = hasMonth;               // lock Range while month active
+  $("monthClear").disabled = !hasMonth;         // only usable when a month is set
+  // Optional hint
+  if (hasMonth) {
+    setMessage("ok","Month selected. Range is disabled and ignored.");
+  }
+}
+
 (function(){
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
@@ -604,7 +615,11 @@
   }
 
    // ---- Events ----
-  $("monthClear").addEventListener("click", ()=>{ $("monthStr").value=""; });
+$("monthStr").addEventListener("change", updateMonthUI);
+$("monthClear").addEventListener("click", ()=>{
+  $("monthStr").value = "";
+  updateMonthUI();
+});
  ["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
   .forEach(id => $(id).addEventListener("change", saveForm));
   $("provider").addEventListener("change", applyProviderPreset);
