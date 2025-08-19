@@ -189,28 +189,24 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ---- Date selection strategy ----
-    // 1) If monthStart & monthEnd provided (ISO strings), prefer exact month range
-    // 2) Else fall back to rangeDays -> SINCE
-    let search;
-    const ms = String(monthStart || '').trim();
-    const me = String(monthEnd || '').trim();
+    // ---- Date selection strategy (top-level args for imapService) ----
+// Prefer explicit month window; else fall back to rangeDays
+const msStr = String(monthStart || '').trim();
+const meStr = String(monthEnd   || '').trim();
 
-    if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
-      // pass through as object; imapService understands { monthStart, monthEnd }
-      search = { monthStart: ms, monthEnd: me };
-    } else {
-      // ✅ Critical fix preserved: SINCE must receive a Date object
-      const days = Math.max(0, Number(req.body.rangeDays) || 0);
-      search = days > 0
-        ? ['SINCE', new Date(Date.now() - days * 864e5)]
-        : ['ALL'];
-    }
+const topFilters = {};
+if (msStr && meStr && !Number.isNaN(Date.parse(msStr)) && !Number.isNaN(Date.parse(meStr))) {
+  topFilters.monthStart = msStr;   // inclusive start
+  topFilters.monthEnd   = meStr;   // inclusive end (imapService will add +1 day)
+} else {
+  topFilters.rangeDays = Math.max(0, Number(req.body.rangeDays) || 0); // 0 => ALL
+}
 
     const { items, nextCursor, hasMore } = await fetchEmails({
-      email: safeEmail, password, accessToken, host, port, tls, authType,
-      search, limit: Number(req.body.limit) || 20
-    });
+  email: safeEmail, password, accessToken, host, port, tls, authType,
+  ...topFilters,
+  limit: Number(req.body.limit) || 20
+});
 
     const lists = paid
       ? await fetchListsFromSql(userId)
