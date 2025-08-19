@@ -90,7 +90,7 @@ function toItem({ meta, body, flags }) {
  *   monthEnd?:   ISO string (inclusive; we add +1 day internally)
  *   rangeDays?:  number  (used when month* not provided; 0 => ALL)
  *
- *   // Back-compat (will be ignored if month*/rangeDays provided top-level):
+* Back-compat: ignored if monthStart/monthEnd or rangeDays are provided top-level
  *   search?: ['ALL'] | ['SINCE', Date] | { rangeDays?: number, monthStart?: string, monthEnd?: string }
  *
  *   limit: number
