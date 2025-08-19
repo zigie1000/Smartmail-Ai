@@ -373,18 +373,10 @@
   }
 
   // ---- Networking ----
-  async function fetchAndClassify(){
+   async function fetchAndClassify(){
     skeleton(6);
     try{
       const provider = $("provider").value;
-
-      // iCloud defaults
-      if (provider === "icloud") {
-        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-        $("tls").value = "on";
-        if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
-        if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
-      }
 
       const payload = {
         email: $("email").value||"",
@@ -403,6 +395,14 @@
           ""
       };
 
+  
+  // iCloud defaults
+      if (provider === "icloud") {
+        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+        $("tls").value = "on";
+        if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
+        if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
+      }
       // XOAUTH2 requires a token
       if ((payload.authType||"").toLowerCase()==="xoauth2" &&
           !String(payload.accessToken||"").trim()) {
