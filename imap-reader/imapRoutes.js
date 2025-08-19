@@ -189,25 +189,33 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ---- Date selection strategy (top-level args for imapService) ----
+    // ---- Date selection strategy (TOP-LEVEL args for imapService) ----
 // Prefer explicit month window; else fall back to rangeDays
 const msStr = String(monthStart || '').trim();
 const meStr = String(monthEnd   || '').trim();
 
-const topFilters = {};
-if (msStr && meStr && !Number.isNaN(Date.parse(msStr)) && !Number.isNaN(Date.parse(meStr))) {
-  topFilters.monthStart = msStr;   // inclusive start
-  topFilters.monthEnd   = meStr;   // inclusive end (imapService will add +1 day)
-} else {
-  topFilters.rangeDays = Math.max(0, Number(req.body.rangeDays) || 0); // 0 => ALL
-}
+const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
+const useMonth = isValidISO(msStr) && isValidISO(meStr);
 
-    const { items, nextCursor, hasMore } = await fetchEmails({
-  email: safeEmail, password, accessToken, host, port, tls, authType,
-  search: topFilters,               // ✅ pass monthStart/monthEnd or rangeDays here
-  limit: Number(req.body.limit) || 20
+const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
+
+// NOTE: applyFreeCapsIfNeeded already clamped req.body.rangeDays/limit for free tier.
+const limit = Math.max(1, Number(req.body.limit) || 20);
+
+const { items, nextCursor, hasMore } = await fetchEmails({
+  email: safeEmail,
+  password,
+  accessToken,
+  host,
+  port,
+  tls,
+  authType,
+  // ⬇️ preferred top-level filters your imapService supports
+  monthStart: useMonth ? msStr : undefined,
+  monthEnd:   useMonth ? meStr : undefined,
+  rangeDays,
+  limit
 });
-
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
