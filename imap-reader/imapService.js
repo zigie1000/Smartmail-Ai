@@ -21,6 +21,11 @@ function makeClient({ host, port = 993, tls = true, authType = 'password', email
     port,
     secure: !!tls,
     clientInfo: { name: 'SmartEmail', version: '1.0' },
+
+    // 🔧 Prevent flooding logs on Render
+    logger: false,
+    logRaw: false,
+
     ...auth
   });
 }
@@ -90,7 +95,7 @@ function toItem({ meta, body, flags }) {
  *   monthEnd?:   ISO string (inclusive; we add +1 day internally)
  *   rangeDays?:  number  (used when month* not provided; 0 => ALL)
  *
-* Back-compat: ignored if monthStart/monthEnd or rangeDays are provided top-level
+ * Back-compat: ignored if monthStart/monthEnd or rangeDays are provided top-level
  *   search?: ['ALL'] | ['SINCE', Date] | { rangeDays?: number, monthStart?: string, monthEnd?: string }
  *
  *   limit: number
@@ -134,11 +139,9 @@ export async function fetchEmails({
   } else if (search !== undefined) {
     // 3) Legacy `search` handling (array or object)
     if (Array.isArray(search)) {
-      // ['ALL'] or ['SINCE', Date]
       if (search.length === 2 && String(search[0]).toUpperCase() === 'SINCE' && search[1] instanceof Date) {
         sinceDate = search[1];
       }
-      // else: ALL => no filters
     } else if (search && typeof search === 'object') {
       const { rangeDays: rd, monthStart: oms, monthEnd: ome } = search || {};
       const omsD = oms && !Number.isNaN(Date.parse(oms)) ? new Date(oms) : null;
@@ -151,7 +154,6 @@ export async function fetchEmails({
       }
     }
   }
-  // else: no time filter => ALL
 
   try {
     await client.connect();
@@ -166,7 +168,6 @@ export async function fetchEmails({
         uids = await client.search({});
       }
 
-      // newest N
       if (uids.length > limit) {
         uids = uids.slice(-limit);
       }
