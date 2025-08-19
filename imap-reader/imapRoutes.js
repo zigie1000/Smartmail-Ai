@@ -221,10 +221,13 @@ const { items, nextCursor, hasMore } = await fetchEmails({
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
 
-    const norm = normalizeForClassifier(items);
-    const cls = await classifyEmails(norm, { userId, lists });
-    const merged = (items || []).map((it, i) => ({ ...it, ...(cls[i] || {}) }));
-
+    const merged = (items || []).map((it, i) => ({
+  ...it,
+  ...(cls[i] || {}),
+  isVip:
+    lists.vip.has((it.fromEmail || '').toLowerCase()) ||
+    lists.vip.has((it.fromDomain || '').toLowerCase())
+}));
     const notice = !paid
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for more range, higher limits, VIP boosts, and learning.'
       : null;
