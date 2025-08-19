@@ -647,7 +647,8 @@ $("monthClear").addEventListener("click", ()=>{
   if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
     $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
   }
-  checkTier();
+    checkTier();
+  updateMonthUI();
   state.view = []; render();
 })();
 </script>
