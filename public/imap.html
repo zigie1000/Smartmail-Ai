@@ -396,6 +396,30 @@
     state.view = filtered; state.page = 1; render();
   }
 
+function applyQuickFilter(kind){
+  let filtered = [...state.emails];
+  switch (kind) {
+    case 'important':
+      filtered = filtered.filter(e => String(e.importance || '').toLowerCase() === 'important');
+      break;
+    case 'urgent':
+      filtered = filtered.filter(e => priorityOf(e) === 'Urgent');
+      break;
+    case 'needs':
+      filtered = filtered.filter(e => !!e.action_required || Number(e.urgency) >= 2);
+      break;
+    case 'meeting':
+      filtered = filtered.filter(e => (e.intent || '') === 'meeting');
+      break;
+    case 'billing':
+      filtered = filtered.filter(e => (e.intent || '') === 'billing');
+      break;
+  }
+  state.view = filtered;
+  state.page = 1;
+  render();
+}
+  
   function applySmartView(v){
     $("fPriority").value = $("fIntent").value = $("fAction").value = $("fTime").value = "";
     switch(v){
