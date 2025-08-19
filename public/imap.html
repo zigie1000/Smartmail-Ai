@@ -314,12 +314,23 @@
   }
 
   function render(){
-    const start = (state.page-1)*state.perPage;
-    const items = state.view.slice(start, start+state.perPage);
-    if(!items.length){ list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>'; $("pageInfo").textContent = `Page ${state.page}`; return; }
-    list.innerHTML = items.map(cardHtml).join("");
+  const start = (state.page-1)*state.perPage;
+  const items = state.view.slice(start, start+state.perPage);
+  if(!items.length){
+    list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
     $("pageInfo").textContent = `Page ${state.page}`;
+    return;
   }
+  list.innerHTML = items.map(cardHtml).join("");
+
+  const total = state.view.length;
+  const pages = Math.max(1, Math.ceil(total / state.perPage));
+  $("pageInfo").textContent = `Page ${state.page} / ${pages} • ${total} emails`;
+
+  // keep buttons honest
+  $("prev").disabled = (state.page <= 1);
+  $("next").disabled = (state.page >= pages);
+}
   function cardHtml(e){
     const imp = (e.importance||"unimportant").toLowerCase();
     const impClass = imp === "important" ? "imp" : "";
