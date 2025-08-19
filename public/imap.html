@@ -401,7 +401,16 @@
           ""
       };
 
-  
+    // NEW: Month override
+      const m = ($("monthStr")?.value || "").trim();
+      if (m) {
+        payload.rangeMonth = m;
+        delete payload.rangeDays;
+      }
+
+      // ... rest unchanged
+    } catch(err){ ... }
+  }
   
       // XOAUTH2 requires a token
       if ((payload.authType||"").toLowerCase()==="xoauth2" &&
