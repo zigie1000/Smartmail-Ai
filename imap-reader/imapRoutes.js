@@ -204,7 +204,7 @@ if (msStr && meStr && !Number.isNaN(Date.parse(msStr)) && !Number.isNaN(Date.par
 
     const { items, nextCursor, hasMore } = await fetchEmails({
   email: safeEmail, password, accessToken, host, port, tls, authType,
-  ...topFilters,
+  search: topFilters,               // ✅ pass monthStart/monthEnd or rangeDays here
   limit: Number(req.body.limit) || 20
 });
 
