@@ -660,7 +660,11 @@ render();
 
    // ---- Events ----
 
-  $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
+$("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
+$("#btnVip").addEventListener("click", () => {
+  state.view = state.emails.filter(e => e.isVip);   // expects classifier/server to set isVip=true
+  render();
+});
 $("btnQUrgent").addEventListener("click",   ()=>applyQuickFilter('urgent'));
 $("btnQNeeds").addEventListener("click",    ()=>applyQuickFilter('needs'));
 $("btnQMeeting").addEventListener("click",  ()=>applyQuickFilter('meeting'));
