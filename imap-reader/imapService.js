@@ -1,13 +1,15 @@
 // imapService.js
 // Robust IMAP fetch + optional login test using ImapFlow.
-// Keeps your stable behavior. Adds optional month range support.
+// Keeps stable behavior. Adds month range support as TOP-LEVEL args,
+// while remaining backward-compatible with the old `search` param.
 //
-// Install deps:
+// deps:
 //   npm i imapflow mailparser
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
+// Create client
 function makeClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
   const auth =
     authType === 'xoauth2'
@@ -23,6 +25,7 @@ function makeClient({ host, port = 993, tls = true, authType = 'password', email
   });
 }
 
+// Normalize one message
 function toItem({ meta, body, flags }) {
   const fromAddr = (meta.envelope.from && meta.envelope.from[0]) || {};
   const fromEmail = (fromAddr.address || '').toLowerCase();
@@ -82,9 +85,14 @@ function toItem({ meta, body, flags }) {
  * Fetch emails from INBOX.
  * Options:
  *   email, password, accessToken, host, port, tls, authType
- *   search:
- *     - Array form (back-compat): ['ALL'] or ['SINCE', Date]
- *     - Object form: { rangeDays?: number } OR { monthStart: ISO, monthEnd: ISO }
+ *   // NEW preferred top-level filters:
+ *   monthStart?: ISO string (YYYY-MM-DD or full ISO)
+ *   monthEnd?:   ISO string (inclusive; we add +1 day internally)
+ *   rangeDays?:  number  (used when month* not provided; 0 => ALL)
+ *
+ *   // Back-compat (will be ignored if month*/rangeDays provided top-level):
+ *   search?: ['ALL'] | ['SINCE', Date] | { rangeDays?: number, monthStart?: string, monthEnd?: string }
+ *
  *   limit: number
  */
 export async function fetchEmails({
@@ -95,39 +103,55 @@ export async function fetchEmails({
   port = 993,
   tls = true,
   authType = 'password',
-  search = {},
+
+  // ⬇️ NEW top-level filters
+  monthStart = null,
+  monthEnd = null,
+  rangeDays = null,
+
+  // legacy input kept for compatibility
+  search = undefined,
+
   limit = 20
 }) {
   const client = makeClient({ host, port, tls, authType, email, password, accessToken });
 
-  // Build final search params for ImapFlow
-  // Support BOTH your old array input and the new month range.
+  // --- Build final search window (prefer new top-level args) ---
   let sinceDate = null;
-  let beforeDate = null;
+  let beforeDate = null; // exclusive
 
-  if (Array.isArray(search)) {
-    // ['ALL'] or ['SINCE', Date]
-    if (search.length === 1 && String(search[0]).toUpperCase() === 'ALL') {
-      // no filters
-    } else if (search.length === 2 && String(search[0]).toUpperCase() === 'SINCE' && search[1] instanceof Date) {
-      sinceDate = search[1];
-    }
-  } else if (search && typeof search === 'object') {
-    const { rangeDays, monthStart, monthEnd } = search;
+  // 1) Top-level month range
+  const ms = monthStart && !Number.isNaN(Date.parse(monthStart)) ? new Date(monthStart) : null;
+  const me = monthEnd   && !Number.isNaN(Date.parse(monthEnd))   ? new Date(monthEnd)   : null;
 
-    if (monthStart && monthEnd && !Number.isNaN(Date.parse(monthStart)) && !Number.isNaN(Date.parse(monthEnd))) {
-      const start = new Date(monthStart);
-      const end = new Date(monthEnd);
-      if (!Number.isNaN(+start) && !Number.isNaN(+end)) {
-        // ImapFlow supports { since: Date, before: Date }
-        // Use end + 1 day to make the end inclusive
-        sinceDate = start;
-        beforeDate = new Date(end.getTime() + 24*3600*1000);
+  if (ms && me) {
+    // make end inclusive by querying before = (end + 1 day)
+    sinceDate  = ms;
+    beforeDate = new Date(me.getTime() + 24 * 3600 * 1000);
+  } else if (Number.isFinite(+rangeDays) && rangeDays > 0) {
+    // 2) Top-level relative range
+    sinceDate = new Date(Date.now() - Number(rangeDays) * 864e5);
+  } else if (search !== undefined) {
+    // 3) Legacy `search` handling (array or object)
+    if (Array.isArray(search)) {
+      // ['ALL'] or ['SINCE', Date]
+      if (search.length === 2 && String(search[0]).toUpperCase() === 'SINCE' && search[1] instanceof Date) {
+        sinceDate = search[1];
       }
-    } else if (Number.isFinite(+rangeDays) && rangeDays > 0) {
-      sinceDate = new Date(Date.now() - Number(rangeDays) * 864e5);
+      // else: ALL => no filters
+    } else if (search && typeof search === 'object') {
+      const { rangeDays: rd, monthStart: oms, monthEnd: ome } = search || {};
+      const omsD = oms && !Number.isNaN(Date.parse(oms)) ? new Date(oms) : null;
+      const omeD = ome && !Number.isNaN(Date.parse(ome)) ? new Date(ome) : null;
+      if (omsD && omeD) {
+        sinceDate  = omsD;
+        beforeDate = new Date(omeD.getTime() + 24 * 3600 * 1000);
+      } else if (Number.isFinite(+rd) && rd > 0) {
+        sinceDate = new Date(Date.now() - Number(rd) * 864e5);
+      }
     }
   }
+  // else: no time filter => ALL
 
   try {
     await client.connect();
@@ -142,8 +166,9 @@ export async function fetchEmails({
         uids = await client.search({});
       }
 
+      // newest N
       if (uids.length > limit) {
-        uids = uids.slice(-limit); // newest
+        uids = uids.slice(-limit);
       }
 
       const items = [];
@@ -175,10 +200,7 @@ export async function fetchEmails({
   }
 }
 
-/**
- * Lightweight connectivity test (safe to delete later).
- * Simply opens INBOX and logs out.
- */
+// Simple connectivity test
 export async function testLogin({
   email,
   password,
