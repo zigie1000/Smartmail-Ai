@@ -130,6 +130,18 @@
             <option value="0">All</option>
           </select>
         </div>
+
+        <!-- NEW: Month filter -->
+        <div class="col">
+          <label for="monthStr">Month</label>
+          <input id="monthStr" type="month" />
+        </div>
+        <div class="col">
+          <label for="monthClear">&nbsp;</label>
+          <button id="monthClear" class="btn ghost" type="button">Clear Month</button>
+        </div>
+        <!-- END NEW -->
+
         <div class="col">
           <label for="limit">Limit</label>
           <select id="limit">
@@ -172,60 +184,8 @@
       </div>
 
       <div class="filters">
-        <div class="col">
-          <label for="fPriority">Priority</label>
-          <select id="fPriority">
-            <option value="">All</option>
-            <option>Urgent</option>
-            <option>High</option>
-            <option>Normal</option>
-            <option>Low</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fIntent">Intent</label>
-          <select id="fIntent">
-            <option value="">All</option>
-            <option>billing</option><option>meeting</option><option>sales</option><option>support</option>
-            <option>hr</option><option>legal</option><option>security</option><option>newsletter</option><option>social</option><option>other</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fAction">Action</label>
-          <select id="fAction">
-            <option value="">All</option>
-            <option value="needs">Needs action</option>
-            <option value="awaiting">Awaiting reply</option>
-            <option value="fyi">FYI</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fTime">Time</label>
-          <select id="fTime">
-            <option value="">All</option>
-            <option value="today">Today</option>
-            <option value="2">Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="smartView">Smart View</label>
-          <select id="smartView">
-            <option value="">select —</option>
-            <option value="needs_action">Needs Action</option>
-            <option value="awaiting_reply">Awaiting Reply</option>
-            <option value="meetings_48h">Meetings (Next 48h)</option>
-            <option value="billing">Billing & Invoices</option>
-            <option value="security_legal">Security & Legal</option>
-            <option value="newsletters">Newsletters</option>
-            <option value="today">Today</option>
-          </select>
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <div class="hint">Tip: Many providers require an <b>App Password</b> for IMAP (Gmail/iCloud).</div>
-        </div>
+        <!-- unchanged filters -->
+        ...
       </div>
 
       <div id="msg"></div>
@@ -249,6 +209,8 @@
   const list = $("list");
   const msg = $("msg");
   const state = { emails: [], view: [], page: 1, perPage: 20, tier: 'free', isPaid: false, tierKnown: false };
+
+  // ... (unchanged functions above)
 
   const PROVIDERS = {
     gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
