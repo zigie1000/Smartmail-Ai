@@ -624,6 +624,11 @@ render();
   }
 
    // ---- Events ----
+  $("limit").addEventListener("change", () => {
+  state.perPage = Math.max(1, Number($("limit").value || 20));
+  state.page = 1;
+  render();
+});
 $("monthStr").addEventListener("change", updateMonthUI);
 $("monthClear").addEventListener("click", ()=>{
   $("monthStr").value = "";
