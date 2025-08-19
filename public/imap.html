@@ -219,7 +219,7 @@
     icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
   };
 
-  const KEYS = ["email","host","port","provider","tls","range","authType","limit","licenseKey"];
+  const KEYS = ["email","host","port","provider","tls","range","authType","limit","licenseKey","monthStr"];
   function saveForm(){ KEYS.forEach(k => localStorage.setItem("imap."+k, $(k).value)); }
   function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null) $(k).value = v; }); }
 
