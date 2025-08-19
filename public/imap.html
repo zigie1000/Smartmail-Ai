@@ -386,116 +386,126 @@
   
   // ---- Networking ----
    async function fetchAndClassify(){
-    skeleton(6);
-    try{
-      const provider = $("provider").value;
+  skeleton(6);
+  try{
+    const provider = $("provider").value;
 
-      const payload = {
-        email: $("email").value||"",
-        password: $("password").value||"",
-        host: $("host").value||"",
-        port: Number($("port").value||993),
-        tls: ($("tls").value||"on")!=="off",
-        rangeDays: Number($("range").value||2),
-        limit: Number($("limit").value||20),
-        authType: $("authType").value||"password",
-        accessToken: $("accessToken")?.value||"",
-        licenseKey:
-          $("licenseKey")?.value ||
-          localStorage.getItem('smartemail.licenseKey') ||
-          localStorage.getItem('licenseKey') ||
-          ""
-      };
-
-    // NEW: Month override
-      const m = ($("monthStr")?.value || "").trim();
-      if (m) {
-        payload.rangeMonth = m;
-        delete payload.rangeDays;
-      }
-
-      // ... rest unchanged
-    } catch(err){ ... }
-  }
-  
-      // XOAUTH2 requires a token
-      if ((payload.authType||"").toLowerCase()==="xoauth2" &&
-          !String(payload.accessToken||"").trim()) {
-        list.innerHTML = "";
-        setMessage("err","XOAUTH2 selected — paste a valid access token first.");
-        return;
-      }
-
-      // If Gmail with password, nudge about App Passwords
-      if ((payload.authType||"").toLowerCase()==="password" &&
-          /imap\.gmail\.com$/i.test(payload.host||"") &&
-          String(payload.password||"").trim().length < 16) {
-        setMessage("err","Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
-      }
-
-      // Fill host from preset if missing
-      if (!payload.host) {
-        const p = $("provider").value;
-        const P = {
-          gmail:   { host:"imap.gmail.com",        port:993, tls:"on" },
-          outlook: { host:"outlook.office365.com", port:993, tls:"on" },
-          yahoo:   { host:"imap.mail.yahoo.com",   port:993, tls:"on" },
-          icloud:  { host:"imap.mail.me.com",      port:993, tls:"on" }
-        };
-        if (P[p]) {
-          $("host").value = P[p].host;
-          $("port").value = P[p].port;
-          $("tls").value  = P[p].tls;
-          payload.host    = P[p].host;
-        }
-      }
-      if (!payload.host) {
-        list.innerHTML = "";
-        setMessage("err","IMAP host is required. Choose a Provider or enter the host.");
-        return;
-      }
-
-      saveForm();
-
-      const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
-      const controller = new AbortController();
-      const t = setTimeout(()=>controller.abort(), timeoutMs);
-
-      const resp = await fetch("/api/imap/fetch",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      clearTimeout(t);
-
-      if(!resp.ok){
-        const errj = await resp.json().catch(()=>({}));
-        throw new Error(errj?.error || `Fetch failed (${resp.status})`);
-      }
-      const data = await resp.json();
-
-      const emails = Array.isArray(data?.emails) ? data.emails : [];
-      state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
-      state.view = state.emails.slice();
-      state.page = 1;
-      render();
-
-      // Apply tier/notice from server
-      if (data && typeof data.tier === 'string') {
-        setTierUI(data.tier, data.tier !== 'free');
-      }
-      if (data && data.notice) setMessage("ok", data.notice);
-
-      setMessage("ok", `Fetched ${state.emails.length} emails.`);
-    }catch(err){
-      console.error(err); list.innerHTML="";
-      const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
-        ? "Request timed out. Try a shorter range or check network."
-        : (err.message || "Could not fetch/classify emails.");
-      setMessage("err", m);
+    // iCloud defaults (kept exactly as you wanted)
+    if (provider === "icloud") {
+      if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+      $("tls").value = "on";
+      if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
+      if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
     }
+
+    const payload = {
+      email: $("email").value||"",
+      password: $("password").value||"",
+      host: $("host").value||"",
+      port: Number($("port").value||993),
+      tls: ($("tls").value||"on")!=="off",
+      rangeDays: Number($("range").value||2),
+      limit: Number($("limit").value||20),
+      authType: $("authType").value||"password",
+      accessToken: $("accessToken")?.value||"",
+      licenseKey:
+        $("licenseKey")?.value ||
+        localStorage.getItem('smartemail.licenseKey') ||
+        localStorage.getItem('licenseKey') ||
+        ""
+    };
+
+    // ✅ Month override: convert <input type="month"> (YYYY-MM) → monthStart/monthEnd
+    const m = ($("monthStr")?.value || "").trim(); // e.g. "2025-08"
+    if (m) {
+      // Compute the first and last day of that month
+      const [yy, mm] = m.split("-").map(Number);        // yy=2025, mm=08
+      const start = new Date(yy, mm - 1, 1);            // local start of month
+      const end   = new Date(yy, mm, 0);                // local last day of month
+      // Pass ISO dates; service will treat end as inclusive by using before = end+1 day
+      payload.monthStart = start.toISOString();
+      payload.monthEnd   = end.toISOString();
+      delete payload.rangeDays; // ensure month takes precedence
+    }
+
+    // XOAUTH2 requires a token
+    if ((payload.authType||"").toLowerCase()==="xoauth2" &&
+        !String(payload.accessToken||"").trim()) {
+      list.innerHTML = "";
+      setMessage("err","XOAUTH2 selected — paste a valid access token first.");
+      return;
+    }
+
+    // If Gmail with password, nudge about App Passwords
+    if ((payload.authType||"").toLowerCase()==="password" &&
+        /imap\.gmail\.com$/i.test(payload.host||"") &&
+        String(payload.password||"").trim().length < 16) {
+      setMessage("err","Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
+    }
+
+    // Fill host from preset if missing
+    if (!payload.host) {
+      const p = $("provider").value;
+      const P = {
+        gmail:   { host:"imap.gmail.com",        port:993, tls:"on" },
+        outlook: { host:"outlook.office365.com", port:993, tls:"on" },
+        yahoo:   { host:"imap.mail.yahoo.com",   port:993, tls:"on" },
+        icloud:  { host:"imap.mail.me.com",      port:993, tls:"on" }
+      };
+      if (P[p]) {
+        $("host").value = P[p].host;
+        $("port").value = P[p].port;
+        $("tls").value  = P[p].tls;
+        payload.host    = P[p].host;
+      }
+    }
+    if (!payload.host) {
+      list.innerHTML = "";
+      setMessage("err","IMAP host is required. Choose a Provider or enter the host.");
+      return;
+    }
+
+    saveForm();
+
+    const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
+    const controller = new AbortController();
+    const t = setTimeout(()=>controller.abort(), timeoutMs);
+
+    const resp = await fetch("/api/imap/fetch",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(t);
+
+    if(!resp.ok){
+      const errj = await resp.json().catch(()=>({}));
+      throw new Error(errj?.error || `Fetch failed (${resp.status})`);
+    }
+    const data = await resp.json();
+
+    const emails = Array.isArray(data?.emails) ? data.emails : [];
+    state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
+    state.view = state.emails.slice();
+    state.page = 1;
+    render();
+
+    // Apply tier/notice from server
+    if (data && typeof data.tier === 'string') {
+      setTierUI(data.tier, data.tier !== 'free');
+    }
+    if (data && data.notice) setMessage("ok", data.notice);
+
+    setMessage("ok", `Fetched ${state.emails.length} emails.`);
+  }catch(err){
+    console.error(err); list.innerHTML="";
+    const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
+      ? "Request timed out. Try a shorter range or check network."
+      : (err.message || "Could not fetch/classify emails.");
+    setMessage("err", m);
   }
+}
 
   async function testLogin(){
     try{
