@@ -661,7 +661,12 @@ render();
   }
 
    // ---- Events ----
-
+  
+$("btnVip").addEventListener("click", ()=>{
+  state.view = state.emails.filter(e => !!e.isVip);
+  state.page = 1;
+  render();
+});
 $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
 $("#btnVip").addEventListener("click", () => {
   state.view = state.emails.filter(e => e.isVip);   // expects classifier/server to set isVip=true
