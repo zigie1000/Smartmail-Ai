@@ -539,7 +539,8 @@
     saveForm();
   }
 
-  // ---- Events ----
+   // ---- Events ----
+  $("monthClear").addEventListener("click", ()=>{ $("monthStr").value=""; });
   ["email","password","host","port","tls","range","authType","limit","licenseKey"].forEach(id => $(id).addEventListener("change", saveForm));
   $("provider").addEventListener("change", applyProviderPreset);
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
