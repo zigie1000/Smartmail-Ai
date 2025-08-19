@@ -264,15 +264,6 @@
 
 <script>
 
-function updateMonthUI(){
-  const hasMonth = !!(($("monthStr")?.value || "").trim());
-  $("range").disabled = hasMonth;               // lock Range while month active
-  $("monthClear").disabled = !hasMonth;         // only usable when a month is set
-  // Optional hint
-  if (hasMonth) {
-    setMessage("ok","Month selected. Range is disabled and ignored.");
-  }
-}
 
 (function(){
   const $ = (id)=>document.getElementById(id);
