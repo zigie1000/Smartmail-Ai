@@ -541,10 +541,12 @@
     const data = await resp.json();
 
     const emails = Array.isArray(data?.emails) ? data.emails : [];
-    state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
-    state.view = state.emails.slice();
-    state.page = 1;
-    render();
+state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
+state.view = state.emails.slice();
+// show as many as user requested this run
+state.perPage = Math.max(1, Number($("limit").value || 20));
+state.page = 1;
+render();
 
     // Apply tier/notice from server
     if (data && typeof data.tier === 'string') {
