@@ -372,17 +372,6 @@
     }
   }
 
-
-// iCloud defaults
-      if (provider === "icloud") {
-        if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-        $("tls").value = "on";
-        if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
-        if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
-      }
-
-
-
   
   // ---- Networking ----
    async function fetchAndClassify(){
