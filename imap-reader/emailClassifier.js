@@ -1,10 +1,10 @@
-// emailClassifier.js — heuristic-first classifier with 'system' category + LLM batch cap
+// emailClassifier.js — heuristic-first classifier with expanded filters
 // Exports: classifyEmails(items, { userId, lists })
 //
-// Output (per item):
+// Output per item:
 // { importance: 'important'|'unimportant'|'unclassified',
 //   category: 'meeting'|'billing'|'security'|'newsletter'|'sales'|'social'|'legal'|'system'|'other',
-//   intent: <same as category for back-compat>,
+//   intent: <same as category>,
 //   urgency: 0..3,
 //   action_required: boolean,
 //   confidence: 0..1,
@@ -16,21 +16,57 @@ const CATEGORY_SET = new Set([
 
 const BATCH_MAX = 20; // cap undecided LLM batch size
 
-export async function classifyEmails(items = [], ctx = {}) {
-  const lists = ctx.lists || { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(), weights:{ email:new Map(), domain:new Map() } };
+// ---------------- helpers ----------------
+function oneOf(v, arr, d){ return arr.includes(v) ? v : d; }
+function clampInt(n,a,b){ n = parseInt(n,10); if (Number.isNaN(n)) return a; return Math.max(a, Math.min(b, n)); }
+function clamp01(x){ x = Number(x)||0; return Math.max(0, Math.min(1, x)); }
 
-  // 1) Heuristics pass
+function endsWithOne(host, suffixes){
+  const h = String(host||'').toLowerCase();
+  return suffixes.some(s => h.endsWith(s));
+}
+function hasGovTld(dom){
+  return /\.gov(\.|$)|\.gouv|\.govt|\.gob\.|\.mil(\.|$)|\.gov\.uk|\.gov\.au/i.test(dom||'');
+}
+function hasAny(str, regexes){
+  return regexes.some(r => r.test(str));
+}
+
+// Vendor/domain lists (kept short; we match by suffix)
+const SOCIAL_DOMAINS = [
+  'facebookmail.com','facebook.com','messenger.com','instagram.com','threads.net',
+  'tiktok.com','youtube.com','linkedin.com','link.linkedin.com','x.com','twitter.com',
+  'pinterest.com','reddit.com','nextdoor.com','discord.com','slack.com'
+];
+const SYSTEM_DOMAINS = [
+  'render.com','vercel.com','netlify.com','heroku.com','railway.app',
+  'amazonaws.com','aws.amazon.com','google.com','cloudflare.com',
+  'pagerduty.com','datadoghq.com','sentry.io','github.com','gitlab.com',
+  'circleci.com','jenkins.io','statuspage.io','statuspage.com','postmarkapp.com'
+];
+const BILLING_DOMAINS = [
+  'stripe.com','paypal.com','squareup.com','paddle.com','chargebee.com',
+  'quickbooks.com','xero.com','sage.com','gocardless.com','wise.com','revolut.com'
+];
+
+// ---------------- core API ----------------
+export async function classifyEmails(items = [], ctx = {}) {
+  const lists = ctx.lists || {
+    vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
+    weights: { email:new Map(), domain:new Map() }
+  };
+
+  // 1) Heuristics
   const base = items.map((e) => heuristicLabel(e, lists));
 
-  // 2) Decide which need LLM
+  // 2) LLM backstop (optional)
   const undecidedIdx = [];
-  base.forEach((r, i) => {
+  base.forEach((r,i) => {
     const lowConf = (r.confidence || 0) < 0.55;
     const uncls = r.importance === 'unclassified' || r.category === 'other';
     if (lowConf || uncls) undecidedIdx.push(i);
   });
 
-  // Split into small batches to control latency/cost
   let llmResults = {};
   for (let i = 0; i < undecidedIdx.length; i += BATCH_MAX) {
     const slice = undecidedIdx.slice(i, i + BATCH_MAX);
@@ -39,22 +75,24 @@ export async function classifyEmails(items = [], ctx = {}) {
     Object.assign(llmResults, remapByIndex(slice, modelOut));
   }
 
-  // 3) Blend: prefer higher confidence; ensure category valid; back-compat 'intent'
-  const out = base.map((r, i) => {
+  // 3) Blend + finalize
+  const out = base.map((r,i) => {
     const llm = llmResults[i];
     let best = r;
     if (llm && (llm.confidence || 0) > (r.confidence || 0)) best = llm;
 
-    // Ensure category is known
+    // Ensure known category
     if (!CATEGORY_SET.has(best.category)) best.category = r.category || 'other';
-    // Back-compat for frontend using 'intent'
     best.intent = best.category;
 
-    // Priority hints: VIP or legal/government → bump importance if not unimportant
-    if ((best.importance === 'unclassified' || best.importance === 'unimportant') &&
-        (lists.vip.has((items[i].fromEmail || '').toLowerCase()) ||
-         lists.legal.has((items[i].fromDomain || '').toLowerCase()) ||
-         lists.government.has((items[i].fromDomain || '').toLowerCase()))) {
+    // VIP / legal / government bump if we didn't mark unimportant
+    const em = (items[i]?.fromEmail || '').toLowerCase();
+    const dom = (items[i]?.fromDomain || '').toLowerCase();
+    const special =
+      lists.vip.has(em) || lists.vip.has(dom) ||
+      lists.legal.has(dom) || lists.government.has(dom);
+
+    if (special && best.importance !== 'unimportant') {
       best.importance = 'important';
       best.confidence = Math.max(best.confidence || 0.6, 0.7);
       best.reasons = (best.reasons || []).concat('sender priority list');
@@ -69,36 +107,75 @@ export async function classifyEmails(items = [], ctx = {}) {
 // ---------------- Heuristics ----------------
 function heuristicLabel(e, lists) {
   const text = `${e.subject || ''} ${e.snippet || ''}`.toLowerCase();
-  const dom = (e.fromDomain || '').toLowerCase();
-  const email = (e.fromEmail || '').toLowerCase();
-
+  const dom  = (e.fromDomain || '').toLowerCase();
+  const email= (e.fromEmail  || '').toLowerCase();
   const reasons = [];
 
-  // Categories by domain
+  // Domain cues (lists first)
   if (lists.legal.has(dom)) reasons.push('legal domain');
-  if (lists.government.has(dom)) reasons.push('government domain');
+  if (lists.government.has(dom) || hasGovTld(dom)) reasons.push('government domain');
   if (lists.bulk.has(dom)) reasons.push('bulk sender');
   if (lists.vip.has(email) || lists.vip.has(dom)) reasons.push('vip sender');
 
-  // Keyword maps
-  const isMeeting = /\b(invite|meeting|calendar|schedule|zoom|google meet|teams)\b/.test(text) || (e.hasIcs === true);
-  const isBilling = /\b(invoice|payment due|receipt|refund|transaction|billing|subscription)\b/.test(text);
-  const isSecurity = /\b(password|2fa|security alert|unusual sign-in|breach|phishing)\b/.test(text);
-  const isNewsletter = /\b(unsubscribe|newsletter|weekly digest|roundup)\b/.test(text);
-  const isSales = /\b(sale|discount|% off|coupon|deal|promo)\b/.test(text);
-  const isSocial = /\b(follow|mention|comment|like|friend request|new follower)\b/.test(text);
+  // Domain families
+  const isSocialByDom  = endsWithOne(dom, SOCIAL_DOMAINS);
+  const isSystemByDom  = endsWithOne(dom, SYSTEM_DOMAINS);
+  const isBillingByDom = endsWithOne(dom, BILLING_DOMAINS);
 
-  // --- Minimal change: allow LEGAL by keywords as well as domain ---
-  const isLegalText = /\b(legal|contract|agreement|terms|privacy|policy|gdpr|ccpa|subpoena|court|lawsuit|attorney|solicitor|notary|compliance|notice of|data processing addendum|dpa|nda)\b/.test(text);
-  if (isLegalText) reasons.push('legal keywords');
-  const isLegal = reasons.includes('legal domain') || isLegalText;
-  // ---------------------------------------------------------------
+  // Keyword families
+  const meetRx = [
+    /\b(invite|meeting|calendar|schedule|zoom|google\s?meet|gmeet|teams|webex)\b/,
+    /\b(ics|\.ics)\b/
+  ];
+  const billingRx = [
+    /\b(invoice|statement|payment\s?(due|failed|declined)|receipt|refund|transaction|billing)\b/,
+    /\b(subscription|renewal|direct\s?debit|transfer|wire|balance\s?due|overdue)\b/
+  ];
+  const securityRx = [
+    /\b(password|passcode|otp|one[-\s]?time\s?code|2fa|mfa)\b/,
+    /\b(security\s?alert|suspicious\s?(sign[-\s]?in|login)|unusual\s?sign[-\s]?in|new\s?device)\b/,
+    /\b(account\s?(locked|lockout)|verify\s?your\s?account)\b/
+  ];
+  const newsletterRx = [
+    /\b(unsubscribe|manage\s?preferences|newsletter|weekly\s?digest|roundup|bulletin|blog\s?update)\b/
+  ];
+  const salesRx = [
+    /\b(sale|discount|%+\s?off|percent\s?off|coupon|promo(\s?code)?|deal|clearance|free\s?shipping|flash\s?sale|today\s?only)\b/
+  ];
+  const socialRx = [
+    /\b(follow|mention|comment|like|friend\s?request|new\s?follower|connect|connection\s?request|dm|message\s?you)\b/
+  ];
 
-  // NEW: “system” (devops/ops alerts)
-  const isSystemByDomain = /^(render|vercel|netlify|heroku|railway|aws|amazon|gcp|google|cloudflare|pagerduty|datadog|sentry|github|gitlab|circleci|jenkins|statuspage)/i.test(dom);
-  const isSystemByText = /\b(deploy(ed|ment)?|build failed|pipeline|outage|incident|alert|cron|backup|db fail|status page|service degraded|error rate)\b/.test(text);
-  const isSystem = isSystemByDomain || isSystemByText;
+  // Legal / Compliance / TAX (serious)
+  const complianceRx = [
+    /\b(gdpr|privacy\s?policy|terms\s?of\s?service|data\s?processing\s?addendum|dpa|dmca|copyright\s?notice|legal\s?notice)\b/,
+    /\b(subpoena|court\s?order|cease\s?and\s?desist|arbitration|settlement)\b/
+  ];
+  const taxRx = [
+    /\b(tax|vat|gst|paye|withholding|self[-\s]?assessment)\b/,
+    /\b(irs|hmrc|revenue|customs|companies\s?house)\b/,
+    /\b(w[-\s]?9|w[-\s]?8|1099|ein|itin|sa100|ct600)\b/
+  ];
 
+  // DevOps/alerts
+  const systemRx = [
+    /\b(deploy(ed|ment)?|build\s?failed|pipeline|ci\/cd)\b/,
+    /\b(outage|incident|alert|on[-\s]?call|status\s?page|service\s?degraded)\b/,
+    /\b(cron|backup|db\s?fail|error\s?rate|latency|health\s?check)\b/
+  ];
+
+  const isMeeting    = hasAny(text, meetRx) || (e.hasIcs === true);
+  const isBilling    = isBillingByDom || hasAny(text, billingRx);
+  const isSecurity   = hasAny(text, securityRx);
+  const isNewsletter = hasAny(text, newsletterRx);
+  const isSales      = hasAny(text, salesRx);
+  const isSocial     = isSocialByDom || hasAny(text, socialRx);
+  const isCompliance = hasAny(text, complianceRx);
+  const isTax        = hasAny(text, taxRx);
+  const isLegalDomain= reasons.includes('legal domain') || reasons.includes('government domain');
+  const isSystem     = isSystemByDom || hasAny(text, systemRx);
+
+  // Category priority (highest wins)
   let category = 'other';
   if (isSystem) category = 'system';
   else if (isMeeting) category = 'meeting';
@@ -107,26 +184,30 @@ function heuristicLabel(e, lists) {
   else if (isNewsletter) category = 'newsletter';
   else if (isSales) category = 'sales';
   else if (isSocial) category = 'social';
-  else if (isLegal) category = 'legal';
+  else if (isCompliance || isTax || isLegalDomain) category = 'legal';
 
-  // Urgency:
+  // Urgency
   let urgency = 0;
-  if (isSystem && /\b(failed|outage|incident|degrade|urgent|action required)\b/.test(text)) urgency = 3;
-  else if (isMeeting || /\b(asap|today|within 24 hours|expires|deadline)\b/.test(text)) urgency = 2;
-  else if (isBilling && /\b(due|overdue|payment failed)\b/.test(text)) urgency = 2;
+  if (isSystem && /\b(failed|outage|incident|degrade|urgent|action\s?required)\b/.test(text)) urgency = 3;
+  else if (isMeeting || /\b(asap|today|within\s?24\s?hours|expires|deadline|due\s?by)\b/.test(text)) urgency = 2;
+  else if (isBilling && /\b(due|overdue|payment\s?failed)\b/.test(text)) urgency = 2;
+  else if (isTax && /\b(due|deadline|late|penalty|file|submit)\b/.test(text)) urgency = 2;
 
-  // Importance baseline
+  // Importance
   let importance = 'unclassified';
-  if (category === 'system' || isSecurity || isBilling || isMeeting || isLegal) importance = 'important';
-  else if (category === 'newsletter' || category === 'sales' || lists.bulk.has(dom)) importance = 'unimportant';
+  if (category === 'system' || isSecurity || isBilling || isMeeting || isTax || isCompliance) {
+    importance = 'important';
+  } else if (category === 'newsletter' || category === 'sales' || lists.bulk.has(dom)) {
+    importance = 'unimportant';
+  }
 
   // Action required
   const action_required =
     urgency >= 2 ||
-    /\b(action required|please respond|reply needed|review needed)\b/.test(text) ||
+    /\b(action\s?required|please\s?(respond|reply|review|confirm)|reply\s?needed|review\s?needed)\b/.test(text) ||
     category === 'meeting';
 
-  // Confidence: start mid, nudge with signals
+  // Confidence tweaks
   let confidence = 0.6;
   if (urgency >= 2) confidence += 0.1;
   if (reasons.includes('vip sender')) confidence += 0.1;
@@ -136,35 +217,28 @@ function heuristicLabel(e, lists) {
 }
 
 // ---------------- LLM backstop (optional) ----------------
-// Replace with your actual call; keep the output fields aligned.
-async function backstopLLM(items) {
-  // Pseudo-LLM: return empty map if disabled to keep costs at zero.
+async function backstopLLM(items){
   if (process.env.ENABLE_CLASSIFIER_LLM !== '1') return {};
-  // Your real LLM integration goes here.
-  // Must return an object keyed by local index { 0: {...}, 1:{...} }
+  // plug your real model here; must return object keyed by local index: { 0:{...}, 1:{...} }
   return {};
 }
-
-function remapByIndex(indexes, resultsObj) {
+function remapByIndex(indexes, resultsObj){
   const out = {};
-  indexes.forEach((ix, j) => {
+  indexes.forEach((ix,j) => {
     const r = resultsObj[j];
     if (!r) return;
     out[ix] = alignOutput(r);
   });
   return out;
 }
-
-function alignOutput(r) {
+function alignOutput(r){
   const importance = oneOf(r.importance, ['important','unimportant','unclassified'], 'unclassified');
-  const category = oneOf(r.category, Array.from(CATEGORY_SET), 'other');
-  const urgency = clampInt(r.urgency, 0, 3);
+  const category   = oneOf(r.category, Array.from(CATEGORY_SET), 'other');
+  const urgency    = clampInt(r.urgency, 0, 3);
   const action_required = !!r.action_required;
   const confidence = clamp01(r.confidence ?? 0.6);
-  const reasons = Array.isArray(r.reasons) ? r.reasons.slice(0, 8) : [];
+  const reasons    = Array.isArray(r.reasons) ? r.reasons.slice(0, 8) : [];
   return { importance, category, urgency, action_required, confidence, reasons, intent: category };
 }
 
-function oneOf(v, arr, d) { return arr.includes(v) ? v : d; }
-function clampInt(n, a, b){ n = parseInt(n,10); if (Number.isNaN(n)) return a; return Math.max(a, Math.min(b, n)); }
-function clamp01(x){ x = Number(x)||0; return Math.max(0, Math.min(1, x)); }
+export default { classifyEmails };
