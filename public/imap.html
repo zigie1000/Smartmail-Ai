@@ -317,17 +317,26 @@
   }
 
   function setTierUI(tier, isPaid){
-  state.tier = tier; state.isPaid = !!isPaid; state.tierKnown = true;
-  $("tierPill").textContent = `Tier: ${tier||'free'}`;
+  state.tier = tier;
+  state.isPaid = !!isPaid;
+  state.tierKnown = true;
+
+  $("tierPill").textContent = `Tier: ${tier || 'free'}`;
+
   [
     "btnFetch","btnTest","btnRefresh","btnImportant","btnAll",
     "btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next",
-    // new:
+    // quick filters:
     "btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling"
-  ].forEach(id => { const el = $(id); if (el) el.disabled = false; });
-  if(!isPaid) setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
-}
+  ].forEach(id => {
+    const el = $(id);
+    if (el) el.disabled = false;
+  });
+
+  if (!isPaid) {
+    setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
   }
+}
 
   function render(){
   const start = (state.page-1)*state.perPage;
