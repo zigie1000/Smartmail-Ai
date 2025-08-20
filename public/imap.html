@@ -358,10 +358,8 @@ function derivePriority(importance, urgency){
     }
     list.innerHTML = items.map(cardHtml).join("");
     const total = state.view.length;
-    const pages = Math.max(1, Math.ceil(total / state.perPage));
-    $("pageInfo").textContent = `Page ${state.page} / ${pages} • ${total} emails`;
-    $("prev").disabled = (state.page <= 1);
-    $("next").disabled = (state.page >= pages);
+// Cursor pager controls are handled elsewhere; just show a count here.
+$("pageInfo").textContent = `${total} emails`;
   }
 
   function cardHtml(e){
