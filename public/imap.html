@@ -705,13 +705,16 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
 
   // ---- Events ----
   $("btnVip").addEventListener("click", ()=>{
-    state.view = [];
-state.cursorStack = [null];
-$("prev").disabled = true;
-$("next").disabled = true;
-$("pageInfo").textContent = `Page 1`;
-render();
-  });
+  state.view = state.emails.filter(e => !!e.isVip);
+  state.page = 1;
+  // local (client) view → disable server paging
+  state.nextCursor = null;
+  state.cursorStack = [null];
+  $("prev").disabled = true;
+  $("next").disabled = true;
+  $("pageInfo").textContent = `VIP • ${state.view.length} emails`;
+  render();
+});
   $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
   $("btnQUrgent").addEventListener("click",   ()=>applyQuickFilter('urgent'));
   $("btnQNeeds").addEventListener("click",    ()=>applyQuickFilter('needs'));
