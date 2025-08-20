@@ -193,7 +193,7 @@
         <button class="btn ghost" id="btnExportCsv" type="button" disabled>Export CSV</button>
         <button class="btn secondary" id="btnSendSelected" type="button" disabled>Send Selected → Generator</button>
         <button class="btn ghost" id="btnMore" type="button" disabled>More (30d)</button>
-        <button class="btn ghost" id="btnVip" type="button" disabled>VIP only</button>
+        
       </div>
 
      <div class="filters">
@@ -668,9 +668,7 @@ $("btnVip").addEventListener("click", ()=>{
   render();
 });
 $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
-$("#btnVip").addEventListener("click", () => {
-  state.view = state.emails.filter(e => e.isVip);   // expects classifier/server to set isVip=true
-  render();
+
 });
 $("btnQUrgent").addEventListener("click",   ()=>applyQuickFilter('urgent'));
 $("btnQNeeds").addEventListener("click",    ()=>applyQuickFilter('needs'));
