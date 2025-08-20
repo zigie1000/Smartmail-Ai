@@ -1,7 +1,5 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Month-friendly: accepts { month: "July 2025" | "2025-07" } or { monthStart, monthEnd }
-// Uses smartemail_tier only. Adds UID pagination (cursor), robust auth checks,
-// passes VIP list to service, and guards classifyEmails output.
+// Robust month parsing (label/yyy-mm/iso), UID pagination, VIP lists, classifier guards.
 
 import express from 'express';
 import crypto from 'crypto';
@@ -28,34 +26,73 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-/** ---------- month helpers ---------- **/
-const isIso = (s) => !!s && !Number.isNaN(Date.parse(s));
+/* ------------ Month helpers ------------ */
 
-/** parse a single month label like "July 2025" or "2025-07" -> {startISO,endISO} */
-function parseMonthLabel(label) {
-  if (!label) return null;
-  const s = String(label).trim();
-  // Accept "YYYY-MM"
-  const m = s.match(/^(\d{4})-(\d{1,2})$/);
-  let year, monthIdx;
-  if (m) {
-    year = parseInt(m[1], 10);
-    monthIdx = parseInt(m[2], 10) - 1; // 0-based
-  } else {
-    // Try native parse, then read year/month from it
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return null;
-    year = d.getUTCFullYear();
-    monthIdx = d.getUTCMonth();
+// Try to parse various “month-ish” inputs into {start:Date, end:Date}.
+function parseMonthish(startStr = '', endStr = '') {
+  const s = String(startStr || '').trim();
+  const e = String(endStr || '').trim();
+  const monthName = '(january|february|march|april|may|june|july|august|september|october|november|december)';
+  const labelRe = new RegExp(`^${monthName}\\s+\\d{4}$`, 'i');    // "June 2025"
+  const ymRe = /^(\d{4})-(\d{2})$/;                               // "2025-06"
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;                            // "2025-06-01"
+
+  const tryParseOne = (str) => {
+    if (!str) return null;
+
+    if (isoRe.test(str)) {
+      const d = new Date(str);
+      if (!Number.isNaN(d.getTime())) return { type: 'iso', d };
+    }
+    const m = ymRe.exec(str);
+    if (m) {
+      const y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1;
+      const d0 = new Date(Date.UTC(y, mo, 1));
+      const d1 = new Date(Date.UTC(y, mo + 1, 0));
+      return { type: 'ym', d0, d1 };
+    }
+    if (labelRe.test(str)) {
+      const [name, yStr] = str.split(/\s+/);
+      const y = parseInt(yStr, 10);
+      const mo = [
+        'january','february','march','april','may','june','july',
+        'august','september','october','november','december'
+      ].indexOf(name.toLowerCase());
+      if (mo >= 0) {
+        const d0 = new Date(Date.UTC(y, mo, 1));
+        const d1 = new Date(Date.UTC(y, mo + 1, 0));
+        return { type: 'label', d0, d1 };
+      }
+    }
+
+    // Fallback to Date.parse for anything else
+    const d = new Date(str);
+    if (!Number.isNaN(d.getTime())) return { type: 'loose', d };
+    return null;
+  };
+
+  const ps = tryParseOne(s);
+  const pe = tryParseOne(e);
+
+  if (ps?.type === 'iso' && pe?.type === 'iso') {
+    // They sent explicit day bounds
+    const d0 = new Date(Date.UTC(ps.d.getUTCFullYear(), ps.d.getUTCMonth(), ps.d.getUTCDate()));
+    const d1 = new Date(Date.UTC(pe.d.getUTCFullYear(), pe.d.getUTCMonth(), pe.d.getUTCDate()));
+    return { startIso: d0.toISOString().slice(0,10), endIso: d1.toISOString().slice(0,10) };
   }
-  if (!(year >= 1970 && year <= 2100) || !(monthIdx >= 0 && monthIdx <= 11)) return null;
 
-  const start = new Date(Date.UTC(year, monthIdx, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(year, monthIdx + 1, 0, 23, 59, 59, 999)); // last millisecond of month
-  return { startISO: start.toISOString(), endISO: end.toISOString() };
+  // If either input indicates a year-month or label, compute the whole month
+  const month = ps?.d0 ? ps : pe?.d0 ? pe : null;
+  if (month && month.d0 && month.d1) {
+    const startIso = month.d0.toISOString().slice(0,10);
+    const endIso   = month.d1.toISOString().slice(0,10);
+    return { startIso, endIso };
+  }
+
+  return null; // not month-ish
 }
 
-// --- Tier helpers (email-first, key fallback). Only read smartemail_tier.
+// ---------- Tier helpers (email-first, key fallback). Only read smartemail_tier.
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
@@ -173,7 +210,7 @@ router.post('/tier', async (req, res) => {
   try {
     const { email = '', licenseKey = '' } = req.body || {};
     const tier = await getTier({ licenseKey, email });
-    const paid = await isPaid(tier);
+    aconst paid = await isPaid(tier);
     const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
     res.json({ tier, isPaid: paid, notice });
   } catch (e) {
@@ -189,23 +226,20 @@ router.post('/fetch', async (req, res) => {
       host = '', port = 993, tls = true, authType = 'password',
       licenseKey = '',
       monthStart = '', monthEnd = '',
-      month = '',                    // NEW: single month label support
       cursor = null,
       rangeDays: qRangeDays,
       limit: qLimit
     } = req.body || {};
 
-    if (!email || !host) {
-      return res.status(400).json({ error: 'email and host are required' });
-    }
+    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
 
     const safeEmail = isLikelyEmail(email) ? email : '';
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
-
     const userId = userIdFromEmail(safeEmail || 'anon');
-    const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
 
+    // Apply free caps without mutating the incoming body
+    const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
     if (capped.isFree && capped.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -223,21 +257,13 @@ router.post('/fetch', async (req, res) => {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // ----- Date selection (month-friendly) -----
-    let msISO = '', meISO = '';
-    if (isIso(monthStart) && isIso(monthEnd)) {
-      msISO = new Date(monthStart).toISOString();
-      meISO = new Date(monthEnd).toISOString();
-    } else {
-      const rng = parseMonthLabel(month);
-      if (rng) { msISO = rng.startISO; meISO = rng.endISO; }
-    }
-    const useMonth = !!(msISO && meISO);
-
+    // -------- Month vs range --------
+    const parsedMonth = parseMonthish(monthStart, monthEnd);
+    const useMonth = !!parsedMonth;
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
 
-    // Personalization (VIP etc.) BEFORE fetching so the service can use it, too
+    // Personalization first (so the service can use VIP boost too)
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
@@ -247,15 +273,15 @@ router.post('/fetch', async (req, res) => {
     // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      monthStart: useMonth ? msISO : undefined,
-      monthEnd:   useMonth ? meISO : undefined,
+      monthStart: useMonth ? parsedMonth.startIso : undefined,
+      monthEnd:   useMonth ? parsedMonth.endIso   : undefined,
       rangeDays,
       limit,
       cursor,
       vipSenders
     });
 
-    // Second-stage classifier (LLM/ML). Be resilient to shapes.
+    // Classify (guard shapes)
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
@@ -282,8 +308,8 @@ router.post('/fetch', async (req, res) => {
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
     const code = String(e?.code || '').toUpperCase();
-    if (code === 'EAUTH')    return res.status(401).json({ error: 'Authentication failed' });
-    if (code === 'ENOTFOUND')return res.status(502).json({ error: 'IMAP host not found' });
+    if (code === 'EAUTH') return res.status(401).json({ error: 'Authentication failed' });
+    if (code === 'ENOTFOUND') return res.status(502).json({ error: 'IMAP host not found' });
     res.status(500).json({ error: 'Server error while fetching mail.' });
   }
 });
