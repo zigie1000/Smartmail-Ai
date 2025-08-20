@@ -8,11 +8,30 @@ function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; 
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
   const kind = String(authType || 'password').toLowerCase();
-  if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
+  if (kind === 'xoauth2') {
+    return { user: email, accessToken: accessToken || '' };
+  }
   return { user: email, pass: password || '' };
 }
 
-async function connect({ host, port = 993, tls = true, authType, email, password, accessToken }) {
+async function openPrimaryMailbox(client) {
+  // Prefer Gmail "All Mail" so archived mail is included; fall back to INBOX.
+  let chosen = 'INBOX';
+  try {
+    for await (const box of client.list()) {
+      const use = String(box.specialUse || '').toLowerCase();
+      const name = String(box.path || box.name || '');
+      if (use === '\\all' || use === '\\allmail' || /all mail/i.test(name)) {
+        chosen = box.path || box.name || 'INBOX';
+        break;
+      }
+    }
+  } catch { /* ignore and use INBOX */ }
+  await client.mailboxOpen(chosen);
+  return chosen;
+}
+
+async function connectAndOpen({ host, port = 993, tls = true, authType, email, password, accessToken }) {
   const client = new ImapFlow({
     host,
     port: Number(port) || 993,
@@ -21,40 +40,24 @@ async function connect({ host, port = 993, tls = true, authType, email, password
     logger: false
   });
   await client.connect();
+  await openPrimaryMailbox(client); // <— All Mail if present, else INBOX
   return client;
-}
-
-// Pick a good mailbox: prefer special-use \All (Gmail “All Mail”), else INBOX.
-async function openPrimaryMailbox(client) {
-  try {
-    // Look for \All
-    const boxes = [];
-    for await (const box of client.list()) boxes.push(box);
-    const all = boxes.find(b =>
-      (b.specialUse && /\\All/i.test(b.specialUse)) ||
-      /(^|\W)(all mail|toutes les boîtes|alle mails|todos|tutto la posta)/i.test(b.path || '')
-    );
-    if (all) {
-      await client.mailboxOpen(all.path);
-      return all.path;
-    }
-  } catch { /* ignore, we’ll try INBOX next */ }
-
-  await client.mailboxOpen('INBOX');
-  return 'INBOX';
 }
 
 function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
   const crit = ['ALL'];
-  if (monthStart) {
-    crit.push(['SINCE', new Date(monthStart)]); // inclusive
-  } else if (Number(rangeDays) > 0) {
+  const hasMonthStart = monthStart && !Number.isNaN(Date.parse(monthStart));
+  const hasMonthEnd   = monthEnd   && !Number.isNaN(Date.parse(monthEnd));
+
+  if (hasMonthStart) crit.push(['SINCE', new Date(monthStart)]);
+  else if (Number(rangeDays) > 0) {
     const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
     crit.push(['SINCE', since]);
   }
-  if (monthEnd) {
-    // BEFORE is exclusive; add 1 full day to include the monthEnd day
-    const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000);
+  if (hasMonthEnd) {
+    // BEFORE is exclusive; add a day so we include the month's last day.
+    const d = new Date(monthEnd);
+    const before = new Date(d.getTime() + 24 * 3600 * 1000);
     crit.push(['BEFORE', before]);
   }
   return crit;
@@ -65,20 +68,16 @@ function toModelSkeleton(msg) {
   const to0   = msg.envelope?.to?.[0] ?? {};
   const subject = (msg.envelope?.subject ?? '').toString();
 
-  const fromEmail = (from0.address || '').toString();
-  const fromDomain = fromEmail.includes('@') ? fromEmail.split('@').pop().toLowerCase() : '';
-
   return {
     id: String(msg.uid ?? msg.seq ?? ''),
     uid: msg.uid,
     subject,
-    from: (from0.name || fromEmail || '').toString(),
-    fromEmail,
-    fromDomain,
+    from: (from0.name || from0.address || '').toString(),
+    fromEmail: (from0.address || '').toString(),
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
     snippet: (msg.snippet || '').toString().trim(),
-    // classification fields (filled later or by /classify)
+    // classification fields (filled later)
     importance: 'unclassified',
     intent: '',
     urgency: 0,
@@ -103,11 +102,11 @@ async function hydrateSnippet(client, uid, model) {
   return model;
 }
 
-/** Tiny heuristic classifier (kept for /fetch when /classify isn’t used) */
+/** Tiny heuristic classifier (no OpenAI) */
 function classify(model, { vipSenders = [] } = {}) {
   const s = `${model.subject} ${model.snippet}`.toLowerCase();
 
-  // intent/category-lite
+  // intent
   const intent =
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
     /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
@@ -126,7 +125,8 @@ function classify(model, { vipSenders = [] } = {}) {
   if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
 
   // action_required
-  const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
+  const action_required =
+    /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
 
   // VIP
   const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
@@ -136,11 +136,10 @@ function classify(model, { vipSenders = [] } = {}) {
 
 /** Normalize UID array and sort (desc) */
 function normalizeUids(uids) {
-  if (!uids) return [];
-  const arr = Array.isArray(uids) ? uids : Array.from(uids);
-  const nums = arr.map(Number).filter(n => Number.isFinite(n));
-  nums.sort((a, b) => b - a); // newest first
-  return nums;
+  if (!Array.isArray(uids)) return [];
+  const arr = uids.map(Number).filter(n => Number.isFinite(n));
+  arr.sort((a, b) => b - a); // newest first
+  return arr;
 }
 
 /** ---------- public API (used by imapRoutes.js) ---------- **/
@@ -162,10 +161,7 @@ export async function fetchEmails(opts) {
 
   let client;
   try {
-    client = await connect({ host, port, tls, authType, email, password, accessToken });
-
-    // Choose the right mailbox (Gmail “All Mail” when available; else INBOX)
-    await openPrimaryMailbox(client);
+    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
 
     const criteria = buildDateCriteria({ rangeDays, monthStart, monthEnd });
     const uidListRaw = await client.search(criteria, { uid: true });
@@ -181,20 +177,13 @@ export async function fetchEmails(opts) {
     const pageSize = Math.max(1, Number(limit) || 20);
     const slice = uidList.slice(start, start + pageSize);
 
-    // If nothing to fetch, return early (avoids imapflow send on empty set)
-    if (slice.length === 0) {
-      await client.logout();
-      const hasMore = start < uidList.length; // probably false, but keep logic consistent
-      return { items: [], nextCursor: null, hasMore };
-    }
-
     // Fetch metadata
     const raw = [];
     for await (const msg of client.fetch(slice, { uid: true, envelope: true, internalDate: true, source: false })) {
       raw.push(msg);
     }
 
-    // Map → model → add snippet → lightweight classify (heuristics)
+    // Map → model → add snippet → classify (heuristics)
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
@@ -210,7 +199,9 @@ export async function fetchEmails(opts) {
     return { items, nextCursor, hasMore };
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
-    const e = new Error(err?.message || String(err));
+    // Re-throw a clean error (imapRoutes will map to HTTP)
+    const msg = err?.message || String(err);
+    const e = new Error(msg);
     e.code = err?.code;
     throw e;
   }
@@ -221,8 +212,7 @@ export async function testLogin({ email, password, accessToken, host, port = 993
   if (!email || !host) throw new Error('email and host are required');
   let client;
   try {
-    client = await connect({ host, port, tls, authType, email, password, accessToken });
-    await openPrimaryMailbox(client); // also validates mailbox access
+    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
     await client.logout();
     return true;
   } catch {
