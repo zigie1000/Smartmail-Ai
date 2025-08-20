@@ -112,10 +112,11 @@ function classify(model, { vipSenders = [] } = {}) {
 /** Normalize UID collection (Array/Set/TypedArray) and sort desc */
 function normalizeUids(uids) {
   if (!uids) return [];
-  const iterable = typeof uids[Symbol.iterator] === 'function' ? uids : Object.values(uids);
-  const arr = Array.from(iterable, n => Number(n)).filter(n => Number.isFinite(n));
-  arr.sort((a, b) => b - a); // newest first
-  return arr;
+  // Convert Set to Array if needed
+  const arr = Array.isArray(uids) ? uids : Array.from(uids);
+  const nums = arr.map(Number).filter(n => Number.isFinite(n));
+  nums.sort((a, b) => b - a); // newest first
+  return nums;
 }
 
 /* --------------- public API --------------- */
