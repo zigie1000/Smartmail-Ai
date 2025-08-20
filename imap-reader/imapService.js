@@ -1,16 +1,13 @@
-// imapService.js (ESM) — IMAP fetcher with robust month parsing & UID pagination
+// imapService.js (ESM) — robust IMAP fetcher with month parsing, fallbacks & UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
 /** ---------- helpers ---------- **/
-
 function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
   const kind = String(authType || 'password').toLowerCase();
-  if (kind === 'xoauth2') {
-    return { user: email, accessToken: accessToken || '' };
-  }
+  if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
   return { user: email, pass: password || '' };
 }
 
@@ -23,31 +20,42 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
     logger: false
   });
   await client.connect();
-  await client.mailboxOpen('INBOX');
+  await client.mailboxOpen('INBOX', { readOnly: true });
   return client;
 }
 
-/** Parse month into [start, endExclusive] dates */
-function parseMonthRange(monthLabel) {
+/** Parse month inputs into [start, endExclusive] */
+function parseMonthRange(monthStart, monthEnd) {
   const clean = (s) => (typeof s === 'string' ? s.trim() : '');
-  const ms = clean(monthLabel);
+  const ms = clean(monthStart);
+  const me = clean(monthEnd);
 
-  if (ms && !Number.isNaN(Date.parse(ms))) {
+  // both provided (ISO/parsable)
+  if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
+    const start = new Date(ms);
+    const meD = new Date(me);
+    const endExclusive = new Date(meD.getFullYear(), meD.getMonth(), meD.getDate() + 1);
+    return { start, endExclusive };
+  }
+
+  // single month label in ms (e.g., "July 2025" or "2025-07")
+  if (ms && !me && !Number.isNaN(Date.parse(ms))) {
     const d = new Date(ms);
     const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
     const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
     return { start, endExclusive };
   }
+
   return { start: null, endExclusive: null };
 }
 
-function buildDateCriteria({ rangeDays, month }) {
+function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
   const crit = ['ALL'];
-  const { start, endExclusive } = parseMonthRange(month);
+  const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
 
   if (start && endExclusive) {
     crit.push(['SINCE', start]);
-    crit.push(['BEFORE', endExclusive]);
+    crit.push(['BEFORE', endExclusive]); // exclusive upper bound
     return crit;
   }
 
@@ -70,6 +78,7 @@ function toModelSkeleton(msg) {
     subject,
     from: (from0.name || from0.address || '').toString(),
     fromEmail: (from0.address || '').toString(),
+    fromDomain: ((from0.address || '').split('@')[1] || '').toLowerCase(),
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
     snippet: (msg.snippet || '').toString().trim(),
@@ -92,87 +101,112 @@ async function hydrateSnippet(client, uid, model) {
       .replace(/\s+/g, ' ')
       .trim();
     if (textish) model.snippet = textish.slice(0, 600);
-  } catch {}
+  } catch { /* ignore */ }
   return model;
 }
 
-/** Heuristic classifier */
+/** Tiny heuristic classifier (no LLM) */
 function classify(model, { vipSenders = [] } = {}) {
   const s = `${model.subject} ${model.snippet}`.toLowerCase();
-
   const intent =
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
     /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
     /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
-    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' :
-    /\b(contract|law|legal|attorney|agreement)\b/.test(s)                ? 'legal' :
-    '';
-
+    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' : '';
   let urgency = 0;
   if (/\burgent|asap|immediately|right away|today\b/.test(s)) urgency = 3;
   else if (/\bsoon|priority|important\b/.test(s))             urgency = 2;
   else if (/\breminder|follow up|ping\b/.test(s))             urgency = 1;
-
   let importance = 'unimportant';
   if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
-
   const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
-
   const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
-
   return { ...model, intent, urgency, importance, action_required, isVip };
 }
 
 function normalizeUids(uids) {
-  if (!Array.isArray(uids) && !(uids instanceof Set)) return [];
-  const arr = Array.isArray(uids) ? uids : Array.from(uids);
-  const nums = arr.map(Number).filter(n => Number.isFinite(n));
+  const arr = Array.isArray(uids) ? uids : Array.from(uids || []);
+  const nums = arr.map(Number).filter(Number.isFinite);
   nums.sort((a, b) => b - a);
   return nums;
 }
 
-/** ---------- public API ---------- **/
-
+/** ---------- public API ---------- */
 export async function fetchEmails(opts) {
   const {
     email, password, accessToken,
     host, port = 993, tls = true, authType = 'password',
-    rangeDays = 7, month,
+    rangeDays = 7, monthStart, monthEnd,
+    // NEW: accept a single `month` label (e.g., "July 2025") as an alias
+    month,
     limit = 20, cursor = null,
-    vipSenders = [],
-    intent = 'all'
+    vipSenders = []
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
+
+  // ---- MINIMAL MONTH NORMALIZATION ----
+  // If the caller sent only `month`, use it as monthStart; keep monthEnd as-is.
+  const _monthStart = monthStart || month || '';
+  const _monthEnd   = monthEnd || '';
 
   let client;
   try {
     client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
 
-    const criteria = buildDateCriteria({ rangeDays, month });
-    const uidListRaw = await client.search(criteria, { uid: true });
-    const uidList = normalizeUids(uidListRaw);
+    /* 1) primary IMAP search (UIDs) */
+    const criteria = buildDateCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd });
+    let uidList = normalizeUids(await client.search(criteria, { uid: true }));
 
-    let start = 0;
-    if (cursor != null) {
-      const idx = uidList.indexOf(Number(cursor));
-      start = idx >= 0 ? idx + 1 : 0;
+    /* 2) Gmail RAW fallback */
+    if ((!uidList || uidList.length === 0) && /gmail\.com$/i.test(host)) {
+      const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
+      const pad = (n) => String(n).padStart(2, '0');
+      const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
+      const a = start ? fmt(start) : fmt(new Date(Date.now() - (Number(rangeDays) || 30) * 864e5));
+      const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
+      try {
+        uidList = normalizeUids(await client.search({ gmailRaw: `in:inbox after:${a} before:${b}` }, { uid: true }));
+      } catch {/* ignore */}
     }
 
+    /* 3) Hard fallback: last N UIDs in INBOX */
+    if (!uidList || uidList.length === 0) {
+      try {
+        const st = await client.status('INBOX', { uidnext: true });
+        const lastUid = Math.max(1, (st.uidnext || 1) - 1);
+        const want = Math.max(1, Number(limit) || 20);
+        const startUid = Math.max(1, lastUid - (want * 5) + 1);
+        const collected = [];
+        for await (const m of client.fetch({ uid: `${startUid}:${lastUid}` }, { uid: true })) {
+          collected.push(m.uid);
+        }
+        uidList = normalizeUids(collected);
+      } catch { uidList = []; }
+    }
+
+    /* pagination */
+    let startIdx = 0;
+    if (cursor != null) {
+      const idx = uidList.indexOf(Number(cursor));
+      startIdx = idx >= 0 ? idx + 1 : 0;
+    }
     const pageSize = Math.max(1, Number(limit) || 20);
-    const slice = uidList.slice(start, start + pageSize);
+    const slice = uidList.slice(startIdx, startIdx + pageSize);
 
     if (!slice.length) {
       await client.logout();
       return { items: [], nextCursor: null, hasMore: false };
     }
 
+    /* fetch page metadata by UID list */
     const raw = [];
     for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
       raw.push(msg);
     }
 
-    let items = [];
+    /* map → hydrate → classify */
+    const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
       model = await hydrateSnippet(client, msg.uid, model);
@@ -180,12 +214,7 @@ export async function fetchEmails(opts) {
       items.push(model);
     }
 
-    // filter by intent after classification
-    if (intent && intent !== 'all') {
-      items = items.filter(m => m.intent === intent);
-    }
-
-    const hasMore = start + slice.length < uidList.length;
+    const hasMore = startIdx + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
     await client.logout();
