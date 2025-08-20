@@ -1,4 +1,5 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
+// Month-friendly: accepts { month: "July 2025" | "2025-07" } or { monthStart, monthEnd }
 // Uses smartemail_tier only. Adds UID pagination (cursor), robust auth checks,
 // passes VIP list to service, and guards classifyEmails output.
 
@@ -26,6 +27,33 @@ function rowsToSet(rows, key) {
     .filter(Boolean));
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+/** ---------- month helpers ---------- **/
+const isIso = (s) => !!s && !Number.isNaN(Date.parse(s));
+
+/** parse a single month label like "July 2025" or "2025-07" -> {startISO,endISO} */
+function parseMonthLabel(label) {
+  if (!label) return null;
+  const s = String(label).trim();
+  // Accept "YYYY-MM"
+  const m = s.match(/^(\d{4})-(\d{1,2})$/);
+  let year, monthIdx;
+  if (m) {
+    year = parseInt(m[1], 10);
+    monthIdx = parseInt(m[2], 10) - 1; // 0-based
+  } else {
+    // Try native parse, then read year/month from it
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    year = d.getUTCFullYear();
+    monthIdx = d.getUTCMonth();
+  }
+  if (!(year >= 1970 && year <= 2100) || !(monthIdx >= 0 && monthIdx <= 11)) return null;
+
+  const start = new Date(Date.UTC(year, monthIdx, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(year, monthIdx + 1, 0, 23, 59, 59, 999)); // last millisecond of month
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
+}
 
 // --- Tier helpers (email-first, key fallback). Only read smartemail_tier.
 async function getTier({ licenseKey = '', email = '' }) {
@@ -161,12 +189,12 @@ router.post('/fetch', async (req, res) => {
       host = '', port = 993, tls = true, authType = 'password',
       licenseKey = '',
       monthStart = '', monthEnd = '',
+      month = '',                    // NEW: single month label support
       cursor = null,
       rangeDays: qRangeDays,
       limit: qLimit
     } = req.body || {};
 
-    // Minimal required inputs
     if (!email || !host) {
       return res.status(400).json({ error: 'email and host are required' });
     }
@@ -176,8 +204,6 @@ router.post('/fetch', async (req, res) => {
     const paid = await isPaid(tier);
 
     const userId = userIdFromEmail(safeEmail || 'anon');
-
-    // Apply free caps *without mutating req.body*
     const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
 
     if (capped.isFree && capped.minFetchMs > 0) {
@@ -197,11 +223,16 @@ router.post('/fetch', async (req, res) => {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // Date selection
-    const msStr = String(monthStart || '').trim();
-    const meStr = String(monthEnd   || '').trim();
-    const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
-    const useMonth = isValidISO(msStr) && isValidISO(meStr);
+    // ----- Date selection (month-friendly) -----
+    let msISO = '', meISO = '';
+    if (isIso(monthStart) && isIso(monthEnd)) {
+      msISO = new Date(monthStart).toISOString();
+      meISO = new Date(monthEnd).toISOString();
+    } else {
+      const rng = parseMonthLabel(month);
+      if (rng) { msISO = rng.startISO; meISO = rng.endISO; }
+    }
+    const useMonth = !!(msISO && meISO);
 
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
@@ -213,11 +244,11 @@ router.post('/fetch', async (req, res) => {
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP (pass VIP list so service heuristic can boost)
+    // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      monthStart: useMonth ? msStr : undefined,
-      monthEnd:   useMonth ? meStr : undefined,
+      monthStart: useMonth ? msISO : undefined,
+      monthEnd:   useMonth ? meISO : undefined,
       rangeDays,
       limit,
       cursor,
@@ -251,8 +282,8 @@ router.post('/fetch', async (req, res) => {
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
     const code = String(e?.code || '').toUpperCase();
-    if (code === 'EAUTH') return res.status(401).json({ error: 'Authentication failed' });
-    if (code === 'ENOTFOUND') return res.status(502).json({ error: 'IMAP host not found' });
+    if (code === 'EAUTH')    return res.status(401).json({ error: 'Authentication failed' });
+    if (code === 'ENOTFOUND')return res.status(502).json({ error: 'IMAP host not found' });
     res.status(500).json({ error: 'Server error while fetching mail.' });
   }
 });
