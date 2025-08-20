@@ -365,45 +365,50 @@ function derivePriority(importance, urgency){
   }
 
   function cardHtml(e){
-    const importance = String(e.importance||'').toLowerCase();
-const category = e.category || e.intent || '';
-const from = e.from || e.fromEmail || '';
-const reasons = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
+  const importance = String(e.importance||'').toLowerCase();
+  const category = e.category || e.intent || '';
+  const from = e.from || e.fromEmail || '';
+  const reasons = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
 
-// Importance tag (hide when 'unclassified')
-const showImp = importance && importance !== 'unclassified';
-const impClass = showImp && importance === 'important' ? 'imp' : '';
-const impTag = showImp ? `<span class="tag ${impClass}">${escapeHtml(importance)}</span>` : "";
+  // Priority wins; otherwise show importance (unless 'unclassified')
+  const pr = derivePriority(importance, e.urgency);
+  const showImp = !pr && importance && importance !== 'unclassified';
+  const impClass = showImp && importance === 'important' ? 'imp' : '';
+  const primaryTag = pr
+    ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
+    : showImp
+      ? `<span class="tag ${impClass}">${escapeHtml(importance)}</span>`
+      : "";
 
-// One priority chip (derived)
-const pr = derivePriority(importance, e.urgency);
-const priorityChip = pr ? `<span class="chip pri-${pr}" title="Derived priority">${pr}</span>` : "";
+  const catChip = category ? `<span class="chip" title="Category">${escapeHtml(category)}</span>` : "";
 
-// One category chip
-const catChip = category ? `<span class="chip" title="Category">${escapeHtml(category)}</span>` : "";
+  const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
+  const urgency = urgVal >= 2
+    ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>`
+    : "";
 
-// Urgency only if >= 2
-const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
-const urgency = urgVal >= 2
-  ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>`
-  : "";
+  const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
 
-// VIP chip
-const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
-
-return `
-  <div class="email">
-    <div class="email-header">
-      <div class="meta">
-        <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
-        <span class="from">${escapeHtml(from)}</span>
-      </div>
-      <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
-      <div>${impTag}${vipChip}${priorityChip}${catChip}${urgency}</div>
-    </div>
-          <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
-          <div><span class="tag ${impClass}">${escapeHtml(imp)}</span>${vipChip}${priorityChip}${intent}${urgency}</div>
+  return `
+    <div class="email">
+      <div class="email-header">
+        <div class="meta">
+          <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
+          <span class="from">${escapeHtml(from)}</span>
         </div>
+        <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
+        <div>${primaryTag}${vipChip}${catChip}${urgency}</div>
+      </div>
+      <details>
+        <summary>Preview</summary>
+        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">${escapeHtml(e.snippet||e.text||'')}</div>
+      </details>
+      <div class="meta" style="margin-top:6px">
+        <span class="hint">${escapeHtml(new Date(e.date||Date.now()).toLocaleString())}</span>
+        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ""}
+      </div>
+    </div>`;
+}
         <details>
           <summary>Preview</summary>
           <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">${escapeHtml(e.snippet||e.text||'')}</div>
