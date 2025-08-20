@@ -521,7 +521,7 @@ return `
   }
 
   // ---- Networking ----
-  async function fetchAndClassify(){
+  async function fetchAndClassify(next=false, prev=false){
     skeleton(6);
     try{
       const provider = $("provider").value;
