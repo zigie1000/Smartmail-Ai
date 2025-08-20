@@ -766,9 +766,13 @@ $("next").addEventListener("click", ()=>{
     $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
   }
   checkTier();
-  updateMonthUI();
-  state.view = [];
-  render();
+updateMonthUI();
+state.view = [];
+state.cursorStack = [null];
+$("prev").disabled = true;
+$("next").disabled = true;
+$("pageInfo").textContent = `Page 1`;
+render();
 })();
 </script>
 </body>
