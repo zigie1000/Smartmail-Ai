@@ -363,29 +363,32 @@ $("pageInfo").textContent = `${total} emails`;
   }
 
   function cardHtml(e){
-  const importance = String(e.importance||'').toLowerCase();
-  const category = e.category || e.intent || '';
-  const from = e.from || e.fromEmail || '';
-  const reasons = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
+  const importance = String(e.importance || '').toLowerCase();
+  const category   = e.category || e.intent || '';
+  const from       = e.from || e.fromEmail || '';
+  const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
 
-  // Priority wins; otherwise show importance (unless 'unclassified')
+  // One derived priority chip (no raw "important/unclassified" tag)
   const pr = derivePriority(importance, e.urgency);
-  const showImp = !pr && importance && importance !== 'unclassified';
-  const impClass = showImp && importance === 'important' ? 'imp' : '';
-  const primaryTag = pr
+  const priorityChip = pr
     ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
-    : showImp
-      ? `<span class="tag ${impClass}">${escapeHtml(importance)}</span>`
-      : "";
+    : "";
 
-  const catChip = category ? `<span class="chip" title="Category">${escapeHtml(category)}</span>` : "";
+  // One category chip
+  const catChip = category
+    ? `<span class="chip" title="Category">${escapeHtml(category)}</span>`
+    : "";
 
+  // Urgency chip only when >= 2
   const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
   const urgency = urgVal >= 2
     ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>`
     : "";
 
-  const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
+  // VIP chip
+  const vipChip = e.isVip
+    ? `<span class="chip vip" title="VIP sender">VIP</span>`
+    : "";
 
   return `
     <div class="email">
@@ -394,29 +397,21 @@ $("pageInfo").textContent = `${total} emails`;
           <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
           <span class="from">${escapeHtml(from)}</span>
         </div>
-        <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
-        <div>${primaryTag}${vipChip}${catChip}${urgency}</div>
+        <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+        <div>${vipChip}${priorityChip}${catChip}${urgency}</div>
       </div>
       <details>
         <summary>Preview</summary>
-        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">${escapeHtml(e.snippet||e.text||'')}</div>
+        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
+          ${escapeHtml(e.snippet || e.text || '')}
+        </div>
       </details>
       <div class="meta" style="margin-top:6px">
-        <span class="hint">${escapeHtml(new Date(e.date||Date.now()).toLocaleString())}</span>
+        <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
         ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ""}
       </div>
     </div>`;
 }
-        <details>
-          <summary>Preview</summary>
-          <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">${escapeHtml(e.snippet||e.text||'')}</div>
-        </details>
-        <div class="meta" style="margin-top:6px">
-          <span class="hint">${escapeHtml(new Date(e.date||Date.now()).toLocaleString())}</span>
-          ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ""}
-        </div>
-      </div>`;
-  }
 
   function applyFilters(){
     let filtered = [...state.emails];
