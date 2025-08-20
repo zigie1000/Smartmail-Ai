@@ -281,7 +281,12 @@
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const msg = $("msg");
-  const state = { emails: [], view: [], page: 1, perPage: 20, tier: 'free', isPaid: false, tierKnown: false };
+  const state = {
+  emails: [], view: [], page: 1, perPage: 20,
+  tier: 'free', isPaid: false, tierKnown: false,
+  nextCursor: null,            // server "next" token
+  cursorStack: []              // history for Prev (stack of cursors)
+};
 
   const PROVIDERS = {
     gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
