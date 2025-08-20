@@ -354,6 +354,7 @@
     const pri = priorityOf(e);
     const priorityChip = `<span class="chip pri-${pri}" title="Priority derived from importance+urgency">${pri}</span>`;
     const from = e.from || e.fromEmail || "";
+    const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
     return `
     <div class="email">
       <div class="email-header">
