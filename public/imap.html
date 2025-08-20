@@ -363,23 +363,42 @@ function derivePriority(importance, urgency){
   }
 
   function cardHtml(e){
-    const imp = (e.importance||"unimportant").toLowerCase();
-    const impClass = imp === "important" ? "imp" : "";
-    const intent = e.intent ? `<span class="chip" title="Intent">${escapeHtml(e.intent)}</span>` : "";
-    const reasons = Array.isArray(e.reasons) ? e.reasons.join(" • ") : "";
-    const urgVal = Number.isInteger(e.urgency) ? e.urgency : null;
-    const urgency = (urgVal !== null) ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>` : "";
-    const pri = priorityOf(e);
-    const priorityChip = `<span class="chip pri-${pri}" title="Priority derived from importance+urgency">${pri}</span>`;
-    const from = e.from || e.fromEmail || "";
-    const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
-    return `
-      <div class="email">
-        <div class="email-header">
-          <div class="meta">
-            <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
-            <span class="from">${escapeHtml(from)}</span>
-          </div>
+    const importance = String(e.importance||'').toLowerCase();
+const category = e.category || e.intent || '';
+const from = e.from || e.fromEmail || '';
+const reasons = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
+
+// Importance tag (hide when 'unclassified')
+const showImp = importance && importance !== 'unclassified';
+const impClass = showImp && importance === 'important' ? 'imp' : '';
+const impTag = showImp ? `<span class="tag ${impClass}">${escapeHtml(importance)}</span>` : "";
+
+// One priority chip (derived)
+const pr = derivePriority(importance, e.urgency);
+const priorityChip = pr ? `<span class="chip pri-${pr}" title="Derived priority">${pr}</span>` : "";
+
+// One category chip
+const catChip = category ? `<span class="chip" title="Category">${escapeHtml(category)}</span>` : "";
+
+// Urgency only if >= 2
+const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
+const urgency = urgVal >= 2
+  ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0,140))}">Urgency ${urgVal}</span>`
+  : "";
+
+// VIP chip
+const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : "";
+
+return `
+  <div class="email">
+    <div class="email-header">
+      <div class="meta">
+        <input type="checkbox" class="sel" data-id="${escapeHtml(e.id||'')}" />
+        <span class="from">${escapeHtml(from)}</span>
+      </div>
+      <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
+      <div>${impTag}${vipChip}${priorityChip}${catChip}${urgency}</div>
+    </div>
           <div class="subject">${escapeHtml(e.subject||'(no subject)')}</div>
           <div><span class="tag ${impClass}">${escapeHtml(imp)}</span>${vipChip}${priorityChip}${intent}${urgency}</div>
         </div>
