@@ -1,17 +1,18 @@
-// imapService.js (ESM) — plain functions consumed by imapRoutes.js
+// imapService.js (ESM)
+// Plain functions consumed by imapRoutes.js
+
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-/** ---------- helpers ---------- **/
+/* ---------------- helpers ---------------- */
 
-function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
+const normBool = v => v === true || String(v).toLowerCase() === 'true';
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
   const kind = String(authType || 'password').toLowerCase();
-  if (kind === 'xoauth2') {
-    return { user: email, accessToken: accessToken || '' };
-  }
-  return { user: email, pass: password || '' };
+  return kind === 'xoauth2'
+    ? { user: email, accessToken: accessToken || '' }
+    : { user: email, pass: password || '' };
 }
 
 async function connectAndOpen({ host, port = 993, tls = true, authType, email, password, accessToken }) {
@@ -29,13 +30,14 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
 
 function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
   const crit = ['ALL'];
-  if (monthStart) crit.push(['SINCE', new Date(monthStart)]);
-  else if (Number(rangeDays) > 0) {
+  if (monthStart) {
+    crit.push(['SINCE', new Date(monthStart)]);
+  } else if (Number(rangeDays) > 0) {
     const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
     crit.push(['SINCE', since]);
   }
   if (monthEnd) {
-    // IMAP BEFORE is exclusive; bump by 1 day so UI's monthEnd is inclusive
+    // BEFORE is exclusive – add one day so the whole end date is included
     const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000);
     crit.push(['BEFORE', before]);
   }
@@ -56,7 +58,7 @@ function toModelSkeleton(msg) {
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
     snippet: (msg.snippet || '').toString().trim(),
-    // classification fields (filled later)
+    // filled later
     importance: 'unclassified',
     intent: '',
     urgency: 0,
@@ -67,18 +69,17 @@ function toModelSkeleton(msg) {
 
 async function hydrateSnippet(client, uid, model) {
   try {
-    // fetch full source and parse for a better snippet
-    const full = await client.fetchOne(uid, { source: true });
-    if (full?.source) {
-      const parsed = await simpleParser(full.source);
-      const textish = (parsed.text || parsed.html || '')
-        .toString()
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (textish) model.snippet = textish.slice(0, 600);
-    }
-  } catch { /* ignore */ }
+    // In some ImapFlow versions you must specify uid:true when using a UID
+    const stream = await client.download(uid, { uid: true });
+    if (!stream) return model;
+    const parsed = await simpleParser(stream.content);
+    const textish = (parsed.text || parsed.html || '')
+      .toString()
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (textish) model.snippet = textish.slice(0, 600);
+  } catch {}
   return model;
 }
 
@@ -86,7 +87,6 @@ async function hydrateSnippet(client, uid, model) {
 function classify(model, { vipSenders = [] } = {}) {
   const s = `${model.subject} ${model.snippet}`.toLowerCase();
 
-  // intent
   const intent =
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
     /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
@@ -94,38 +94,35 @@ function classify(model, { vipSenders = [] } = {}) {
     /\boffer|promo|newsletter|digest|update\b/.test(s)                   ? 'newsletter' :
     '';
 
-  // urgency 0–3
   let urgency = 0;
   if (/\burgent|asap|immediately|right away|today\b/.test(s)) urgency = 3;
   else if (/\bsoon|priority|important\b/.test(s))             urgency = 2;
   else if (/\breminder|follow up|ping\b/.test(s))             urgency = 1;
 
-  // importance
   let importance = 'unimportant';
   if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
 
-  // action_required
   const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
 
-  // VIP
   const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
 
   return { ...model, intent, urgency, importance, action_required, isVip };
 }
 
-/** Normalize UID array and sort (desc) */
+/** Normalize UID collection (Array/Set/TypedArray) and sort desc */
 function normalizeUids(uids) {
-  if (!Array.isArray(uids)) return [];
-  const arr = uids.map(Number).filter(n => Number.isFinite(n));
+  if (!uids) return [];
+  const iterable = typeof uids[Symbol.iterator] === 'function' ? uids : Object.values(uids);
+  const arr = Array.from(iterable, n => Number(n)).filter(n => Number.isFinite(n));
   arr.sort((a, b) => b - a); // newest first
   return arr;
 }
 
-/** ---------- public API (used by imapRoutes.js) ---------- **/
+/* --------------- public API --------------- */
 
 /**
  * Fetch emails with optional cursor pagination.
- * Returns { emails, nextCursor, hasMore }
+ * Returns { items, nextCursor, hasMore }
  */
 export async function fetchEmails(opts) {
   const {
@@ -146,7 +143,6 @@ export async function fetchEmails(opts) {
     const uidListRaw = await client.search(criteria, { uid: true });
     const uidList = normalizeUids(uidListRaw);
 
-    // cursor = last UID we returned previously (desc order)
     let start = 0;
     if (cursor != null) {
       const idx = uidList.indexOf(Number(cursor));
@@ -156,30 +152,35 @@ export async function fetchEmails(opts) {
     const pageSize = Math.max(1, Number(limit) || 20);
     const slice = uidList.slice(start, start + pageSize);
 
-    // Fetch metadata
+    if (slice.length === 0) {
+      await client.logout();
+      return { items: [], nextCursor: null, hasMore: false };
+    }
+
+    // Some ImapFlow versions prefer a comma-joined set for fetch
+    const source = slice.join(',');
+
     const raw = [];
-    for await (const msg of client.fetch(slice, { uid: true, envelope: true, internalDate: true, source: false })) {
+    for await (const msg of client.fetch(source, { uid: true, envelope: true, internalDate: true })) {
       raw.push(msg);
     }
 
-    // Map → model → add snippet → classify (heuristics)
-    const emails = [];
+    const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
       model = await hydrateSnippet(client, msg.uid, model);
       model = classify(model, { vipSenders });
-      emails.push(model);
+      items.push(model);
     }
 
     const hasMore = start + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
     await client.logout();
-    return { emails, nextCursor, hasMore };
+    return { items, nextCursor, hasMore };
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
-    const msg = err?.message || String(err);
-    const e = new Error(msg);
+    const e = new Error(err?.message || String(err));
     e.code = err?.code;
     throw e;
   }
