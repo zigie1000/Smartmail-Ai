@@ -1,5 +1,6 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Robust month parsing (label/yyy-mm/iso), UID pagination, VIP lists, classifier guards.
+// Uses smartemail_tier only. Adds UID pagination (cursor), robust auth checks,
+// passes VIP list to service, and guards classifyEmails output.
 
 import express from 'express';
 import crypto from 'crypto';
@@ -26,73 +27,7 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-/* ------------ Month helpers ------------ */
-
-// Try to parse various “month-ish” inputs into {start:Date, end:Date}.
-function parseMonthish(startStr = '', endStr = '') {
-  const s = String(startStr || '').trim();
-  const e = String(endStr || '').trim();
-  const monthName = '(january|february|march|april|may|june|july|august|september|october|november|december)';
-  const labelRe = new RegExp(`^${monthName}\\s+\\d{4}$`, 'i');    // "June 2025"
-  const ymRe = /^(\d{4})-(\d{2})$/;                               // "2025-06"
-  const isoRe = /^\d{4}-\d{2}-\d{2}$/;                            // "2025-06-01"
-
-  const tryParseOne = (str) => {
-    if (!str) return null;
-
-    if (isoRe.test(str)) {
-      const d = new Date(str);
-      if (!Number.isNaN(d.getTime())) return { type: 'iso', d };
-    }
-    const m = ymRe.exec(str);
-    if (m) {
-      const y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1;
-      const d0 = new Date(Date.UTC(y, mo, 1));
-      const d1 = new Date(Date.UTC(y, mo + 1, 0));
-      return { type: 'ym', d0, d1 };
-    }
-    if (labelRe.test(str)) {
-      const [name, yStr] = str.split(/\s+/);
-      const y = parseInt(yStr, 10);
-      const mo = [
-        'january','february','march','april','may','june','july',
-        'august','september','october','november','december'
-      ].indexOf(name.toLowerCase());
-      if (mo >= 0) {
-        const d0 = new Date(Date.UTC(y, mo, 1));
-        const d1 = new Date(Date.UTC(y, mo + 1, 0));
-        return { type: 'label', d0, d1 };
-      }
-    }
-
-    // Fallback to Date.parse for anything else
-    const d = new Date(str);
-    if (!Number.isNaN(d.getTime())) return { type: 'loose', d };
-    return null;
-  };
-
-  const ps = tryParseOne(s);
-  const pe = tryParseOne(e);
-
-  if (ps?.type === 'iso' && pe?.type === 'iso') {
-    // They sent explicit day bounds
-    const d0 = new Date(Date.UTC(ps.d.getUTCFullYear(), ps.d.getUTCMonth(), ps.d.getUTCDate()));
-    const d1 = new Date(Date.UTC(pe.d.getUTCFullYear(), pe.d.getUTCMonth(), pe.d.getUTCDate()));
-    return { startIso: d0.toISOString().slice(0,10), endIso: d1.toISOString().slice(0,10) };
-  }
-
-  // If either input indicates a year-month or label, compute the whole month
-  const month = ps?.d0 ? ps : pe?.d0 ? pe : null;
-  if (month && month.d0 && month.d1) {
-    const startIso = month.d0.toISOString().slice(0,10);
-    const endIso   = month.d1.toISOString().slice(0,10);
-    return { startIso, endIso };
-  }
-
-  return null; // not month-ish
-}
-
-// ---------- Tier helpers (email-first, key fallback). Only read smartemail_tier.
+// --- Tier helpers (email-first, key fallback). Only read smartemail_tier.
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
 
@@ -210,7 +145,7 @@ router.post('/tier', async (req, res) => {
   try {
     const { email = '', licenseKey = '' } = req.body || {};
     const tier = await getTier({ licenseKey, email });
-    aconst paid = await isPaid(tier);
+    const paid = await isPaid(tier);
     const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
     res.json({ tier, isPaid: paid, notice });
   } catch (e) {
@@ -231,15 +166,20 @@ router.post('/fetch', async (req, res) => {
       limit: qLimit
     } = req.body || {};
 
-    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+    // Minimal required inputs
+    if (!email || !host) {
+      return res.status(400).json({ error: 'email and host are required' });
+    }
 
     const safeEmail = isLikelyEmail(email) ? email : '';
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
+
     const userId = userIdFromEmail(safeEmail || 'anon');
 
-    // Apply free caps without mutating the incoming body
+    // Apply free caps *without mutating req.body*
     const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
+
     if (capped.isFree && capped.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -257,31 +197,34 @@ router.post('/fetch', async (req, res) => {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // -------- Month vs range --------
-    const parsedMonth = parseMonthish(monthStart, monthEnd);
-    const useMonth = !!parsedMonth;
+    // Date selection
+    const msStr = String(monthStart || '').trim();
+    const meStr = String(monthEnd   || '').trim();
+    const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
+    const useMonth = isValidISO(msStr) && isValidISO(meStr);
+
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
 
-    // Personalization first (so the service can use VIP boost too)
+    // Personalization (VIP etc.) BEFORE fetching so the service can use it, too
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP
+    // Fetch from IMAP (pass VIP list so service heuristic can boost)
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
-      monthStart: useMonth ? parsedMonth.startIso : undefined,
-      monthEnd:   useMonth ? parsedMonth.endIso   : undefined,
+      monthStart: useMonth ? msStr : undefined,
+      monthEnd:   useMonth ? meStr : undefined,
       rangeDays,
       limit,
       cursor,
       vipSenders
     });
 
-    // Classify (guard shapes)
+    // Second-stage classifier (LLM/ML). Be resilient to shapes.
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
