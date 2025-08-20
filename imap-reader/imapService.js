@@ -1,4 +1,4 @@
-// imapService.js (ESM) — plain functions consumed by imapRoutes.js
+// imapService.js (ESM) — IMAP fetcher with robust month parsing & UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
@@ -14,23 +14,6 @@ function makeAuth({ authType = 'password', email, password, accessToken }) {
   return { user: email, pass: password || '' };
 }
 
-async function openPrimaryMailbox(client) {
-  // Prefer Gmail "All Mail" so archived mail is included; fall back to INBOX.
-  let chosen = 'INBOX';
-  try {
-    for await (const box of client.list()) {
-      const use = String(box.specialUse || '').toLowerCase();
-      const name = String(box.path || box.name || '');
-      if (use === '\\all' || use === '\\allmail' || /all mail/i.test(name)) {
-        chosen = box.path || box.name || 'INBOX';
-        break;
-      }
-    }
-  } catch { /* ignore and use INBOX */ }
-  await client.mailboxOpen(chosen);
-  return chosen;
-}
-
 async function connectAndOpen({ host, port = 993, tls = true, authType, email, password, accessToken }) {
   const client = new ImapFlow({
     host,
@@ -40,25 +23,52 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
     logger: false
   });
   await client.connect();
-  await openPrimaryMailbox(client); // <— All Mail if present, else INBOX
+  await client.mailboxOpen('INBOX');
   return client;
+}
+
+/** Parse a variety of month inputs into [start, endExclusive] dates */
+function parseMonthRange(monthStart, monthEnd) {
+  const clean = (s) => (typeof s === 'string' ? s.trim() : '');
+  const ms = clean(monthStart);
+  const me = clean(monthEnd);
+
+  // Case 1: both provided (any ISO/parsable strings)
+  if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
+    const start = new Date(ms);
+    // endExclusive = day after provided end (at 00:00)
+    const endExclusive = new Date(new Date(me).getFullYear(), new Date(me).getMonth(), new Date(me).getDate() + 1);
+    return { start, endExclusive };
+  }
+
+  // Case 2: a single month label like "June 2025" or "2025-06"
+  if (ms && !me && !Number.isNaN(Date.parse(ms))) {
+    const d = new Date(ms);
+    // If the string has no day component, Date(ms) will resolve to first of month – good.
+    const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+    const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
+    return { start, endExclusive };
+  }
+
+  // Case 3: nothing usable
+  return { start: null, endExclusive: null };
 }
 
 function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
   const crit = ['ALL'];
-  const hasMonthStart = monthStart && !Number.isNaN(Date.parse(monthStart));
-  const hasMonthEnd   = monthEnd   && !Number.isNaN(Date.parse(monthEnd));
+  const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
 
-  if (hasMonthStart) crit.push(['SINCE', new Date(monthStart)]);
-  else if (Number(rangeDays) > 0) {
-    const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
-    crit.push(['SINCE', since]);
+  if (start && endExclusive) {
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]); // exclusive upper bound
+    return crit;
   }
-  if (hasMonthEnd) {
-    // BEFORE is exclusive; add a day so we include the month's last day.
-    const d = new Date(monthEnd);
-    const before = new Date(d.getTime() + 24 * 3600 * 1000);
-    crit.push(['BEFORE', before]);
+
+  // Fallback to rolling window if no month provided
+  const days = Number(rangeDays);
+  if (Number.isFinite(days) && days > 0) {
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+    crit.push(['SINCE', since]);
   }
   return crit;
 }
@@ -111,7 +121,7 @@ function classify(model, { vipSenders = [] } = {}) {
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
     /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
     /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
-    /\boffer|promo|newsletter|digest|update\b/.test(s)                   ? 'newsletter' :
+    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' :
     '';
 
   // urgency 0–3
@@ -125,8 +135,7 @@ function classify(model, { vipSenders = [] } = {}) {
   if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
 
   // action_required
-  const action_required =
-    /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
+  const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
 
   // VIP
   const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
@@ -136,10 +145,11 @@ function classify(model, { vipSenders = [] } = {}) {
 
 /** Normalize UID array and sort (desc) */
 function normalizeUids(uids) {
-  if (!Array.isArray(uids)) return [];
-  const arr = uids.map(Number).filter(n => Number.isFinite(n));
-  arr.sort((a, b) => b - a); // newest first
-  return arr;
+  if (!Array.isArray(uids) && !(uids instanceof Set)) return [];
+  const arr = Array.isArray(uids) ? uids : Array.from(uids);
+  const nums = arr.map(Number).filter(n => Number.isFinite(n));
+  nums.sort((a, b) => b - a); // newest first
+  return nums;
 }
 
 /** ---------- public API (used by imapRoutes.js) ---------- **/
@@ -177,6 +187,12 @@ export async function fetchEmails(opts) {
     const pageSize = Math.max(1, Number(limit) || 20);
     const slice = uidList.slice(start, start + pageSize);
 
+    // Nothing in this window
+    if (!slice.length) {
+      await client.logout();
+      return { items: [], nextCursor: null, hasMore: false };
+    }
+
     // Fetch metadata
     const raw = [];
     for await (const msg of client.fetch(slice, { uid: true, envelope: true, internalDate: true, source: false })) {
@@ -199,9 +215,7 @@ export async function fetchEmails(opts) {
     return { items, nextCursor, hasMore };
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
-    // Re-throw a clean error (imapRoutes will map to HTTP)
-    const msg = err?.message || String(err);
-    const e = new Error(msg);
+    const e = new Error(err?.message || String(err));
     e.code = err?.code;
     throw e;
   }
