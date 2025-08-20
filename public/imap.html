@@ -702,9 +702,12 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
 
   // ---- Events ----
   $("btnVip").addEventListener("click", ()=>{
-    state.view = state.emails.filter(e => !!e.isVip);
-    state.page = 1;
-    render();
+    state.view = [];
+state.cursorStack = [null];
+$("prev").disabled = true;
+$("next").disabled = true;
+$("pageInfo").textContent = `Page 1`;
+render();
   });
   $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
   $("btnQUrgent").addEventListener("click",   ()=>applyQuickFilter('urgent'));
