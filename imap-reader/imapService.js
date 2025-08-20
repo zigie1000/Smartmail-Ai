@@ -1,9 +1,10 @@
-// imapService.js (ESM) — robust IMAP fetcher with month parsing, fallbacks & UID pagination
+// imapService.js (ESM) — Month-scoped IMAP fetcher with server-side filters (Gmail X-GM-RAW) + UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-/** ---------- helpers ---------- **/
-function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
+/** ---------------- helpers ---------------- **/
+
+const asBool = (v) => v === true || String(v).toLowerCase() === 'true';
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
   const kind = String(authType || 'password').toLowerCase();
@@ -15,54 +16,115 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
   const client = new ImapFlow({
     host,
     port: Number(port) || 993,
-    secure: normBool(tls),
+    secure: asBool(tls),
     auth: makeAuth({ authType, email, password, accessToken }),
     logger: false
   });
   await client.connect();
-  await client.mailboxOpen('INBOX', { readOnly: true });
+  await client.mailboxOpen('INBOX');
   return client;
 }
 
-/** Parse month inputs into [start, endExclusive] */
+/** Parse a variety of month inputs into [start, endExclusive] */
 function parseMonthRange(monthStart, monthEnd) {
   const clean = (s) => (typeof s === 'string' ? s.trim() : '');
-  const ms = clean(monthStart);
-  const me = clean(monthEnd);
+  const ms = clean(monthStart), me = clean(monthEnd);
 
-  // both provided (ISO/parsable)
+  // Both provided
   if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
     const start = new Date(ms);
-    const meD = new Date(me);
-    const endExclusive = new Date(meD.getFullYear(), meD.getMonth(), meD.getDate() + 1);
+    const d = new Date(me);
+    const endExclusive = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
     return { start, endExclusive };
   }
 
-  // single month label in ms (e.g., "July 2025" or "2025-07")
+  // Single month label like "July 2025" or "2025-07"
   if (ms && !me && !Number.isNaN(Date.parse(ms))) {
     const d = new Date(ms);
-    const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-    const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1);
     return { start, endExclusive };
   }
 
   return { start: null, endExclusive: null };
 }
 
-function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
+/** Build Gmail X-GM-RAW from filters (best-effort) */
+function buildGmailRaw({ intent, quick, vipSenders = [], legalDomains = [], governmentDomains = [], bulkDomains = [] }) {
+  const parts = [];
+
+  // ---- Intent mapping ----
+  const intentMap = {
+    meeting: '(subject:(invite OR meeting OR calendar OR zoom OR "google meet" OR teams) OR filename:ics)',
+    billing: '(subject:(invoice OR receipt OR "payment due" OR billing OR subscription OR refund))',
+    security: '(subject:("security alert" OR breach OR phishing OR "unusual sign-in" OR password))',
+    newsletter: '(unsubscribe OR newsletter OR "weekly digest" OR roundup)',
+    sales: '(subject:(sale OR discount OR coupon OR deal OR promo))',
+    social: '(subject:(follow OR mention OR comment OR like OR "friend request" OR follower))',
+    legal: '(subject:(legal OR contract OR terms OR compliance OR policy OR subpoena OR nda))',
+    system: '(subject:(deploy OR "build failed" OR pipeline OR outage OR incident OR alert OR cron OR backup OR "status page" OR "service degraded" OR "error rate"))'
+  };
+  if (intent && intentMap[intent]) parts.push(intentMap[intent]);
+
+  // ---- Quick filters (booleans) ----
+  // important, vip, urgent, needsAction, meetings, finance
+  if (quick?.important) parts.push('is:important');
+  if (quick?.urgent) parts.push('(subject:(urgent OR asap OR "action required" OR deadline))');
+  if (quick?.needsAction) parts.push('(subject:(reply OR confirm OR approve OR review) OR "action required")');
+  if (quick?.meetings) parts.push('(filename:ics OR subject:(invite OR meeting OR calendar OR zoom OR "google meet" OR teams))');
+  if (quick?.finance) parts.push('(subject:(invoice OR receipt OR "payment" OR refund OR billing OR subscription))');
+
+  // VIP senders -> OR of from:
+  const vipFrom = (vipSenders || []).filter(Boolean).map(v => `from:${quoteRaw(v)}`);
+  if (quick?.vip && vipFrom.length) parts.push(`(${vipFrom.join(' OR ')})`);
+
+  // Domains by category (can strengthen "legal" etc.)
+  const legalFrom = (legalDomains || []).map(d => `from:${quoteRaw(d)}`);
+  const govFrom   = (governmentDomains || []).map(d => `from:${quoteRaw(d)}`);
+  const bulkFrom  = (bulkDomains || []).map(d => `from:${quoteRaw(d)}`);
+  if (intent === 'legal' && legalFrom.length) parts.push(`(${legalFrom.join(' OR ')})`);
+  if (intent === 'system' && govFrom.length) parts.push(`(${govFrom.join(' OR ')})`);
+  if (intent === 'newsletter' && bulkFrom.length) parts.push(`(${bulkFrom.join(' OR ')})`);
+
+  // Join defensively
+  const raw = parts.filter(Boolean).join(' ');
+  return raw.trim();
+}
+
+function quoteRaw(s) {
+  // X-GM-RAW is space-delimited; quote anything with spaces/specials
+  const needsQuote = /[\s"()]/.test(String(s));
+  return needsQuote ? `"${String(s).replace(/"/g, '\\"')}"` : String(s);
+}
+
+/** Build IMAP criteria array; inject X-GM-RAW for Gmail */
+function buildDateAndFilterCriteria({
+  provider = 'Gmail',
+  rangeDays,
+  monthStart,
+  monthEnd,
+  intent,
+  quick,
+  vipSenders,
+  legalDomains,
+  governmentDomains,
+  bulkDomains
+}) {
   const crit = ['ALL'];
   const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
 
   if (start && endExclusive) {
     crit.push(['SINCE', start]);
     crit.push(['BEFORE', endExclusive]); // exclusive upper bound
-    return crit;
+  } else if (Number.isFinite(Number(rangeDays)) && Number(rangeDays) > 0) {
+    const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
+    crit.push(['SINCE', since]);
   }
 
-  const days = Number(rangeDays);
-  if (Number.isFinite(days) && days > 0) {
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
-    crit.push(['SINCE', since]);
+  // Server-side filtering (Gmail best-effort)
+  if (String(provider).toLowerCase() === 'gmail') {
+    const raw = buildGmailRaw({ intent, quick, vipSenders, legalDomains, governmentDomains, bulkDomains });
+    if (raw) crit.push(['X-GM-RAW', raw]);
   }
   return crit;
 }
@@ -78,7 +140,6 @@ function toModelSkeleton(msg) {
     subject,
     from: (from0.name || from0.address || '').toString(),
     fromEmail: (from0.address || '').toString(),
-    fromDomain: (from0.address || '').split('@')[1] || '',
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
     snippet: (msg.snippet || '').toString().trim(),
@@ -105,40 +166,63 @@ async function hydrateSnippet(client, uid, model) {
   return model;
 }
 
-/** Tiny heuristic classifier (no LLM) */
+/** Tiny heuristic classifier (kept for non-Gmail or fallback) */
 function classify(model, { vipSenders = [] } = {}) {
   const s = `${model.subject} ${model.snippet}`.toLowerCase();
+
   const intent =
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
     /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
     /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
-    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' : '';
+    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' :
+    /\b(legal|contract|terms|compliance|policy|nda|subpoena)\b/.test(s)  ? 'legal' :
+    /\b(deploy|build failed|pipeline|outage|incident|alert|cron|backup|status page|service degraded|error rate)\b/.test(s) ? 'system' :
+    '';
+
   let urgency = 0;
   if (/\burgent|asap|immediately|right away|today\b/.test(s)) urgency = 3;
   else if (/\bsoon|priority|important\b/.test(s))             urgency = 2;
   else if (/\breminder|follow up|ping\b/.test(s))             urgency = 1;
+
   let importance = 'unimportant';
   if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
+
   const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
   const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
+
   return { ...model, intent, urgency, importance, action_required, isVip };
 }
 
+/** Normalize UID array and sort desc */
 function normalizeUids(uids) {
-  const arr = Array.isArray(uids) ? uids : Array.from(uids || []);
-  const nums = arr.map(Number).filter(Number.isFinite);
+  if (!Array.isArray(uids) && !(uids instanceof Set)) return [];
+  const arr = Array.isArray(uids) ? uids : Array.from(uids);
+  const nums = arr.map(Number).filter(n => Number.isFinite(n));
   nums.sort((a, b) => b - a);
   return nums;
 }
 
-/** ---------- public API ---------- */
+/** ---------------- public API ---------------- **/
+
+/**
+ * Fetch emails (month-scoped) with optional server-side filters and cursor pagination.
+ * Returns { items, nextCursor, hasMore }
+ */
 export async function fetchEmails(opts) {
   const {
     email, password, accessToken,
     host, port = 993, tls = true, authType = 'password',
-    rangeDays = 7, monthStart, monthEnd,
+    provider = 'Gmail',                  // <-- pass 'Gmail' to enable X-GM-RAW filters
+    rangeDays = 7, monthStart, monthEnd, // month preferred; rangeDays is fallback
     limit = 20, cursor = null,
-    vipSenders = []
+
+    // personalization
+    vipSenders = [],
+    legalDomains = [], governmentDomains = [], bulkDomains = [],
+
+    // filters from UI
+    intent = '',                         // 'meeting'|'billing'|'security'|'newsletter'|'sales'|'social'|'legal'|'system'
+    quick = {}                           // { important, vip, urgent, needsAction, meetings, finance }
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
@@ -147,58 +231,38 @@ export async function fetchEmails(opts) {
   try {
     client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
 
-    /* 1) primary IMAP search (UIDs) */
-    const criteria = buildDateCriteria({ rangeDays, monthStart, monthEnd });
-    let uidList = normalizeUids(await client.search(criteria, { uid: true }));
+    // Build month window + server-side filters
+    const criteria = buildDateAndFilterCriteria({
+      provider, rangeDays, monthStart, monthEnd,
+      intent, quick, vipSenders, legalDomains, governmentDomains, bulkDomains
+    });
 
-    /* 2) Gmail RAW fallback */
-    if ((!uidList || uidList.length === 0) && /gmail\.com$/i.test(host)) {
-      const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
-      const pad = (n) => String(n).padStart(2, '0');
-      const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
-      const a = start ? fmt(start) : fmt(new Date(Date.now() - (Number(rangeDays) || 30) * 864e5));
-      const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
-      try {
-        uidList = normalizeUids(await client.search({ gmailRaw: `in:inbox after:${a} before:${b}` }, { uid: true }));
-      } catch {/* ignore */}
-    }
+    const uidListRaw = await client.search(criteria, { uid: true });
+    const uidList = normalizeUids(uidListRaw);
 
-    /* 3) Hard fallback: last N UIDs in INBOX */
-    if (!uidList || uidList.length === 0) {
-      try {
-        const st = await client.status('INBOX', { uidnext: true });
-        const lastUid = Math.max(1, (st.uidnext || 1) - 1);
-        const want = Math.max(1, Number(limit) || 20);
-        const startUid = Math.max(1, lastUid - (want * 5) + 1);
-        const collected = [];
-        for await (const m of client.fetch({ uid: `${startUid}:${lastUid}` }, { uid: true })) {
-          collected.push(m.uid);
-        }
-        uidList = normalizeUids(collected);
-      } catch { uidList = []; }
-    }
-
-    /* pagination */
-    let startIdx = 0;
+    // Cursor: position is after the last UID returned previously (desc order)
+    let start = 0;
     if (cursor != null) {
       const idx = uidList.indexOf(Number(cursor));
-      startIdx = idx >= 0 ? idx + 1 : 0;
+      start = idx >= 0 ? idx + 1 : 0;
     }
-    const pageSize = Math.max(1, Number(limit) || 20);
-    const slice = uidList.slice(startIdx, startIdx + pageSize);
 
+    const pageSize = Math.max(1, Number(limit) || 20);
+    const slice = uidList.slice(start, start + pageSize);
+
+    // No results in this window
     if (!slice.length) {
       await client.logout();
       return { items: [], nextCursor: null, hasMore: false };
     }
 
-    /* fetch page metadata by UID list */
+    // Fetch lightweight metadata for the slice (explicit by UID)
     const raw = [];
     for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
       raw.push(msg);
     }
 
-    /* map → hydrate → classify */
+    // Map → model → hydrate snippet → heuristic classify
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
@@ -207,7 +271,7 @@ export async function fetchEmails(opts) {
       items.push(model);
     }
 
-    const hasMore = startIdx + slice.length < uidList.length;
+    const hasMore = start + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
     await client.logout();
@@ -220,6 +284,7 @@ export async function fetchEmails(opts) {
   }
 }
 
+/** Simple connectivity probe */
 export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
   if (!email || !host) throw new Error('email and host are required');
   let client;
