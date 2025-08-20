@@ -195,9 +195,10 @@ export async function fetchEmails(opts) {
 
     // Fetch metadata
     const raw = [];
-    for await (const msg of client.fetch(slice, { uid: true, envelope: true, internalDate: true, source: false })) {
-      raw.push(msg);
-    }
+    // ✅ correct: explicitly fetch by UID list
+for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
+  raw.push(msg);
+}
 
     // Map → model → add snippet → classify (heuristics)
     const items = [];
