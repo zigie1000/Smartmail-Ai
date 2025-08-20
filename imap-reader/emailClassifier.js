@@ -87,7 +87,12 @@ function heuristicLabel(e, lists) {
   const isNewsletter = /\b(unsubscribe|newsletter|weekly digest|roundup)\b/.test(text);
   const isSales = /\b(sale|discount|% off|coupon|deal|promo)\b/.test(text);
   const isSocial = /\b(follow|mention|comment|like|friend request|new follower)\b/.test(text);
-  const isLegal = reasons.includes('legal domain');
+
+  // --- Minimal change: allow LEGAL by keywords as well as domain ---
+  const isLegalText = /\b(legal|contract|agreement|terms|privacy|policy|gdpr|ccpa|subpoena|court|lawsuit|attorney|solicitor|notary|compliance|notice of|data processing addendum|dpa|nda)\b/.test(text);
+  if (isLegalText) reasons.push('legal keywords');
+  const isLegal = reasons.includes('legal domain') || isLegalText;
+  // ---------------------------------------------------------------
 
   // NEW: “system” (devops/ops alerts)
   const isSystemByDomain = /^(render|vercel|netlify|heroku|railway|aws|amazon|gcp|google|cloudflare|pagerduty|datadog|sentry|github|gitlab|circleci|jenkins|statuspage)/i.test(dom);
@@ -112,7 +117,7 @@ function heuristicLabel(e, lists) {
 
   // Importance baseline
   let importance = 'unclassified';
-  if (category === 'system' || isSecurity || isBilling || isMeeting) importance = 'important';
+  if (category === 'system' || isSecurity || isBilling || isMeeting || isLegal) importance = 'important';
   else if (category === 'newsletter' || category === 'sales' || lists.bulk.has(dom)) importance = 'unimportant';
 
   // Action required
