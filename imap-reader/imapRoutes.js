@@ -17,7 +17,7 @@ const supa = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
 
 const router = express.Router();
 
-const sha256 = (s) => crypto.createHash('sha256').update(String(s||'')).digest('hex');
+const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
 
 // Basic sanity check to avoid DB pattern errors
@@ -179,6 +179,8 @@ router.post('/fetch', async (req, res) => {
 
     const userId = userIdFromEmail(safeEmail || 'anon');
     const caps = applyFreeCapsIfNeeded(tier, req.body);
+
+    // free-tier throttle
     if (caps.isFree && caps.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -189,45 +191,61 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ---- Date selection strategy (TOP-LEVEL args for imapService) ----
-// Prefer explicit month window; else fall back to rangeDays
-const msStr = String(monthStart || '').trim();
-const meStr = String(monthEnd   || '').trim();
+    // ---- Auth validation (prevents "No password configured" crash in service)
+    if (String(authType).toLowerCase() === 'password') {
+      if (!password) return res.status(400).json({ error: 'No password configured' });
+    } else if (String(authType).toLowerCase() === 'xoauth2') {
+      if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
+    }
 
-const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
-const useMonth = isValidISO(msStr) && isValidISO(meStr);
+    // ---- Date selection strategy (TOP-LEVEL args for imapService)
+    const msStr = String(monthStart || '').trim();
+    const meStr = String(monthEnd   || '').trim();
+    const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
+    const useMonth = isValidISO(msStr) && isValidISO(meStr);
+    const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
+    const limit = Math.max(1, Number(req.body.limit) || 20); // caps already applied for free tier
 
-const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
+    // ---- Fetch from IMAP
+    const { items, nextCursor, hasMore } = await fetchEmails({
+      email: safeEmail,
+      password,
+      accessToken,
+      host,
+      port,
+      tls,
+      authType,
+      monthStart: useMonth ? msStr : undefined,
+      monthEnd:   useMonth ? meStr : undefined,
+      rangeDays,
+      limit
+    });
 
-// NOTE: applyFreeCapsIfNeeded already clamped req.body.rangeDays/limit for free tier.
-const limit = Math.max(1, Number(req.body.limit) || 20);
-
-const { items, nextCursor, hasMore } = await fetchEmails({
-  email: safeEmail,
-  password,
-  accessToken,
-  host,
-  port,
-  tls,
-  authType,
-  // ⬇️ preferred top-level filters your imapService supports
-  monthStart: useMonth ? msStr : undefined,
-  monthEnd:   useMonth ? meStr : undefined,
-  rangeDays,
-  limit
-});
+    // ---- Personalization + classification
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
 
+    // Normalized items for ML
+    const norm = normalizeForClassifier(items);
+    let cls = [];
+    try {
+      cls = await classifyEmails(norm, { userId, lists }) || [];
+    } catch (err) {
+      console.warn('classifyEmails failed:', err?.message || err);
+      cls = [];
+    }
+
+    // Merge raw + classification + VIP
     const merged = (items || []).map((it, i) => ({
-  ...it,
-  ...(cls[i] || {}),
-  isVip:
-    lists.vip.has((it.fromEmail || '').toLowerCase()) ||
-    lists.vip.has((it.fromDomain || '').toLowerCase())
-}));
+      ...it,
+      ...(cls[i] || {}),
+      isVip:
+        lists.vip.has((it.fromEmail || '').toLowerCase()) ||
+        lists.vip.has((it.fromDomain || '').toLowerCase())
+    }));
+
     const notice = !paid
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for more range, higher limits, VIP boosts, and learning.'
       : null;
