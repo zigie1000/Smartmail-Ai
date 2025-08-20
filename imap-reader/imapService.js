@@ -35,7 +35,8 @@ function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
     crit.push(['SINCE', since]);
   }
   if (monthEnd) {
-    const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000); // exclusive
+    // IMAP BEFORE is exclusive; bump by 1 day so UI's monthEnd is inclusive
+    const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000);
     crit.push(['BEFORE', before]);
   }
   return crit;
@@ -65,17 +66,18 @@ function toModelSkeleton(msg) {
 }
 
 async function hydrateSnippet(client, uid, model) {
-  // Best-effort; never throw from here
   try {
-    const stream = await client.download(uid);
-    if (!stream) return model;
-    const parsed = await simpleParser(stream.content);
-    const textish = (parsed.text || parsed.html || '')
-      .toString()
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (textish) model.snippet = textish.slice(0, 600);
+    // fetch full source and parse for a better snippet
+    const full = await client.fetchOne(uid, { source: true });
+    if (full?.source) {
+      const parsed = await simpleParser(full.source);
+      const textish = (parsed.text || parsed.html || '')
+        .toString()
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (textish) model.snippet = textish.slice(0, 600);
+    }
   } catch { /* ignore */ }
   return model;
 }
@@ -123,7 +125,7 @@ function normalizeUids(uids) {
 
 /**
  * Fetch emails with optional cursor pagination.
- * Returns { items, nextCursor, hasMore }
+ * Returns { emails, nextCursor, hasMore }
  */
 export async function fetchEmails(opts) {
   const {
@@ -161,22 +163,21 @@ export async function fetchEmails(opts) {
     }
 
     // Map → model → add snippet → classify (heuristics)
-    const items = [];
+    const emails = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
       model = await hydrateSnippet(client, msg.uid, model);
       model = classify(model, { vipSenders });
-      items.push(model);
+      emails.push(model);
     }
 
     const hasMore = start + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
     await client.logout();
-    return { items, nextCursor, hasMore };
+    return { emails, nextCursor, hasMore };
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
-    // Re-throw a clean error (imapRoutes will map to HTTP)
     const msg = err?.message || String(err);
     const e = new Error(msg);
     e.code = err?.code;
