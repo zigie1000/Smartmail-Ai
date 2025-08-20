@@ -628,10 +628,26 @@ if (prev) {
       state.page = 1;
       render();
 
-      if (typeof data.tier === 'string') setTierUI(data.tier, data.tier !== 'free');
-      if (data.notice) setMessage("ok", data.notice);
+      render();
 
-      setMessage("ok", `Fetched ${state.emails.length} emails.`);
+// Save server cursors
+state.nextCursor = data?.nextCursor || null;
+if (next) {
+  state.cursorStack.push(payload.cursor || null);
+} else if (!prev) {
+  // fresh search
+  state.cursorStack = [null];
+}
+
+// Update pager buttons + label
+$("next").disabled = !state.nextCursor;
+$("prev").disabled = !(state.cursorStack.length > 1);
+$("pageInfo").textContent = `Page ${state.cursorStack.length}`;
+
+if (typeof data.tier === 'string') setTierUI(data.tier, data.tier !== 'free');
+if (data.notice) setMessage("ok", data.notice);
+
+setMessage("ok", `Fetched ${state.emails.length} emails.`);
     }catch(err){
       console.error(err); list.innerHTML="";
       const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
