@@ -1,6 +1,6 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
 // Uses smartemail_tier only. Adds UID pagination (cursor), robust auth checks,
-// and fixes the `cls` undefined bug by running classification in /fetch.
+// passes VIP list to service, and guards classifyEmails output.
 
 import express from 'express';
 import crypto from 'crypto';
@@ -128,14 +128,16 @@ function normalizeForClassifier(items) {
 
 // ---------- Free-tier caps ----------
 const lastFetchAt = new Map(); // key=userId
-function applyFreeCapsIfNeeded(tier, body) {
+function applyFreeCapsIfNeeded(tier, rangeDays, limit) {
   const isFree = !tier || tier === 'free';
   const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
-  if (isFree) {
-    body.rangeDays = Math.min(Number(body.rangeDays || 7), caps.rangeMax);
-    body.limit     = Math.min(Number(body.limit || 20),   caps.limitMax);
-  }
-  return caps;
+  if (!isFree) return { ...caps, rangeDays, limit };
+
+  return {
+    ...caps,
+    rangeDays: Math.min(Number(rangeDays ?? 7), caps.rangeMax),
+    limit: Math.min(Number(limit ?? 20), caps.limitMax)
+  };
 }
 
 // ---------- ROUTES ----------
@@ -159,21 +161,30 @@ router.post('/fetch', async (req, res) => {
       host = '', port = 993, tls = true, authType = 'password',
       licenseKey = '',
       monthStart = '', monthEnd = '',
-      cursor = null                 // NEW: UID pagination token
+      cursor = null,
+      rangeDays: qRangeDays,
+      limit: qLimit
     } = req.body || {};
+
+    // Minimal required inputs
+    if (!email || !host) {
+      return res.status(400).json({ error: 'email and host are required' });
+    }
 
     const safeEmail = isLikelyEmail(email) ? email : '';
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
     const userId = userIdFromEmail(safeEmail || 'anon');
-    const caps = applyFreeCapsIfNeeded(tier, req.body);
 
-    if (caps.isFree && caps.minFetchMs > 0) {
+    // Apply free caps *without mutating req.body*
+    const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
+
+    if (capped.isFree && capped.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
-      if (now - last < caps.minFetchMs) {
-        const wait = Math.ceil((caps.minFetchMs - (now - last)) / 1000);
+      if (now - last < capped.minFetchMs) {
+        const wait = Math.ceil((capped.minFetchMs - (now - last)) / 1000);
         return res.status(429).json({ error: `Please wait ${wait}s (free plan limit).` });
       }
       lastFetchAt.set(userId, now);
@@ -191,29 +202,38 @@ router.post('/fetch', async (req, res) => {
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
-    const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
-    const limit = Math.max(1, Number(req.body.limit) || 20);
 
-    // Fetch from IMAP
+    const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
+    const limit = Math.max(1, Number(capped.limit) || 20);
+
+    // Personalization (VIP etc.) BEFORE fetching so the service can use it, too
+    const lists = paid
+      ? await fetchListsFromSql(userId)
+      : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
+          weights:{ email:new Map(), domain:new Map() } };
+    const vipSenders = Array.from(lists.vip);
+
+    // Fetch from IMAP (pass VIP list so service heuristic can boost)
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
       monthEnd:   useMonth ? meStr : undefined,
       rangeDays,
       limit,
-      cursor
+      cursor,
+      vipSenders
     });
 
-    // Personalization + classification
-    const lists = paid
-      ? await fetchListsFromSql(userId)
-      : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
-          weights:{ email:new Map(), domain:new Map() } };
-
+    // Second-stage classifier (LLM/ML). Be resilient to shapes.
     const norm = normalizeForClassifier(items);
     let cls = [];
-    try { cls = await classifyEmails(norm, { userId, lists }) || []; }
-    catch (err) { console.warn('classifyEmails failed:', err?.message || err); cls = []; }
+    try {
+      const out = await classifyEmails(norm, { userId, lists });
+      cls = Array.isArray(out) ? out : Array.isArray(out?.results) ? out.results : [];
+    } catch (err) {
+      console.warn('classifyEmails failed:', err?.message || err);
+      cls = [];
+    }
 
     const merged = norm.map((it, i) => ({
       ...it,
@@ -230,6 +250,9 @@ router.post('/fetch', async (req, res) => {
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
+    const code = String(e?.code || '').toUpperCase();
+    if (code === 'EAUTH') return res.status(401).json({ error: 'Authentication failed' });
+    if (code === 'ENOTFOUND') return res.status(502).json({ error: 'IMAP host not found' });
     res.status(500).json({ error: 'Server error while fetching mail.' });
   }
 });
@@ -240,6 +263,8 @@ router.post('/test', async (req, res) => {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password'
     } = req.body || {};
+    if (!email || !host) return res.status(400).json({ ok:false, error: 'email and host are required' });
+
     const ok = await testLogin({ email, password, accessToken, host, port, tls, authType });
     res.json({ ok: !!ok });
   } catch (e) {
@@ -260,7 +285,8 @@ router.post('/classify', async (req, res) => {
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
     const norm = normalizeForClassifier(items);
-    const results = await classifyEmails(norm, { userId, lists });
+    const out = await classifyEmails(norm, { userId, lists });
+    const results = Array.isArray(out) ? out : Array.isArray(out?.results) ? out.results : [];
     res.json(results);
   } catch (e) {
     console.error('IMAP /classify error:', e?.message || e);
@@ -274,7 +300,9 @@ router.post('/feedback', async (req, res) => {
     const safeOwner = isLikelyEmail(ownerEmail) ? ownerEmail : '';
     const tier = await getTier({ licenseKey, email: safeOwner });
     const paid = await isPaid(tier);
-    if (!paid) return res.status(402).json({ ok:false, error: 'Upgrade to enable learning (Important ⭐).' });
+    if (!paid) {
+      return res.status(402).json({ ok:false, error: 'Upgrade to enable learning (Important ⭐).' });
+    }
     if (!label || (!fromEmail && !fromDomain)) {
       return res.status(400).json({ ok:false, error: 'label and fromEmail/fromDomain required' });
     }
