@@ -1,178 +1,160 @@
-// src/imap-reader/imapService.js
+// imapService.js (ESM) — drop-in replacement
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-/**
- * Build an ImapFlow client with either password or XOAUTH2.
- */
-function buildClient({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  const auth =
-    String(authType).toLowerCase() === 'xoauth2'
-      ? { user: email, accessToken }                        // XOAUTH2
-      : { user: email, pass: password };                    // Password / App Password
-
-  return new ImapFlow({
+// Connect helper
+async function createClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
+  const client = new ImapFlow({
     host,
     port: Number(port) || 993,
     secure: !!tls,
-    auth,
-    logger: false,
-    // be a bit forgiving with slow providers
-    clientInfo: { name: 'SmartEmail/imap', version: '1.0' }
+    auth: (String(authType).toLowerCase() === 'xoauth2')
+      ? { user: email, accessToken: accessToken }
+      : { user: email, pass: password },
+    logger: false
   });
+
+  await client.connect();
+  // Select INBOX
+  await client.mailboxOpen('INBOX');
+  return client;
 }
 
-/**
- * Convert an ImapFlow message to our lean item used by the UI/classifier.
- */
-async function toItem(client, msgMeta) {
-  const uid = msgMeta.uid;
-  const envelope = msgMeta.envelope || {};
-  const fromAddr = (envelope.from && envelope.from[0]) || {};
-  const toAddr = (envelope.to && envelope.to[0]) || {};
+// Convert ImapFlow envelope to our UI schema
+function envelopeToModel(msg) {
+  const fromAddr = (msg.envelope?.from && msg.envelope.from[0]) || {};
+  const fromName = (fromAddr.name || '').toString();
+  const fromEmail = (fromAddr.address || '').toString();
 
-  // Fetch body snippet safely (don’t download huge messages)
-  let snippet = '';
-  try {
-    const { content } = await client.download('INBOX', uid, { uid: true });
-    const parsed = await simpleParser(content, { skipImageLinks: true });
-    snippet = (parsed.text || parsed.html || '').slice(0, 800);
-  } catch {
-    // ignore parsing errors for edge cases; leave snippet empty
-  }
-
-  const fromEmail = (fromAddr.address || '').trim();
-  const fromDomain = fromEmail.split('@')[1] || '';
+  const subject = (msg.envelope?.subject || '').toString();
+  const date = msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString();
 
   return {
-    id: String(uid),
-    uid,
-    from: [fromAddr.name, fromEmail].filter(Boolean).join(' '),
+    id: String(msg.uid ?? msg.seq),
+    uid: msg.uid,
+    subject,
+    from: fromName || fromEmail,
     fromEmail,
-    fromDomain,
-    to: toAddr.address || '',
-    subject: envelope.subject || '',
-    snippet,
-    date: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
-    unread: !msgMeta.seen,
-    flagged: !!msgMeta.flagged,
-    hasIcs: /text\/calendar/i.test(msgMeta['contentType'] || '') || false,
-    attachTypes: Array.isArray(msgMeta.attachments) ? msgMeta.attachments.map(a => a.contentType) : [],
-    headers: {},               // (kept minimal; add if you need)
-    contentType: msgMeta['contentType'] || ''
+    to: (msg.envelope?.to && msg.envelope.to[0]?.address) || '',
+    date,
+    importance: 'unclassified',
+    intent: '',
+    urgency: 0,
+    action_required: false,
+    isVip: false,
+    snippet: (msg.snippet || '').trim()
   };
 }
 
-/**
- * Fetch emails with optional month or recent-day window + cursor pagination.
- * Returns { items, nextCursor, hasMore }
- *
- * Cursor semantics: we return messages sorted DESC by UID. The `cursor`
- * you pass back to us should be the **last UID** from previous page; we’ll
- * continue with smaller UIDs.
- */
-export async function fetchEmails({
-  email = '',
-  password = '',
-  accessToken = '',
-  host = '',
-  port = 993,
-  tls = true,
-  authType = 'password',
-  monthStart,
-  monthEnd,
-  rangeDays = 7,
-  limit = 20,
-  cursor = null // last UID from previous page (string|number)
-} = {}) {
-  const client = buildClient({ email, password, accessToken, host, port, tls, authType });
-
-  await client.connect();
+// Fetch first text/plain or text/html part to make snippet
+async function addSnippet(client, uid, base) {
   try {
-    // Always select INBOX
-    await client.mailboxOpen('INBOX');
+    // Try BODY[] first few KB
+    const source = await client.download(uid);
+    if (!source) return base;
+    const parsed = await simpleParser(source.content);
+    const text = (parsed.text || parsed.html || '').toString().replace(/<[^>]+>/g, ' ');
+    base.snippet = text.substring(0, 400);
+  } catch (e) {
+    // ignore
+  }
+  return base;
+}
 
-    // ---- Build search query ----
-    // ImapFlow search is an array of criteria. We’ll use SINCE/BEFORE + UID cut.
-    const search = [];
+// Build search criteria dates
+function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
+  const criteria = ['ALL'];
+  if (monthStart) {
+    criteria.push(['SINCE', new Date(monthStart)]);
+  } else if (rangeDays && Number(rangeDays) > 0) {
+    const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
+    criteria.push(['SINCE', since]);
+  }
+  if (monthEnd) {
+    const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000);
+    criteria.push(['BEFORE', before]);
+  }
+  return criteria;
+}
 
-    // Month window
-    if (monthStart && monthEnd) {
-      const since = new Date(monthStart);
-      const before = new Date(new Date(monthEnd).getTime() + 24 * 3600 * 1000); // inclusive end
-      search.push(['SINCE', since], ['BEFORE', before]);
-    } else if (Number(rangeDays) > 0) {
-      const since = new Date(Date.now() - Number(rangeDays) * 24 * 3600 * 1000);
-      search.push(['SINCE', since]);
-    }
+// Route handler: POST /api/imap/fetch
+export async function fetchEmails(req, res) {
+  const {
+    email, password, host, port, tls = true,
+    authType = 'password', accessToken = '',
+    rangeDays = 7, monthStart, monthEnd,
+    limit = 20, cursor
+  } = req.body || {};
 
-    // Cursor: work backwards from last UID
+  if (!email || !host) {
+    return res.status(400).json({ error: 'email and host are required' });
+  }
+
+  let client;
+  try {
+    client = await createClient({ host, port, tls, authType, email, password, accessToken });
+
+    const criteria = buildDateCriteria({ rangeDays, monthStart, monthEnd });
+    const uidListRaw = await client.search(criteria, { uid: true });
+
+    // Ensure it's an array of numbers
+    const uidList = Array.isArray(uidListRaw) ? uidListRaw.map(Number).filter(n => Number.isFinite(n)) : [];
+
+    // Sort by UID descending (approx chronological)
+    uidList.sort((a, b) => b - a);
+
+    // Pagination based on cursor (uid of last item previously returned)
+    let startIndex = 0;
     if (cursor) {
-      const last = Number(cursor);
-      if (!Number.isNaN(last)) {
-        // Only fetch messages with UID < last (older)
-        search.push(['UID', `1:${last - 1}`]);
-      }
+      const idx = uidList.indexOf(Number(cursor));
+      startIndex = idx >= 0 ? idx + 1 : 0;
     }
 
-    // Get matching UIDs (ascending), then take newest first
-    const uidsAsc = await client.search(search.length ? search : ['ALL'], { uid: true });
-    const uidsDesc = uidsAsc.sort((a, b) => b - a);
-
-    // Slice page
-    const pageUids = uidsDesc.slice(0, Number(limit) || 20);
-
-    // Fetch metadata for each UID efficiently
-    const items = [];
-    for (const uid of pageUids) {
-      const meta = await client.fetchOne(uid, {
-        uid: true,
-        envelope: true,
-        flags: true,
-        struct: true
-      }, { uid: true });
-
-      // Compose a minimal meta object for toItem()
-      const msgMeta = {
-        uid,
-        envelope: meta?.envelope || {},
-        seen: meta?.flags?.has('\\Seen'),
-        flagged: meta?.flags?.has('\\Flagged'),
-        attachments: Array.isArray(meta?.attachments) ? meta.attachments : [],
-        contentType: meta?.contentType || ''
-      };
-
-      items.push(await toItem(client, msgMeta));
+    const slice = uidList.slice(startIndex, startIndex + Number(limit || 20));
+    const msgList = [];
+    for await (const msg of client.fetch(slice, { uid: true, envelope: true, internalDate: true, source: false })) {
+      msgList.push(msg);
     }
 
-    // Determine next cursor (older page) if there are more UIDs left
-    const hasMore = uidsDesc.length > pageUids.length;
-    const nextCursor = hasMore ? String(pageUids[pageUids.length - 1]) : null;
+    // Map to our model and add snippet (best-effort)
+    const emails = [];
+    for (const m of msgList) {
+      let model = envelopeToModel(m);
+      // try to add a snippet for the first few emails only to save time
+      model = await addSnippet(client, m.uid, model);
+      emails.push(model);
+    }
 
-    return { items, nextCursor, hasMore };
-  } finally {
-    // Close mailbox and connection safely
-    try { await client.mailboxClose(); } catch {}
-    await client.logout().catch(() => {});
+    const more = startIndex + slice.length < uidList.length;
+    const nextCursor = more ? String(slice[slice.length - 1]) : null;
+
+    await client.logout();
+    res.json({
+      ok: true,
+      emails,
+      nextCursor,
+      notice: more ? null : 'End of results'
+    });
+  } catch (err) {
+    try { if (client) await client.logout(); } catch {}
+    res.status(500).json({ error: `IMAP fetch error: ${err.message || String(err)}` });
   }
 }
 
-/**
- * Lightweight connection test — tries to open INBOX and returns true/false.
- */
-export async function testLogin({ email = '', password = '', accessToken = '', host = '', port = 993, tls = true, authType = 'password' } = {}) {
-  const client = buildClient({ email, password, accessToken, host, port, tls, authType });
+// Route handler: POST /api/imap/test
+export async function testLogin(req, res) {
+  const { email, password, host, port, tls = true, authType = 'password', accessToken = '' } = req.body || {};
+  if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+
+  let client;
   try {
-    await client.connect();
-    await client.mailboxOpen('INBOX');
-    return true;
-  } catch {
-    return false;
-  } finally {
-    try { await client.mailboxClose(); } catch {}
-    await client.logout().catch(() => {});
+    client = await createClient({ host, port, tls, authType, email, password, accessToken });
+    const mailbox = await client.mailboxOpen('INBOX');
+    await client.logout();
+
+    res.json({ ok: true, mailbox: mailbox?.path || 'INBOX' });
+  } catch (err) {
+    try { if (client) await client.logout(); } catch {}
+    res.status(500).json({ error: `Login failed: ${err.message || String(err)}` });
   }
 }
-
-// Optional default export (lets you import either way if you ever need it)
-export default { fetchEmails, testLogin };
