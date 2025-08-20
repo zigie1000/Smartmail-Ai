@@ -1,12 +1,10 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Uses smartemail_tier only (per your schema). Keeps testLogin but isolated.
+// Uses smartemail_tier only. Adds UID pagination (cursor) and robust auth checks.
 
 import express from 'express';
 import crypto from 'crypto';
 import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
-
-// Supabase (service role)
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
@@ -19,8 +17,6 @@ const router = express.Router();
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
-
-// Basic sanity check to avoid DB pattern errors
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
 
 function rowsToSet(rows, key) {
@@ -30,12 +26,8 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Tier helpers (email-first, key fallback) ---
-// IMPORTANT: Only read the 'smartemail_tier' column from 'licenses'
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
-
-  // Lookup by license key
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -43,13 +35,10 @@ async function getTier({ licenseKey = '', email = '' }) {
         .select('smartemail_tier')
         .eq('license_key', licenseKey)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by license key failed:', e?.message || e); }
 
-  // Fallback by email (newest record)
   try {
     if (em && isLikelyEmail(em) && supa) {
       const { data } = await supa
@@ -59,31 +48,19 @@ async function getTier({ licenseKey = '', email = '' }) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data && data.smartemail_tier) {
-        return String(data.smartemail_tier).toLowerCase();
-      }
+      if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by email failed:', e?.message || e); }
-
   return 'free';
 }
+async function isPaid(t) { if (process.env.PAID_FEATURES_FOR_ALL === '1') return true; return !!t && t !== 'free'; }
 
-async function isPaid(tier) {
-  if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
-  return !!tier && tier !== 'free';
-}
-
-// Personalization lists + learned weights (paid users only)
 async function fetchListsFromSql(userId = 'default') {
   const empty = {
-    vip: new Set(),
-    legal: new Set(),
-    government: new Set(),
-    bulk: new Set(),
+    vip: new Set(), legal: new Set(), government: new Set(), bulk: new Set(),
     weights: { email: new Map(), domain: new Map() }
   };
   if (!supa) return empty;
-
   try {
     const [vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights] =
       await Promise.all([
@@ -137,7 +114,7 @@ function normalizeForClassifier(items) {
 }
 
 // ---------- Free-tier caps ----------
-const lastFetchAt = new Map(); // key=userId
+const lastFetchAt = new Map();
 function applyFreeCapsIfNeeded(tier, body) {
   const isFree = !tier || tier === 'free';
   const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
@@ -168,19 +145,17 @@ router.post('/fetch', async (req, res) => {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password',
       licenseKey = '',
-      monthStart = '', monthEnd = ''
+      monthStart = '', monthEnd = '',
+      cursor = null                 // ⬅ NEW: UID pagination token
     } = req.body || {};
 
-    // protect DB: only use plausible email for tier lookup + userId
     const safeEmail = isLikelyEmail(email) ? email : '';
-
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
     const userId = userIdFromEmail(safeEmail || 'anon');
     const caps = applyFreeCapsIfNeeded(tier, req.body);
 
-    // free-tier throttle
     if (caps.isFree && caps.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -191,34 +166,29 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ---- Auth validation (prevents "No password configured" crash in service)
+    // ---- Auth validation
     if (String(authType).toLowerCase() === 'password') {
       if (!password) return res.status(400).json({ error: 'No password configured' });
     } else if (String(authType).toLowerCase() === 'xoauth2') {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // ---- Date selection strategy (TOP-LEVEL args for imapService)
+    // ---- Date selection: month window preferred
     const msStr = String(monthStart || '').trim();
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
     const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
-    const limit = Math.max(1, Number(req.body.limit) || 20); // caps already applied for free tier
+    const limit = Math.max(1, Number(req.body.limit) || 20);
 
     // ---- Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
-      email: safeEmail,
-      password,
-      accessToken,
-      host,
-      port,
-      tls,
-      authType,
+      email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
       monthEnd:   useMonth ? meStr : undefined,
       rangeDays,
-      limit
+      limit,
+      cursor                             // ⬅ NEW
     });
 
     // ---- Personalization + classification
@@ -227,17 +197,11 @@ router.post('/fetch', async (req, res) => {
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
 
-    // Normalized items for ML
     const norm = normalizeForClassifier(items);
     let cls = [];
-    try {
-      cls = await classifyEmails(norm, { userId, lists }) || [];
-    } catch (err) {
-      console.warn('classifyEmails failed:', err?.message || err);
-      cls = [];
-    }
+    try { cls = await classifyEmails(norm, { userId, lists }) || []; }
+    catch (err) { console.warn('classifyEmails failed:', err?.message || err); cls = []; }
 
-    // Merge raw + classification + VIP
     const merged = (items || []).map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
@@ -297,9 +261,7 @@ router.post('/feedback', async (req, res) => {
     const safeOwner = isLikelyEmail(ownerEmail) ? ownerEmail : '';
     const tier = await getTier({ licenseKey, email: safeOwner });
     const paid = await isPaid(tier);
-    if (!paid) {
-      return res.status(402).json({ ok:false, error: 'Upgrade to enable learning (Important ⭐).' });
-    }
+    if (!paid) return res.status(402).json({ ok:false, error: 'Upgrade to enable learning (Important ⭐).' });
     if (!label || (!fromEmail && !fromDomain)) {
       return res.status(400).json({ ok:false, error: 'label and fromEmail/fromDomain required' });
     }
