@@ -550,7 +550,13 @@ return `
           localStorage.getItem('licenseKey') ||
           ""
       };
-
+// Server pagination
+if (next && state.nextCursor) payload.cursor = state.nextCursor;
+if (prev) {
+  state.cursorStack.pop(); // drop current view
+  const backCursor = state.cursorStack[state.cursorStack.length - 1] || null;
+  if (backCursor) payload.cursor = backCursor;
+}
       // Month override → monthStart/monthEnd
       const m = ($("monthStr")?.value || "").trim();
       if (m) {
