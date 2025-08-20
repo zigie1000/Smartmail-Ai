@@ -320,6 +320,16 @@
     return "Low";
   }
 
+// Single badge priority used in UI (hides noise)
+function derivePriority(importance, urgency){
+  const imp = String(importance||'').toLowerCase();
+  const u = Number(urgency||0);
+  if (imp === 'important' && u >= 2) return 'High';
+  if (imp === 'important') return 'Normal';
+  if (imp === 'unimportant') return 'Low';
+  return ''; // unknown → no chip
+}
+  
   function setTierUI(tier, isPaid){
     state.tier = tier || 'free';
     state.isPaid = !!isPaid;
