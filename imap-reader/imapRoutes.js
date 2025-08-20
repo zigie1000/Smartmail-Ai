@@ -1,5 +1,6 @@
 // imapRoutes.js — IMAP fetch/classify with tier check (email or licenseKey)
-// Uses smartemail_tier only. Adds UID pagination (cursor) and robust auth checks.
+// Uses smartemail_tier only. Adds UID pagination (cursor), robust auth checks,
+// and fixes the `cls` undefined bug by running classification in /fetch.
 
 import express from 'express';
 import crypto from 'crypto';
@@ -26,8 +27,10 @@ function rowsToSet(rows, key) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
+// --- Tier helpers (email-first, key fallback). Only read smartemail_tier.
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
+
   try {
     if (licenseKey && supa) {
       const { data } = await supa
@@ -51,16 +54,26 @@ async function getTier({ licenseKey = '', email = '' }) {
       if (data && data.smartemail_tier) return String(data.smartemail_tier).toLowerCase();
     }
   } catch (e) { console.warn('tier by email failed:', e?.message || e); }
+
   return 'free';
 }
-async function isPaid(t) { if (process.env.PAID_FEATURES_FOR_ALL === '1') return true; return !!t && t !== 'free'; }
 
+async function isPaid(tier) {
+  if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
+  return !!tier && tier !== 'free';
+}
+
+// Personalization lists + learned weights (paid users only)
 async function fetchListsFromSql(userId = 'default') {
   const empty = {
-    vip: new Set(), legal: new Set(), government: new Set(), bulk: new Set(),
+    vip: new Set(),
+    legal: new Set(),
+    government: new Set(),
+    bulk: new Set(),
     weights: { email: new Map(), domain: new Map() }
   };
   if (!supa) return empty;
+
   try {
     const [vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights] =
       await Promise.all([
@@ -114,7 +127,7 @@ function normalizeForClassifier(items) {
 }
 
 // ---------- Free-tier caps ----------
-const lastFetchAt = new Map();
+const lastFetchAt = new Map(); // key=userId
 function applyFreeCapsIfNeeded(tier, body) {
   const isFree = !tier || tier === 'free';
   const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
@@ -146,7 +159,7 @@ router.post('/fetch', async (req, res) => {
       host = '', port = 993, tls = true, authType = 'password',
       licenseKey = '',
       monthStart = '', monthEnd = '',
-      cursor = null                 // ⬅ NEW: UID pagination token
+      cursor = null                 // NEW: UID pagination token
     } = req.body || {};
 
     const safeEmail = isLikelyEmail(email) ? email : '';
@@ -166,14 +179,14 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // ---- Auth validation
+    // Auth validation
     if (String(authType).toLowerCase() === 'password') {
       if (!password) return res.status(400).json({ error: 'No password configured' });
     } else if (String(authType).toLowerCase() === 'xoauth2') {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // ---- Date selection: month window preferred
+    // Date selection
     const msStr = String(monthStart || '').trim();
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
@@ -181,17 +194,17 @@ router.post('/fetch', async (req, res) => {
     const rangeDays = useMonth ? undefined : Math.max(0, Number(req.body.rangeDays) || 0);
     const limit = Math.max(1, Number(req.body.limit) || 20);
 
-    // ---- Fetch from IMAP
+    // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
       monthEnd:   useMonth ? meStr : undefined,
       rangeDays,
       limit,
-      cursor                             // ⬅ NEW
+      cursor
     });
 
-    // ---- Personalization + classification
+    // Personalization + classification
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
@@ -202,7 +215,7 @@ router.post('/fetch', async (req, res) => {
     try { cls = await classifyEmails(norm, { userId, lists }) || []; }
     catch (err) { console.warn('classifyEmails failed:', err?.message || err); cls = []; }
 
-    const merged = (items || []).map((it, i) => ({
+    const merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
       isVip:
