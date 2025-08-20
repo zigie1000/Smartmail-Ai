@@ -1,224 +1,190 @@
-// imapService.js
-// Robust IMAP fetch + optional login test using ImapFlow.
-// Keeps stable behavior. Adds month range support as TOP-LEVEL args,
-// while remaining backward-compatible with the old `search` param.
-//
-// deps:
-//   npm i imapflow mailparser
-
+// imapService.js — fast IMAP fetch with UID pagination + two-stage fetch
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-// Create client
-function makeClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
-  const auth =
-    authType === 'xoauth2'
-      ? { auth: { user: email, accessToken } }
-      : { auth: { user: email, pass: password } };
-
-  return new ImapFlow({
-    host,
-    port,
-    secure: !!tls,
-    clientInfo: { name: 'SmartEmail', version: '1.0' },
-
-    // 🔧 Prevent flooding logs on Render
-    logger: false,
-    logRaw: false,
-
-    ...auth
-  });
-}
-
-// Normalize one message
-function toItem({ meta, body, flags }) {
-  const fromAddr = (meta.envelope.from && meta.envelope.from[0]) || {};
-  const fromEmail = (fromAddr.address || '').toLowerCase();
-  const fromDomain = fromEmail.split('@')[1] || '';
-
-  const snippet =
-    (body.text && body.text.slice(0, 240)) ||
-    (body.html && body.html.replace(/<[^>]+>/g, ' ').slice(0, 240)) ||
-    '';
-
-  const contentType =
-    (body.headers && body.headers.get && body.headers.get('content-type')) ||
-    '';
-
-  const attachTypes = [];
-  let hasIcs = false;
-  if (body.attachments && body.attachments.length) {
-    for (const a of body.attachments) {
-      const ct = (a.contentType || '').toLowerCase();
-      attachTypes.push(ct);
-      if (ct.includes('text/calendar') || (a.filename || '').toLowerCase().endsWith('.ics')) {
-        hasIcs = true;
-      }
-    }
-  }
-
-  return {
-    id: String(meta.uid),
-    uid: meta.uid,
-    from: fromAddr.name || fromEmail || '',
-    fromEmail,
-    fromDomain,
-    to:
-      (meta.envelope.to || [])
-        .map(t => t.address)
-        .filter(Boolean)
-        .join(', ') || '',
-    subject: meta.envelope.subject || '',
-    snippet,
-    date: meta.internalDate ? new Date(meta.internalDate).toISOString() : '',
-    headers: (() => {
-      const h = {};
-      if (body.headers && body.headers.forEach) {
-        body.headers.forEach((v, k) => (h[k] = v));
-      }
-      return h;
-    })(),
-    hasIcs,
-    attachTypes,
-    unread: !flags.has('\\Seen'),
-    flagged: flags.has('\\Flagged'),
-    contentType
-  };
-}
+// Convert JS Date to IMAP-compatible search constraints
+function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 
 /**
- * Fetch emails from INBOX.
- * Options:
- *   email, password, accessToken, host, port, tls, authType
- *   // NEW preferred top-level filters:
- *   monthStart?: ISO string (YYYY-MM-DD or full ISO)
- *   monthEnd?:   ISO string (inclusive; we add +1 day internally)
- *   rangeDays?:  number  (used when month* not provided; 0 => ALL)
- *
- * Back-compat: ignored if monthStart/monthEnd or rangeDays are provided top-level
- *   search?: ['ALL'] | ['SINCE', Date] | { rangeDays?: number, monthStart?: string, monthEnd?: string }
- *
- *   limit: number
+ * fetchEmails(opts)
+ * @param {Object} opts
+ *  - email, password, accessToken, host, port, tls, authType
+ *  - monthStart, monthEnd (ISO)  OR  rangeDays (number)
+ *  - limit (int, default 20)
+ *  - cursor (string, optional)  // format "UID<12345"
  */
-export async function fetchEmails({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password',
+export async function fetchEmails(opts = {}) {
+  const {
+    email = '', password = '', accessToken = '',
+    host = '', port = 993, tls = true, authType = 'password',
+    monthStart = undefined, monthEnd = undefined,
+    rangeDays = 7,
+    limit = 20,
+    cursor = null,              // NEW: paginate older by UID
+  } = opts;
 
-  // ⬇️ NEW top-level filters
-  monthStart = null,
-  monthEnd = null,
-  rangeDays = null,
+  const client = new ImapFlow({
+    host, port, secure: !!tls,
+    auth: (String(authType).toLowerCase() === 'xoauth2')
+      ? { user: email, accessToken }
+      : { user: email, pass: password },
+    logger: false,
+  });
 
-  // legacy input kept for compatibility
-  search = undefined,
-
-  limit = 20
-}) {
-  const client = makeClient({ host, port, tls, authType, email, password, accessToken });
-
-  // --- Build final search window (prefer new top-level args) ---
-  let sinceDate = null;
-  let beforeDate = null; // exclusive
-
-  // 1) Top-level month range
-  const ms = monthStart && !Number.isNaN(Date.parse(monthStart)) ? new Date(monthStart) : null;
-  const me = monthEnd   && !Number.isNaN(Date.parse(monthEnd))   ? new Date(monthEnd)   : null;
-
-  if (ms && me) {
-    // make end inclusive by querying before = (end + 1 day)
-    sinceDate  = ms;
-    beforeDate = new Date(me.getTime() + 24 * 3600 * 1000);
-  } else if (Number.isFinite(+rangeDays) && rangeDays > 0) {
-    // 2) Top-level relative range
-    sinceDate = new Date(Date.now() - Number(rangeDays) * 864e5);
-  } else if (search !== undefined) {
-    // 3) Legacy `search` handling (array or object)
-    if (Array.isArray(search)) {
-      if (search.length === 2 && String(search[0]).toUpperCase() === 'SINCE' && search[1] instanceof Date) {
-        sinceDate = search[1];
-      }
-    } else if (search && typeof search === 'object') {
-      const { rangeDays: rd, monthStart: oms, monthEnd: ome } = search || {};
-      const omsD = oms && !Number.isNaN(Date.parse(oms)) ? new Date(oms) : null;
-      const omeD = ome && !Number.isNaN(Date.parse(ome)) ? new Date(ome) : null;
-      if (omsD && omeD) {
-        sinceDate  = omsD;
-        beforeDate = new Date(omeD.getTime() + 24 * 3600 * 1000);
-      } else if (Number.isFinite(+rd) && rd > 0) {
-        sinceDate = new Date(Date.now() - Number(rd) * 864e5);
-      }
-    }
-  }
-
+  let lock = null;
   try {
     await client.connect();
-    const lock = await client.getMailboxLock('INBOX');
-    try {
-      let uids;
-      if (sinceDate && beforeDate) {
-        uids = await client.search({ since: sinceDate, before: beforeDate });
-      } else if (sinceDate) {
-        uids = await client.search({ since: sinceDate });
-      } else {
-        uids = await client.search({});
-      }
+    lock = await client.getMailboxLock('INBOX');
 
-      if (uids.length > limit) {
-        uids = uids.slice(-limit);
-      }
+    // --- Build search range
+    const criteria = [];
 
-      const items = [];
-      for await (const msg of client.fetch(uids, {
-        envelope: true,
-        flags: true,
-        internalDate: true,
-        source: true
-      })) {
-        const parsed = await simpleParser(msg.source);
-        items.push(
-          toItem({
-            meta: { uid: msg.uid, envelope: msg.envelope, internalDate: msg.internalDate },
-            body: parsed,
-            flags: msg.flags
-          })
-        );
-      }
+    // Handle month window: [monthStart, monthEnd] inclusive by adding 1 day to "before"
+    const hasMonth = !!monthStart && !!monthEnd;
+    if (hasMonth) {
+      const since = new Date(monthStart);
+      const before = addDays(new Date(monthEnd), 1);
+      criteria.push(['SINCE', startOfDay(since)]);
+      criteria.push(['BEFORE', startOfDay(before)]);
+    } else if (Number(rangeDays) > 0) {
+      const since = addDays(new Date(), -Number(rangeDays));
+      criteria.push(['SINCE', startOfDay(since)]);
+    } // else: no time bound (not recommended)
 
-      return { items, nextCursor: null, hasMore: false };
-    } finally {
-      lock.release();
+    // UID cursor (older than)
+    let uidCutoff = null;
+    if (cursor && /^uid<\d+$/i.test(String(cursor))) {
+      uidCutoff = Number(String(cursor).match(/\d+/)[0]);
+      criteria.push(['UID', `1:${uidCutoff - 1}`]); // fetch strictly older
     }
-  } catch (err) {
-    const m = String(err && err.message) || 'IMAP fetch failed';
-    throw new Error(`IMAP /fetch error: ${m}`);
+
+    // ---- Stage A: fast discovery; newest first
+    // We only need UIDs + ENVELOPE metadata to decide page
+    // ImapFlow sorts ascending by UID; we reverse to get newest first.
+    const uids = [];
+    for await (const msg of client.fetch(
+      { seen: false, ...criteria.length ? { or: criteria } : {} }, // criteria to search
+      { uid: true, envelope: true, internalDate: true, flags: true, structure: true },
+      { uid: true }
+    )) {
+      uids.push(msg.uid);
+    }
+    uids.sort((a, b) => b - a); // newest → oldest
+
+    const pageUIDs = uids.slice(0, Math.max(1, Number(limit)));
+    const hasMore = uids.length > pageUIDs.length;
+    const nextCursor = hasMore ? `uid<${pageUIDs[pageUIDs.length - 1]}` : null;
+
+    if (pageUIDs.length === 0) {
+      return { items: [], hasMore: false, nextCursor: null };
+    }
+
+    // ---- Stage B: fetch minimal parts for the chosen page UIDs
+    const items = [];
+    const fetchOpts = {
+      uid: true,
+      envelope: true,
+      internalDate: true,
+      flags: true,
+      structure: true,
+      // Pull small text preview cheaply; avoid full source for speed
+      source: false,
+      bodyParts: [ '1.TEXT' ]
+    };
+
+    // ImapFlow can fetch by sequence set "uid1,uid2:uid3"
+    const seq = pageUIDs.join(',');
+    for await (const msg of client.fetch({ uid: seq }, fetchOpts)) {
+      try {
+        // Build a tiny snippet; fallback to subject if body not available
+        const subject = (msg.envelope?.subject || '').toString();
+        let snippet = '';
+        if (msg.bodyParts && msg.bodyParts.get('1.TEXT')) {
+          const buf = await client.download(msg.uid, '1');
+          const text = await streamToText(buf, 2048);
+          snippet = text.replace(/\s+/g, ' ').trim().slice(0, 280);
+        }
+
+        // sender parsing
+        const fromAddr = (msg.envelope?.from && msg.envelope.from[0]) || {};
+        const fromEmail = (fromAddr.address || '').toLowerCase();
+        const fromDomain = fromEmail.split('@')[1] || '';
+        const toAddr = (msg.envelope?.to && msg.envelope.to[0]) || {};
+        const toEmail = (toAddr.address || '');
+
+        items.push({
+          id: String(msg.uid),
+          uid: msg.uid,
+          from: fromAddr.name || fromEmail || '',
+          fromEmail,
+          fromDomain,
+          to: toEmail,
+          subject,
+          snippet,
+          date: msg.internalDate ? new Date(msg.internalDate).toISOString() : '',
+          unread: !msg.flags?.has('\\Seen'),
+          flagged: !!msg.flags?.has('\\Flagged'),
+          hasIcs: structureHasIcs(msg.structure),
+          attachTypes: listAttachTypes(msg.structure),
+          importance: 'unclassified' // placeholder for classifier to fill
+        });
+      } catch (e) {
+        // Resilient: push minimal item even if parse fails
+        items.push({
+          id: String(msg.uid),
+          uid: msg.uid,
+          subject: '(parse failed)',
+          snippet: '',
+          date: msg.internalDate ? new Date(msg.internalDate).toISOString() : '',
+          unread: !msg.flags?.has('\\Seen'),
+          flagged: !!msg.flags?.has('\\Flagged'),
+          importance: 'unclassified'
+        });
+      }
+    }
+
+    return { items, hasMore, nextCursor };
   } finally {
-    try { await client.logout(); } catch { /* noop */ }
+    try { if (lock) lock.release(); } catch {}
+    try { await client.logout(); } catch {}
   }
 }
 
-// Simple connectivity test
-export async function testLogin({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password'
-}) {
-  const client = makeClient({ host, port, tls, authType, email, password, accessToken });
-  try {
-    await client.connect();
-    await client.getMailboxLock('INBOX').then(l => l.release());
-    return true;
-  } catch {
-    return false;
-  } finally {
-    try { await client.logout(); } catch { /* noop */ }
+function structureHasIcs(struct) {
+  if (!struct) return false;
+  const stack = [struct];
+  while (stack.length) {
+    const node = stack.pop();
+    const t = `${(node.type || '').toLowerCase()}/${(node.subtype || '').toLowerCase()}`;
+    if (t === 'text/calendar' || /(\.ics)$/i.test(node.parameters?.name || '')) return true;
+    if (Array.isArray(node.childNodes)) stack.push(...node.childNodes);
+    if (Array.isArray(node.parts)) stack.push(...node.parts);
   }
+  return false;
+}
+function listAttachTypes(struct) {
+  const out = [];
+  if (!struct) return out;
+  const stack = [struct];
+  while (stack.length) {
+    const node = stack.pop();
+    const disp = (node.disposition || '').toLowerCase();
+    const name = (node.parameters?.name || node.filename || '').toLowerCase();
+    if (disp === 'attachment' || name) out.push(name || (node.subtype || '').toLowerCase());
+    if (Array.isArray(node.childNodes)) stack.push(...node.childNodes);
+    if (Array.isArray(node.parts)) stack.push(...node.parts);
+  }
+  return out.slice(0, 6);
+}
+async function streamToText(readable, maxBytes = 4096) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    readable.on('data', (c) => {
+      size += c.length;
+      if (size <= maxBytes) chunks.push(c);
+    });
+    readable.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    readable.on('error', reject);
+  });
 }
