@@ -317,13 +317,16 @@
   }
 
   function setTierUI(tier, isPaid){
-    state.tier = tier; state.isPaid = !!isPaid; state.tierKnown = true;
-    $("tierPill").textContent = `Tier: ${tier||'free'}`;
-    const enable = ()=>{ ["btnFetch","btnTest","btnRefresh","btnImportant","btnAll","btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next"].forEach(id => $(id).disabled = false); };
-    enable();
-    if(!isPaid){
-      setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
-    }
+  state.tier = tier; state.isPaid = !!isPaid; state.tierKnown = true;
+  $("tierPill").textContent = `Tier: ${tier||'free'}`;
+  [
+    "btnFetch","btnTest","btnRefresh","btnImportant","btnAll",
+    "btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next",
+    // new:
+    "btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling"
+  ].forEach(id => { const el = $(id); if (el) el.disabled = false; });
+  if(!isPaid) setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
+}
   }
 
   function render(){
