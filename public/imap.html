@@ -739,8 +739,12 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
   $("btnSendSelected").addEventListener("click", sendSelected);
   $("btnMore").addEventListener("click", ()=>{ $("range").value = "30"; setMessage("ok","Range set to 30 days. Click Fetch & Classify."); });
 
-  $("prev").addEventListener("click", ()=>{ if(state.page>1){ state.page--; render(); }});
-  $("next").addEventListener("click", ()=>{ const max=Math.ceil(state.view.length/state.perPage)||1; if(state.page<max){ state.page++; render(); }});
+  $("prev").addEventListener("click", ()=>{
+  if (state.cursorStack.length > 1) fetchAndClassify(false, true);
+});
+$("next").addEventListener("click", ()=>{
+  if (state.nextCursor) fetchAndClassify(true, false);
+});
 
   $("fPriority").addEventListener("change", applyFilters);
   $("fIntent").addEventListener("change", applyFilters);
