@@ -527,6 +527,78 @@ $("pageInfo").textContent = `${total} emails`;
     window.location.href = "/index.html?" + params.toString();
   }
 
+
+  // === Overrides helpers (paste above "// ---- Tier preflight ----") ===
+
+// Try to persist an importance override on the server; fall back to local only.
+async function sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label }) {
+  try {
+    const resp = await fetch('/api/imap/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ownerEmail, licenseKey, fromEmail, fromDomain, label })
+    });
+    // If server returns OK, we're done.
+    if (resp.ok) return true;
+  } catch (_) { /* ignore network/server errors */ }
+
+  // Fallback: store importance locally so the UI reflects your choice.
+  setLocalImportanceOverride({ fromEmail, fromDomain, importance: label === 'important' ? 'important' : 'unimportant' });
+  return true;
+}
+
+// Local category override (and optional importance override) saved to localStorage
+function setLocalCategoryOverride({ fromEmail, fromDomain, category }) {
+  const key = 'imap.cat.overrides';
+  let map = {};
+  try { map = JSON.parse(localStorage.getItem(key) || '{}'); } catch {}
+  const id = (fromEmail || fromDomain || '').toLowerCase();
+  if (!id) return;
+
+  if (category) map[id] = category; else delete map[id];
+  localStorage.setItem(key, JSON.stringify(map));
+
+  // Apply to loaded emails and keep 'intent' in sync for filters
+  state.emails = state.emails.map(e => {
+    const eid = (e.fromEmail || e.fromDomain || '').toLowerCase();
+    return (eid === id) ? { ...e, category, intent: category } : e;
+  });
+}
+
+// Optional: local importance override used by fallback (and to reapply on load)
+function setLocalImportanceOverride({ fromEmail, fromDomain, importance }) {
+  const key = 'imap.imp.overrides';
+  let map = {};
+  try { map = JSON.parse(localStorage.getItem(key) || '{}'); } catch {}
+  const id = (fromEmail || fromDomain || '').toLowerCase();
+  if (!id) return;
+
+  if (importance) map[id] = importance; else delete map[id];
+  localStorage.setItem(key, JSON.stringify(map));
+
+  state.emails = state.emails.map(e => {
+    const eid = (e.fromEmail || e.fromDomain || '').toLowerCase();
+    return (eid === id) ? { ...e, importance } : e;
+  });
+}
+
+// Re-apply saved overrides to any freshly-fetched emails
+function applySavedOverridesTo(emails) {
+  // categories
+  let cm = {};
+  try { cm = JSON.parse(localStorage.getItem('imap.cat.overrides') || '{}'); } catch {}
+  // importance
+  let im = {};
+  try { im = JSON.parse(localStorage.getItem('imap.imp.overrides') || '{}'); } catch {}
+
+  return emails.map(e => {
+    const id = (e.fromEmail || e.fromDomain || '').toLowerCase();
+    const category = cm[id] || e.category || e.intent || '';
+    const importance = im[id] || e.importance || 'unclassified';
+    return { ...e, category, intent: category, importance };
+  });
+}
+
   // ---- Tier preflight ----
   async function checkTier() {
     try {
