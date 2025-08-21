@@ -829,6 +829,11 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
   }
 
   // ---- Events ----
+// Safe binder: avoids exceptions if an element is missing, so the rest still bind.
+function on(id, ev, fn) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener(ev, fn);
+}
   $("btnVip").addEventListener("click", ()=>{
   state.view = state.emails.filter(e => !!e.isVip);
   state.page = 1;
