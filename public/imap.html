@@ -898,9 +898,20 @@ list.addEventListener('click', async (ev) => {
         const id = card?.querySelector('.sel')?.dataset?.id;
         const idx = state.emails.findIndex(x => String(x.id) === String(id));
         if (idx >= 0) {
-          state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
-          state.view = state.emails.slice();
-          render();
+  state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
+
+  // 🔥 Mirror importance into urgency for visual feedback
+  if (label === "important") {
+    const u = Number(state.emails[idx].urgency || 0);
+    state.emails[idx].urgency = Math.max(u, 2); // ensure urgency chip >= 2
+  }
+  if (label === "unimportant") {
+    state.emails[idx].urgency = 0; // wipe urgency if user marks unimportant
+  }
+
+  state.view = state.emails.slice();
+  render();
+}
         }
         setMessage("ok", `Saved override: ${label}.`);
       } else {
