@@ -718,7 +718,67 @@ $("next").addEventListener("click", ()=>{
   $("fAction").addEventListener("change", applyFilters);
   $("fTime").addEventListener("change", applyFilters);
   $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
+// Delegated handler for overrides menu
+list.addEventListener('click', async (ev) => {
+  const t = ev.target;
+  if (!(t instanceof HTMLElement)) return;
 
+  // Importance → server persist
+  if (t.classList.contains('ovr-imp')) {
+    ev.preventDefault();
+    const ownerEmail = ($("email")?.value || "").trim();
+    const licenseKey = ($("licenseKey")?.value || "").trim();
+    const fromEmail  = String(t.dataset.email || "").trim() || null;
+    const fromDomain = String(t.dataset.domain || "").trim() || null;
+    const label      = String(t.dataset.lab || "important");
+
+    if (!ownerEmail) { setMessage("err", "Enter your mailbox Email first."); return; }
+    if (!fromEmail && !fromDomain) { setMessage("err", "No sender identity on this message."); return; }
+
+    try {
+      const ok = await sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label });
+      if (ok) {
+        // optimistic UI update for the card we clicked inside
+        const card = t.closest('.email');
+        const id = card?.querySelector('.sel')?.dataset?.id;
+        const idx = state.emails.findIndex(x => String(x.id) === String(id));
+        if (idx >= 0) {
+          state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
+          state.view = state.emails.slice();
+          render();
+        }
+        setMessage("ok", `Saved override: ${label}.`);
+      } else {
+        setMessage("err", "Could not save importance override.");
+      }
+    } catch (e) {
+      setMessage("err", e?.message || "Error saving override.");
+    }
+    return;
+  }
+
+  // Category → local override (UI “classify myself”)
+  if (t.classList.contains('ovr-cat')) {
+    ev.preventDefault();
+    const category  = String(t.dataset.cat || "");
+    const fromEmail = String(t.dataset.email || "").trim() || null;
+    const fromDomain= String(t.dataset.domain || "").trim() || null;
+
+    setLocalCategoryOverride({ fromEmail, fromDomain, category });
+
+    // update only the clicked card
+    const card = t.closest('.email');
+    const id = card?.querySelector('.sel')?.dataset?.id;
+    const idx = state.emails.findIndex(x => String(x.id) === String(id));
+    if (idx >= 0) {
+      // We display effectiveCategory(e) in cardHtml; just re-render.
+      state.view = state.emails.slice();
+      render();
+    }
+    setMessage("ok", category ? `Category set to "${category}".` : "Category override cleared.");
+    return;
+  }
+});
   // Init
   loadForm();
   applyProviderPreset();
