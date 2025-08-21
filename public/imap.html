@@ -289,6 +289,15 @@
 
 <script>
 (function(){
+  window.addEventListener('error', e => {
+  const m = document.getElementById('msg');
+  if (m) m.innerHTML = `<div class="alert err">${(e && e.message) || 'Script error'}</div>`;
+});
+window.addEventListener('unhandledrejection', e => {
+  const m = document.getElementById('msg');
+  const txt = e?.reason?.message || e?.reason || 'Promise error';
+  if (m) m.innerHTML = `<div class="alert err">${txt}</div>`;
+});
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const msg = $("msg");
