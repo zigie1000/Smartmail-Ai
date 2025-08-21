@@ -976,6 +976,9 @@ setTierUI('free', false);
  .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
 
 setTimeout(checkTier, 0);
+  // Ensure Fetch is clickable even if earlier bindings were skipped
+const _f = document.getElementById('btnFetch');
+if (_f) { _f.disabled = false; _f.onclick = fetchAndClassify; }
   state.view = [];
   state.cursorStack = [null];
   $("prev").disabled = true;
