@@ -1030,8 +1030,9 @@ setTierUI('free', false);
 
 // Insurance: if Safari skips setTierUI for any reason, force-enable all toolbar buttons
 ["btnFetch","btnTest","btnRefresh","btnImportant","btnAll","btnExportJson","btnExportCsv",
- "btnSendSelected","btnMore","btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling"]
- .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+ "btnSendSelected","btnMore","btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling",
+ "btnSearch" // ← add
+].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
 
 setTimeout(checkTier, 0);
   // Ensure Fetch is clickable even if earlier bindings were skipped
