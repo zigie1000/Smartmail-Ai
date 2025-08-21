@@ -373,8 +373,83 @@ $("pageInfo").textContent = `${total} emails`;
 
   function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
-  const category = e.category || e.intent || '';
-  ...
+  const category   = (e.category || e.intent || '');
+  const from       = e.from || e.fromEmail || '';
+  const fromEmail  = e.fromEmail || '';
+  const fromDomain = e.fromDomain || '';
+  const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
+
+  // One derived priority chip (no raw importance/unclassified noise)
+  const pr = derivePriority(importance, e.urgency);
+  const priorityChip = pr
+    ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
+    : '';
+
+  // Category chip
+  const catChip = category
+    ? `<span class="chip" title="Category">${escapeHtml(category)}</span>`
+    : '';
+
+  // Urgency chip only when >= 2
+  const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
+  const urgencyChip =
+    urgVal >= 2
+      ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0, 140))}">Urgency ${urgVal}</span>`
+      : '';
+
+  // VIP chip
+  const vipChip = e.isVip
+    ? `<span class="chip vip" title="VIP sender">VIP</span>`
+    : '';
+
+  // Actions (override) menu
+  const actionsMenu = `
+    <details class="ovr">
+      <summary>⋯</summary>
+      <div class="menu">
+        <button class="ovr-imp" data-lab="important"   data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Mark as Important</button>
+        <button class="ovr-imp" data-lab="unimportant" data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Mark as Unimportant</button>
+        <hr style="border:none;border-top:1px solid #eee;margin:6px 0"/>
+        <button class="ovr-cat" data-cat="meeting"     data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: meeting</button>
+        <button class="ovr-cat" data-cat="billing"     data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: billing</button>
+        <button class="ovr-cat" data-cat="security"    data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: security</button>
+        <button class="ovr-cat" data-cat="legal"       data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: legal</button>
+        <button class="ovr-cat" data-cat="newsletter"  data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: newsletter</button>
+        <button class="ovr-cat" data-cat="sales"       data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: sales</button>
+        <button class="ovr-cat" data-cat="social"      data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: social</button>
+        <button class="ovr-cat" data-cat="system"      data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: system</button>
+        <button class="ovr-cat" data-cat=""            data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Clear category override</button>
+      </div>
+    </details>
+  `;
+
+  return `
+    <div class="email">
+      <div class="email-header">
+        <div class="meta">
+          <input type="checkbox" class="sel" data-id="${escapeHtml(e.id || '')}" />
+          <span class="from">${escapeHtml(from)}</span>
+        </div>
+        <div class="subject">
+          ${escapeHtml(e.subject || '(no subject)')}
+        </div>
+        <div class="chips">
+          ${vipChip}${priorityChip}${catChip}${urgencyChip}
+          <span class="actions">${actionsMenu}</span>
+        </div>
+      </div>
+      <details>
+        <summary>Preview</summary>
+        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
+          ${escapeHtml(e.snippet || e.text || '')}
+        </div>
+      </details>
+      <div class="meta" style="margin-top:6px">
+        <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
+        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
+      </div>
+    </div>
+  `;
 }
   function applyFilters(){
     let filtered = [...state.emails];
