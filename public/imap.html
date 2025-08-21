@@ -833,11 +833,14 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
 function on(id, ev, fn) {
   const el = document.getElementById(id);
   if (!el) return;
-  try {
-    el.disabled = false;
-    el.removeAttribute('disabled');
-    el.addEventListener(ev, fn);
-  } catch (_) { /* no-op */ }
+
+  // always clear disabled so buttons become clickable
+  el.disabled = false;
+  el.removeAttribute('disabled');
+
+  // avoid double-binding
+  el.removeEventListener(ev, fn);
+  el.addEventListener(ev, fn);
 }
 
 // VIP & Quick Filters
