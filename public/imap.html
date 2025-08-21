@@ -732,11 +732,15 @@ if (prev) {
       if (!data) data = {};
 
       const emails = Array.isArray(data.emails) ? data.emails : [];
-      state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
-      state.view   = state.emails.slice();
-      state.perPage = Math.max(1, Number($("limit").value || 20));
-      state.page = 1;
-      render();
+state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
+
+// ⬇️ Re-apply saved local overrides (categories & importance)
+state.emails = applySavedOverridesTo(state.emails);
+
+state.view   = state.emails.slice();
+state.perPage = Math.max(1, Number($("limit").value || 20));
+state.page = 1;
+render();
 
 // Save server cursors
 state.nextCursor = data?.nextCursor || null;
