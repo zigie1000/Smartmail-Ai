@@ -868,28 +868,24 @@ function on(id, ev, fn) {
   $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
 
   $("btnTier").addEventListener("click", checkTier);
-  $("btnFetch").addEventListener("click", fetchAndClassify);
-  $("btnTest").addEventListener("click", testLogin);
-  $("btnRefresh").addEventListener("click", ()=>render());
-  $("btnImportant").addEventListener("click", ()=>{ state.view = state.emails.filter(e => String(e.importance).toLowerCase()==="important"); state.page=1; render(); });
-  $("btnAll").addEventListener("click", ()=>{ state.view = state.emails.slice(); state.page=1; render(); });
-  $("btnExportJson").addEventListener("click", exportJSON);
-  $("btnExportCsv").addEventListener("click", exportCSV);
-  $("btnSendSelected").addEventListener("click", sendSelected);
-  $("btnMore").addEventListener("click", ()=>{ $("range").value = "30"; setMessage("ok","Range set to 30 days. Click Fetch & Classify."); });
+  on("btnFetch", "click", fetchAndClassify);
+on("btnTest", "click", testLogin);
+on("btnRefresh", "click", ()=>render());
+on("btnImportant", "click", ()=>{ … });
+on("btnAll", "click", ()=>{ … });
+on("btnExportJson", "click", exportJSON);
+on("btnExportCsv", "click", exportCSV);
+on("btnSendSelected", "click", sendSelected);
+on("btnMore", "click", ()=>{ … });
 
-  $("prev").addEventListener("click", ()=>{
-  if (state.cursorStack.length > 1) fetchAndClassify(false, true);
-});
-$("next").addEventListener("click", ()=>{
-  if (state.nextCursor) fetchAndClassify(true, false);
-});
+on("prev", "click", ()=>{ … });
+on("next", "click", ()=>{ … });
 
-  $("fPriority").addEventListener("change", applyFilters);
-  $("fIntent").addEventListener("change", applyFilters);
-  $("fAction").addEventListener("change", applyFilters);
-  $("fTime").addEventListener("change", applyFilters);
-  $("smartView").addEventListener("change", (e)=>applySmartView(e.target.value));
+on("fPriority","change", applyFilters);
+on("fIntent","change", applyFilters);
+on("fAction","change", applyFilters);
+on("fTime","change", applyFilters);
+on("smartView","change", (e)=>applySmartView(e.target.value));
 // Delegated handler for overrides menu
 list.addEventListener('click', async (ev) => {
   const t = ev.target;
