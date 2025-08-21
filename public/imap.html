@@ -828,80 +828,99 @@ setMessage("ok", `Fetched ${state.emails.length} emails.`);
     saveForm();
   }
 
-  // ---- Events ----
-// Safe binder: avoids exceptions if an element is missing, so the rest still bind.
+// ---- Events ----
+// Safe binder: don't throw if element is missing; also clear disabled state
 function on(id, ev, fn) {
   const el = document.getElementById(id);
-  if (el) el.addEventListener(ev, fn);
+  if (!el) return;
+  try {
+    el.disabled = false;
+    el.removeAttribute('disabled');
+    el.addEventListener(ev, fn);
+  } catch (_) { /* no-op */ }
 }
-  $("btnVip").addEventListener("click", ()=>{
+
+// VIP & Quick Filters
+on("btnVip","click", ()=>{
   state.view = state.emails.filter(e => !!e.isVip);
   state.page = 1;
   // local (client) view → disable server paging
   state.nextCursor = null;
   state.cursorStack = [null];
-  $("prev").disabled = true;
-  $("next").disabled = true;
-  $("pageInfo").textContent = `VIP • ${state.view.length} emails`;
+  $("prev") && ($("prev").disabled = true);
+  $("next") && ($("next").disabled = true);
+  $("pageInfo") && ($("pageInfo").textContent = `VIP • ${state.view.length} emails`);
   render();
 });
-  $("btnQImportant").addEventListener("click", ()=>applyQuickFilter('important'));
-  $("btnQUrgent").addEventListener("click",   ()=>applyQuickFilter('urgent'));
-  $("btnQNeeds").addEventListener("click",    ()=>applyQuickFilter('needs'));
-  $("btnQMeeting").addEventListener("click",  ()=>applyQuickFilter('meeting'));
-  $("btnQBilling").addEventListener("click",  ()=>applyQuickFilter('billing'));
+on("btnQImportant","click", ()=>applyQuickFilter('important'));
+on("btnQUrgent","click",   ()=>applyQuickFilter('urgent'));
+on("btnQNeeds","click",    ()=>applyQuickFilter('needs'));
+on("btnQMeeting","click",  ()=>applyQuickFilter('meeting'));
+on("btnQBilling","click",  ()=>applyQuickFilter('billing'));
 
-  $("limit").addEventListener("change", () => {
-    state.perPage = Math.max(1, Number($("limit").value || 20));
-    state.page = 1;
-    render();
-  });
-  $("monthStr").addEventListener("change", updateMonthUI);
-  $("monthClear").addEventListener("click", ()=>{
-    $("monthStr").value = "";
-    updateMonthUI();
-  });
+// Paging size + month UI
+on("limit","change", () => {
+  state.perPage = Math.max(1, Number($("limit").value || 20));
+  state.page = 1;
+  render();
+});
+on("monthStr","change", updateMonthUI);
+on("monthClear","click", ()=>{
+  $("monthStr").value = "";
+  updateMonthUI();
+});
 
-  ["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
-    .forEach(id => $(id).addEventListener("change", saveForm));
-  $("provider").addEventListener("change", applyProviderPreset);
-  $("authType").addEventListener("change", (e)=>{ $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none"; saveForm(); });
+// Persist form changes
+["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
+  .forEach(id => on(id, "change", saveForm));
 
-  $("btnTier").addEventListener("click", checkTier);
-  on("btnFetch", "click", fetchAndClassify);
-on("btnTest", "click", testLogin);
-on("btnRefresh", "click", ()=>render());
-$("btnImportant").addEventListener("click", ()=>{
+// Provider / auth toggles
+on("provider","change", applyProviderPreset);
+on("authType","change", (e)=>{
+  $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none";
+  saveForm();
+});
+
+// Tier + toolbar actions
+on("btnTier","click", checkTier);
+on("btnFetch","click", fetchAndClassify);    // ← main hook
+on("btnTest","click", testLogin);
+on("btnRefresh","click", ()=>render());
+
+on("btnImportant","click", ()=>{
   state.view = state.emails.filter(e => String(e.importance).toLowerCase() === "important");
   state.page = 1;
   render();
 });
-$("btnAll").addEventListener("click", ()=>{
+on("btnAll","click", ()=>{
   state.view = state.emails.slice();
   state.page = 1;
   render();
 });
-on("btnExportJson", "click", exportJSON);
-on("btnExportCsv", "click", exportCSV);
-on("btnSendSelected", "click", sendSelected);
-$("btnMore").addEventListener("click", ()=>{
+on("btnExportJson","click", exportJSON);
+on("btnExportCsv","click",  exportCSV);
+on("btnSendSelected","click", sendSelected);
+on("btnMore","click", ()=>{
   $("range").value = "30";
   setMessage("ok","Range set to 30 days. Click Fetch & Classify.");
 });
 
-$("prev").addEventListener("click", ()=>{
+// Cursor paging
+on("prev","click", ()=>{
   if (state.cursorStack.length > 1) fetchAndClassify(false, true);
 });
-$("next").addEventListener("click", ()=>{
+on("next","click", ()=>{
   if (state.nextCursor) fetchAndClassify(true, false);
 });
 
+// Filters & Smart View
 on("fPriority","change", applyFilters);
-on("fIntent","change", applyFilters);
-on("fAction","change", applyFilters);
-on("fTime","change", applyFilters);
+on("fIntent","change",   applyFilters);
+on("fAction","change",   applyFilters);
+on("fTime","change",     applyFilters);
 on("smartView","change", (e)=>applySmartView(e.target.value));
-// Delegated handler for overrides menu
+
+// Delegated handler for overrides menu (kept as delegated)
 list.addEventListener('click', async (ev) => {
   const t = ev.target;
   if (!(t instanceof HTMLElement)) return;
@@ -926,32 +945,29 @@ list.addEventListener('click', async (ev) => {
         const id = card?.querySelector('.sel')?.dataset?.id;
         const idx = state.emails.findIndex(x => String(x.id) === String(id));
         if (idx >= 0) {
-  state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
+          state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
 
-  // 🔥 Mirror importance into urgency for visual feedback
-  if (label === "important") {
-    const u = Number(state.emails[idx].urgency || 0);
-    state.emails[idx].urgency = Math.max(u, 2); // ensure urgency chip >= 2
-  }
-  if (label === "unimportant") {
-    state.emails[idx].urgency = 0; // wipe urgency if user marks unimportant
-  }
+          // Mirror importance into urgency for visual feedback
+          if (label === "important") {
+            const u = Number(state.emails[idx].urgency || 0);
+            state.emails[idx].urgency = Math.max(u, 2); // ensure urgency chip >= 2
+          }
+          if (label === "unimportant") {
+            state.emails[idx].urgency = 0; // wipe urgency if user marks unimportant
+          }
 
-  state.view = state.emails.slice();
-  render();
-}
+          state.view = state.emails.slice();
+          render();
         }
-        setMessage("ok", `Saved override: ${label}.`);
-      } else {
-        setMessage("err", "Could not save importance override.");
       }
+      setMessage("ok", `Saved override: ${label}.`);
     } catch (e) {
       setMessage("err", e?.message || "Error saving override.");
     }
     return;
   }
 
-  // Category → local override (UI “classify myself”)
+  // Category → local override
   if (t.classList.contains('ovr-cat')) {
     ev.preventDefault();
     const category  = String(t.dataset.cat || "");
@@ -965,7 +981,6 @@ list.addEventListener('click', async (ev) => {
     const id = card?.querySelector('.sel')?.dataset?.id;
     const idx = state.emails.findIndex(x => String(x.id) === String(id));
     if (idx >= 0) {
-      // We display effectiveCategory(e) in cardHtml; just re-render.
       state.view = state.emails.slice();
       render();
     }
