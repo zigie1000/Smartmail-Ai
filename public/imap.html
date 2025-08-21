@@ -966,7 +966,9 @@ list.addEventListener('click', async (ev) => {
   }
 
 
-  checkTier();
+    // Enable UI immediately; then let server check overwrite if available
+  setTierUI('free', false);
+  setTimeout(checkTier, 0);
   updateMonthUI();
   state.view = [];
   state.cursorStack = [null];
