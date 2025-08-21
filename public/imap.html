@@ -385,11 +385,11 @@ $("pageInfo").textContent = `${total} emails`;
   const fromDomain = e.fromDomain || '';
   const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
 
-  // One derived priority chip (no raw importance/unclassified noise)
-  const pr = derivePriority(importance, e.urgency);
-  const priorityChip = pr
-    ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
-    : '';
+  // One derived priority chip (now shows “Important” when manually marked)
+const pr = derivePriority(importance, e.urgency);
+const priorityChip = pr.label
+  ? `<span class="chip pri-${pr.cls}" title="Priority">${pr.label}</span>`
+  : '';
 
   // Category chip
   const catChip = category
