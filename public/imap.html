@@ -955,14 +955,18 @@ list.addEventListener('click', async (ev) => {
   if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
     $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
   }
+
+  // 👇 Add this line here
+  setTierUI('free', false);
+
   checkTier();
-updateMonthUI();
-state.view = [];
-state.cursorStack = [null];
-$("prev").disabled = true;
-$("next").disabled = true;
-$("pageInfo").textContent = `Page 1`;
-render();
+  updateMonthUI();
+  state.view = [];
+  state.cursorStack = [null];
+  $("prev").disabled = true;
+  $("next").disabled = true;
+  $("pageInfo").textContent = `Page 1`;
+  render();
 })();
 </script>
 </body>
