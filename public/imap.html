@@ -379,34 +379,32 @@ $("pageInfo").textContent = `${total} emails`;
 
   function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
-  const category   = (e.category || e.intent || '');
-  const from       = e.from || e.fromEmail || '';
-  const fromEmail  = e.fromEmail || '';
-  const fromDomain = e.fromDomain || '';
-  const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
+const category   = e.category || e.intent || '';
+const from       = e.from || e.fromEmail || '';
+const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
 
-  // One derived priority chip (now shows “Important” when manually marked)
+// One derived priority chip (no raw importance/unclassified noise)
 const pr = derivePriority(importance, e.urgency);
-const priorityChip = pr.label
-  ? `<span class="chip pri-${pr.cls}" title="Priority">${pr.label}</span>`
+const priorityChip = pr
+  ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
   : '';
 
-  // Category chip
-  const catChip = category
-    ? `<span class="chip" title="Category">${escapeHtml(category)}</span>`
+// One category chip
+const catChip = category
+  ? `<span class="chip" title="Category">${escapeHtml(category)}</span>`
+  : '';
+
+// Urgency chip only when >= 2
+const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
+const urgencyChip =
+  urgVal >= 2
+    ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0, 140))}">Urgency ${urgVal}</span>`
     : '';
 
-  // Urgency chip only when >= 2
-  const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
-  const urgencyChip =
-    urgVal >= 2
-      ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0, 140))}">Urgency ${urgVal}</span>`
-      : '';
-
-  // VIP chip
-  const vipChip = e.isVip
-    ? `<span class="chip vip" title="VIP sender">VIP</span>`
-    : '';
+// VIP chip
+const vipChip = e.isVip
+  ? `<span class="chip vip" title="VIP sender">VIP</span>`
+  : '';
 
   // Actions (override) menu
   const actionsMenu = `
