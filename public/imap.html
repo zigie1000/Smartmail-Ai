@@ -929,7 +929,10 @@ on("btnSearch","click", ()=>{
 });
 
 // optional: live search-as-you-type
-on("searchBox","input", ()=>{ const b=$("btnSearch"); if (b) b.click(); });
+on("searchBox","input", ()=>{
+  const b = $("btnSearch");
+  if (b) b.click();
+});
 // Cursor paging
 on("prev","click", ()=>{
   if (state.cursorStack.length > 1) fetchAndClassify(false, true);
