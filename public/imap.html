@@ -924,6 +924,14 @@ on("btnSearch","click", ()=>{
       String(e.fromEmail||"").toLowerCase().includes(q) ||
       String(e.snippet||e.text||"").toLowerCase().includes(q)
     );
+
+    // ⬇️ disable server paging while search is active
+    state.nextCursor = null;
+    state.cursorStack = [null];
+    const p = $("prev"), n = $("next"), info = $("pageInfo");
+    if (p) p.disabled = true;
+    if (n) n.disabled = true;
+    if (info) info.textContent = `Search • ${state.view.length} emails`;
   }
   state.page = 1;
   render();
