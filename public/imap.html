@@ -367,10 +367,11 @@ function derivePriority(importance, urgency){
     $("tierPill").textContent = `Tier: ${state.tier}`;
 
     [
-      "btnFetch","btnTest","btnRefresh","btnImportant","btnAll",
-      "btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next",
-      "btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling"
-    ].forEach(id => { const el = $(id); if (el) el.disabled = false; });
+  "btnFetch","btnTest","btnRefresh","btnImportant","btnAll",
+  "btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next",
+  "btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling",
+  "btnSearch" // ← add
+].forEach(id => { const el = $(id); if (el) el.disabled = false; });
 
     if (!state.isPaid) setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
   }
