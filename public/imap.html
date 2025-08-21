@@ -967,9 +967,14 @@ list.addEventListener('click', async (ev) => {
 
 
     // Enable UI immediately; then let server check overwrite if available
-  setTierUI('free', false);
-  setTimeout(checkTier, 0);
-  updateMonthUI();
+setTierUI('free', false);
+
+// Insurance: if Safari skips setTierUI for any reason, force-enable all toolbar buttons
+["btnFetch","btnTest","btnRefresh","btnImportant","btnAll","btnExportJson","btnExportCsv",
+ "btnSendSelected","btnMore","btnQImportant","btnVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling"]
+ .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+
+setTimeout(checkTier, 0);
   state.view = [];
   state.cursorStack = [null];
   $("prev").disabled = true;
