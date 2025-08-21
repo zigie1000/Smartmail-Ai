@@ -374,64 +374,8 @@ $("pageInfo").textContent = `${total} emails`;
   function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
   const category = e.category || e.intent || '';
-  const from = e.from || e.fromEmail || '';
-  const reasons = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
-
-  // One derived priority chip (no raw importance/unclassified noise)
-  const pr = derivePriority(importance, e.urgency);
-  const priorityChip = pr
-    ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
-    : '';
-
-  // One category chip
-  const catChip = category
-    ? `<span class="chip" title="Category">${escapeHtml(category)}</span>`
-    : '';
-
-  // Urgency chip only when >= 2
-  const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
-  const urgencyChip =
-    urgVal >= 2
-      ? `<span class="chip u${urgVal}" title="${escapeHtml(
-          reasons.slice(0, 140)
-        )}">Urgency ${urgVal}</span>`
-      : '';
-
-  // VIP chip
-  const vipChip = e.isVip
-    ? `<span class="chip vip" title="VIP sender">VIP</span>`
-    : '';
-
-  return `
-    <div class="email">
-      <div class="email-header">
-        <div class="meta">
-          <input type="checkbox" class="sel" data-id="${escapeHtml(e.id || '')}" />
-          <span class="from">${escapeHtml(from)}</span>
-        </div>
-        <div class="subject">
-          ${escapeHtml(e.subject || '(no subject)')}
-        </div>
-        <div class="chips">
-          ${vipChip}${priorityChip}${catChip}${urgencyChip}
-        </div>
-      </div>
-      <details>
-        <summary>Preview</summary>
-        <div style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
-          ${escapeHtml(e.snippet || e.text || '')}
-        </div>
-      </details>
-      <div class="meta" style="margin-top:6px">
-        <span class="hint">${escapeHtml(
-          new Date(e.date || Date.now()).toLocaleString()
-        )}</span>
-        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
-      </div>
-    </div>
-  `;
+  ...
 }
-
   function applyFilters(){
     let filtered = [...state.emails];
     const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
