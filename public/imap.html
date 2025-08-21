@@ -911,7 +911,25 @@ on("btnMore","click", ()=>{
   $("range").value = "30";
   setMessage("ok","Range set to 30 days. Click Fetch & Classify.");
 });
+// 🔎 Search
+on("btnSearch","click", ()=>{
+  const q = ( ($("searchBox")?.value || "").toLowerCase().trim() );
+  if (!q) {
+    state.view = state.emails.slice();           // reset
+  } else {
+    state.view = state.emails.filter(e =>
+      String(e.subject||"").toLowerCase().includes(q) ||
+      String(e.from||"").toLowerCase().includes(q) ||
+      String(e.fromEmail||"").toLowerCase().includes(q) ||
+      String(e.snippet||e.text||"").toLowerCase().includes(q)
+    );
+  }
+  state.page = 1;
+  render();
+});
 
+// optional: live search-as-you-type
+on("searchBox","input", ()=>{ const b=$("btnSearch"); if (b) b.click(); });
 // Cursor paging
 on("prev","click", ()=>{
   if (state.cursorStack.length > 1) fetchAndClassify(false, true);
