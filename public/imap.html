@@ -385,8 +385,8 @@ const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
 
 // One derived priority chip (no raw importance/unclassified noise)
 const pr = derivePriority(importance, e.urgency);
-const priorityChip = pr
-  ? `<span class="chip pri-${pr}" title="Priority">${pr}</span>`
+const priorityChip = pr.label
+  ? `<span class="chip pri-${pr.cls}" title="Priority">${pr.label}</span>`
   : '';
 
 // One category chip
