@@ -871,15 +871,30 @@ function on(id, ev, fn) {
   on("btnFetch", "click", fetchAndClassify);
 on("btnTest", "click", testLogin);
 on("btnRefresh", "click", ()=>render());
-on("btnImportant", "click", ()=>{ … });
-on("btnAll", "click", ()=>{ … });
+$("btnImportant").addEventListener("click", ()=>{
+  state.view = state.emails.filter(e => String(e.importance).toLowerCase() === "important");
+  state.page = 1;
+  render();
+});
+$("btnAll").addEventListener("click", ()=>{
+  state.view = state.emails.slice();
+  state.page = 1;
+  render();
+});
 on("btnExportJson", "click", exportJSON);
 on("btnExportCsv", "click", exportCSV);
 on("btnSendSelected", "click", sendSelected);
-on("btnMore", "click", ()=>{ … });
+$("btnMore").addEventListener("click", ()=>{
+  $("range").value = "30";
+  setMessage("ok","Range set to 30 days. Click Fetch & Classify.");
+});
 
-on("prev", "click", ()=>{ … });
-on("next", "click", ()=>{ … });
+$("prev").addEventListener("click", ()=>{
+  if (state.cursorStack.length > 1) fetchAndClassify(false, true);
+});
+$("next").addEventListener("click", ()=>{
+  if (state.nextCursor) fetchAndClassify(true, false);
+});
 
 on("fPriority","change", applyFilters);
 on("fIntent","change", applyFilters);
