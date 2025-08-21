@@ -382,7 +382,9 @@ $("pageInfo").textContent = `${total} emails`;
 const category   = e.category || e.intent || '';
 const from       = e.from || e.fromEmail || '';
 const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
-
+const fromEmail  = e.fromEmail || '';
+const fromDomain = e.fromDomain || '';
+    
 // One derived priority chip (no raw importance/unclassified noise)
 const pr = derivePriority(importance, e.urgency);
 const priorityChip = pr.label
