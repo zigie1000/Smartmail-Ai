@@ -331,16 +331,22 @@
     return "Low";
   }
 
-// Single badge priority used in UI (hides noise)
+// Single badge priority used in UI (honors manual Important)
 function derivePriority(importance, urgency){
   const imp = String(importance||'').toLowerCase();
   const u = Number(urgency||0);
-  if (imp === 'important' && u >= 2) return 'High';
-  if (imp === 'important') return 'Normal';
-  if (imp === 'unimportant') return 'Low';
-  return ''; // unknown → no chip
-}
-  
+
+  // Highest signal first
+  if (imp === 'important' && u >= 3) return { label:'Urgent',    cls:'Urgent' };
+  if (imp === 'important' && u === 2) return { label:'High',      cls:'High'   };
+  if (imp === 'important')            return { label:'Important', cls:'High'   }; // NEW
+
+  if (u >= 3) return { label:'Urgent', cls:'Urgent' };
+  if (u === 2) return { label:'High',  cls:'High'   };
+
+  if (imp === 'unimportant') return { label:'Low',  cls:'Low'    };
+  return { label:'', cls:'' }; // unknown → no chip
+}  
   function setTierUI(tier, isPaid){
     state.tier = tier || 'free';
     state.isPaid = !!isPaid;
