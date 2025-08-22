@@ -132,40 +132,25 @@ input::placeholder{color:var(--muted);}
 /* Optional: hover polish (light) */
 .chip:hover{ filter:brightness(0.97); }
 
-/* === Chips: Dark (only when toggled) === */
-body.dark .chip,
-[data-theme="dark"] .chip{
-  border-color:#3f3f46;              /* zinc-700 */
-  background:#26272b;                /* near-neutral */
-  color:#e5e7eb;                     /* zinc-200 */
+/* ==== Chips: DARK (applies when <html class="theme-dark">) ==== */
+html.theme-dark .chip{
+  border-color:#373f46;   /* zinc-700 */
+  background:#26272b;     /* near-neutral */
+  color:#e5e7eb;          /* zinc-200 */
 }
 
-body.dark .chip.u1,
-[data-theme="dark"] .chip.u1{ border-color:#60a5fa; background:#0b2942; color:#bfdbfe; }
+html.theme-dark .chip.u1{ border-color:#6085a6; background:#0b2942; color:#bfdbfe; }
+html.theme-dark .chip.u2{ border-color:#ffbb24; background:#3a2a00; color:#fde68a; }
+html.theme-dark .chip.u3{ border-color:#f87171; background:#3a0d0d; color:#fecaca; }
 
-body.dark .chip.u2,
-[data-theme="dark"] .chip.u2{ border-color:#fbbf24; background:#3a2a00; color:#fde68a; }
+html.theme-dark .chip.pri-Urgent{ border-color:#ff4444; background:#3a0d0d; color:#fecaca; }
+html.theme-dark .chip.pri-High{   border-color:#ffbb24; background:#3a2a00; color:#fde68a; }
+html.theme-dark .chip.pri-Normal{ border-color:#6085a6; background:#0b2942; color:#bfdbfe; }
+html.theme-dark .chip.pri-Low{    opacity:.75; }
 
-body.dark .chip.u3,
-[data-theme="dark"] .chip.u3{ border-color:#f87171; background:#3a0d0d; color:#fecaca; }
+html.theme-dark .chip.vip{ border-color:#f59e0b; background:#3a2a00; color:#ffd589; }
 
-body.dark .chip.pri-Urgent,
-[data-theme="dark"] .chip.pri-Urgent{ border-color:#ef4444; background:#3a0d0d; color:#ffb4b4; }
-
-body.dark .chip.pri-High,
-[data-theme="dark"] .chip.pri-High{ border-color:#f59e0b; background:#3a2a00; color:#ffd589; }
-
-body.dark .chip.pri-Normal,
-[data-theme="dark"] .chip.pri-Normal{ border-color:#60a5fa; background:#0b2942; color:#bfdbfe; }
-
-body.dark .chip.pri-Low,
-[data-theme="dark"] .chip.pri-Low{ opacity:.75; }
-
-body.dark .chip.vip,
-[data-theme="dark"] .chip.vip{ border-color:#f59e0b; background:#3a2a00; color:#ffd589; }
-
-body.dark .chip:hover,
-[data-theme="dark"] .chip:hover{ filter:brightness(1.05); }
+html.theme-dark .chip:hover{ filter:brightness(1.05); }
 }
   details{margin-top:8px}
   summary{cursor:pointer;color:#374151}
