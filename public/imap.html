@@ -80,7 +80,13 @@
 input::placeholder{color:var(--muted);}
   input[type="number"]{max-width:140px}
   .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
-  button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer}
+  button{
+  padding:10px 14px;
+  border:none;
+  border-radius:10px;
+  cursor:pointer;
+  transition:filter .15s,opacity .15s;
+}
   .btn{background:var(--brand);color:#fff}
   .btn.secondary{background:#eef2ff;color:#1e3a8a}
   .btn.ghost{background:#f3f4f6;color:#374151}
