@@ -87,10 +87,11 @@ input::placeholder{color:var(--muted);}
   cursor:pointer;
   transition:filter .15s,opacity .15s;
 }
-  .btn{background:var(--brand);color:#fff}
-  .btn.secondary{background:#eef2ff;color:#1e3a8a}
-  .btn.ghost{background:#f3f4f6;color:#374151}
-  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn {background:var(--brand);color:#fff;}
+.btn.secondary {background:var(--surface-2);color:var(--text);border:1px solid var(--line);}
+.btn.ghost {background:var(--surface);color:var(--text);border:1px solid var(--line);}
+.btn:hover {filter:brightness(1.05);}
+.btn:disabled {opacity:.55;cursor:not-allowed;}
   .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
   .alert.err{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert.ok{background:#dcfce7;color:#064e3b;border:1px solid #bbf7d0}
