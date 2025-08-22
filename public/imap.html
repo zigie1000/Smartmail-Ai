@@ -939,7 +939,13 @@ on("btnTier","click", checkTier);
 on("btnFetch","click", fetchAndClassify);    // ← main hook
 on("btnTest","click", testLogin);
 on("btnRefresh","click", ()=>render());
-
+// Theme toggle
+on("btnTheme","click", ()=>{
+  const root = document.documentElement;
+  const goDark = !root.classList.contains("theme-dark");
+  root.classList.toggle("theme-dark", goDark);
+  localStorage.setItem("imap.theme", goDark ? "dark" : "");
+});
 on("btnImportant","click", ()=>{
   state.view = state.emails.filter(e => String(e.importance).toLowerCase() === "important");
   state.page = 1;
