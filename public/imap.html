@@ -698,18 +698,33 @@ const vipChip = e.isVip
   }
 
   function sendSelected(){
-    const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb=>cb.dataset.id);
-    if(!ids.length){ setMessage("err","Select at least one email."); return; }
-    const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
-    const params = new URLSearchParams({
-      subject:first.subject||"",
-      body:(first.snippet||first.text||""),
-      from:first.from||"",
-      date:first.date||"",
-      importance:String(first.importance||"")
-    });
-    window.location.href = "/index.html?" + params.toString();
+  const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
+  if (!ids.length){
+    setMessage("err","Select at least one email.");
+    return;
   }
+
+  const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
+
+  // prefer full body first
+  const fullBody = first.text || first.html || first.snippet || "";
+
+  const payload = {
+    subject: first.subject || "",
+    body: fullBody,
+    from: first.from || "",
+    date: first.date || "",
+    importance: String(first.importance || "")
+  };
+
+  // save in sessionStorage so we don’t hit URL length limits
+  try {
+    sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload));
+  } catch(e){}
+
+  // navigate with a short marker instead of long params
+  window.location.href = "/index.html#generator";
+}
 
 
   // === Overrides helpers (paste above "// ---- Tier preflight ----") ===
