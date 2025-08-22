@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>SmartEmail IMAP</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
+<meta name="viewport" content="width=device-width, initial-scale=1" /><style>
 /* ===============================
    THEME TOKENS
 =============================== */
@@ -89,7 +88,7 @@ header h1{font-size:20px;margin:0}
   box-shadow:var(--shadow);
 }
 
-/* Form grid (clearer than generic .row) */
+/* Form grid (explicit and responsive) */
 .form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .form-grid .col{display:flex;flex-direction:column}
 .span-2{grid-column:span 2}
@@ -108,10 +107,10 @@ input[type="number"]{max-width:140px}
 .inline-group{display:flex;gap:8px;align-items:center}
 .btn-ghost.sm{padding:8px 10px;font-size:13px}
 
-/* Primary actions aligned with date controls */
-.actions-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
-.primary-actions{display:flex;gap:8px;flex-wrap:wrap}
-.auth-side{display:flex;gap:8px;align-items:center}
+/* Primary actions aligned beside Password */
+.col-actions{display:flex;align-items:end;gap:8px}
+.btn-xl{padding:14px 18px;font-size:16px;font-weight:600}
+.col-actions .btn-primary{min-width:210px}
 
 /* Secondary Toolbar */
 .toolbar{
@@ -119,6 +118,18 @@ input[type="number"]{max-width:140px}
 }
 .toolbar input[type="text"]{flex:1;min-width:220px;max-width:280px}
 .toolbar .sep{flex:0 0 1px;height:26px;background:var(--line);margin:0 4px;border-radius:1px}
+
+/* Flex order for an intelligent, consistent button order */
+.toolbar [data-role="showall"]{order:10}
+.toolbar [data-role="vip"]    {order:20}
+.toolbar [data-role="urgent"] {order:30}
+.toolbar [data-role="needs"]  {order:40}
+.toolbar [data-role="meeting"]{order:50}
+.toolbar [data-role="finance"]{order:60}
+.toolbar [data-role="legal"]  {order:70}
+.toolbar [data-role="important"]{order:80}
+.toolbar [data-role="export"] {order:100}
+.toolbar [data-role="search"] {order:110}
 
 /* Alerts */
 .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
@@ -163,8 +174,8 @@ summary{cursor:pointer;color:#374151}
   .email-header{grid-template-columns:1fr auto}
   .footer{flex-direction:column;align-items:flex-start}
   .tier{flex-wrap:wrap;gap:6px}
-  .actions-row{grid-template-columns:1fr}
-  .auth-side{justify-content:flex-start}
+  .col-actions{align-items:stretch;flex-wrap:wrap}
+  .col-actions .btn-primary{width:100%}
 }
 
 /* ===============================
@@ -195,7 +206,7 @@ button{
 /* Disabled */
 button:disabled{opacity:.55;cursor:not-allowed}
 
-/* VIP star only when active (tasteful) */
+/* VIP star only when active */
 button[data-kind="vip"].is-active::before,
 button[data-kind="vip"][aria-pressed="true"]::before{
   content:"★";margin-right:6px;font-size:12px;opacity:.9
@@ -220,6 +231,8 @@ button[data-kind="vip"][aria-pressed="true"]::before{
 .chip.pri-Low{opacity:.65}
 /* VIP */
 .chip.vip{border-color:var(--vip-line);background:var(--vip-bg);color:#92400e}
+/* Legal (category) */
+.chip.legal{border-color:#c7d2fe;background:#eef2ff;color:#3730a3}
 /* hover polish */
 .chip:hover{filter:brightness(0.97)}
 /* Soften explicit Category chip a touch */
@@ -235,6 +248,7 @@ html.theme-dark .chip.pri-High{border-color:#ffbb24;background:#3a2a00;color:#fd
 html.theme-dark .chip.pri-Normal{border-color:#6085a6;background:#0b2942;color:#bfdbfe}
 html.theme-dark .chip.pri-Low{opacity:.75}
 html.theme-dark .chip.vip{border-color:#f3c97a;background:#1f2937;color:#fde68a}
+html.theme-dark .chip.legal{border-color:#a5b4fc;background:#1e1b4b;color:#c7d2fe}
 html.theme-dark .chip:hover{filter:brightness(1.05)}
 
 /* ===============================
@@ -255,8 +269,7 @@ html.theme-dark .chip:hover{filter:brightness(1.05)}
 .ovr .menu button:hover{background:var(--surface-2);border-color:var(--line)}
 
 /* ===============================
-   DARK-THEME ELEMENT OVERRIDES
-   (scoped so light mode remains clean)
+   DARK-THEME INPUT OVERRIDES
 =============================== */
 html.theme-dark .card, 
 html.theme-dark .email{background:var(--card);border-color:var(--line)}
