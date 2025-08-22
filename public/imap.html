@@ -872,9 +872,9 @@ on("limit","change", () => {
   state.page = 1;
   render();
 });
-// Month UI (bind directly so they don’t get force-enabled)
+// Month UI (bind directly so iOS/Safari fires reliably and button state toggles)
 $("monthStr")?.addEventListener("change", updateMonthUI);
-$("monthStr")?.addEventListener("input",  updateMonthUI); // Safari/iOS sends input
+$("monthStr")?.addEventListener("input",  updateMonthUI); // iOS emits input while picking
 $("monthClear")?.addEventListener("click", ()=>{
   $("monthStr").value = "";
   updateMonthUI();
@@ -1031,9 +1031,12 @@ list.addEventListener('click', async (ev) => {
   loadForm();
   applyProviderPreset();
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-  if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
-    $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
-  }
+if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
+  $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
+}
+
+// Ensure Range is disabled when Month is restored from storage
+updateMonthUI();
 
 
     // Enable UI immediately; then let server check overwrite if available
