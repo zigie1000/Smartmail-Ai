@@ -745,7 +745,32 @@ const vipChip = e.isVip
   setTimeout(()=>{ window.location.href = "index.html#generator"; }, 15);
 }
 
+async function fetchFullEmail(id){
+  if (!id) throw new Error("No id");
 
+  const payload = {
+    email: document.getElementById("email")?.value || "",
+    password: document.getElementById("password")?.value || "",
+    host: document.getElementById("host")?.value || "",
+    port: Number(document.getElementById("port")?.value || 993),
+    tls: (document.getElementById("tls")?.value || "on") !== "off",
+    authType: document.getElementById("authType")?.value || "password",
+    accessToken: document.getElementById("accessToken")?.value || "",
+    ids: [String(id)],
+    limit: 1,
+    includeBody: true
+  };
+
+  const resp = await fetch("/api/imap/fetch", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) throw new Error("Fetch full failed " + resp.status);
+
+  const data = await resp.json().catch(()=>({}));
+  return (Array.isArray(data.emails) && data.emails[0]) || {};
+}
   // === Overrides helpers (paste above "// ---- Tier preflight ----") ===
 
 // Try to persist an importance override on the server; fall back to local only.
