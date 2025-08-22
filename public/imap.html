@@ -872,8 +872,10 @@ on("limit","change", () => {
   state.page = 1;
   render();
 });
-on("monthStr","change", updateMonthUI);
-on("monthClear","click", ()=>{
+// Month UI (bind directly so they don’t get force-enabled)
+$("monthStr")?.addEventListener("change", updateMonthUI);
+$("monthStr")?.addEventListener("input",  updateMonthUI); // Safari/iOS sends input
+$("monthClear")?.addEventListener("click", ()=>{
   $("monthStr").value = "";
   updateMonthUI();
 });
