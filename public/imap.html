@@ -202,20 +202,29 @@ html.theme-dark .chip:hover{ filter:brightness(1.05); }
     --line:#1f2937;
   }
 }
-body { background:var(--bg); color:var(--text); }
-.card, .email { background:var(--card); border-color:var(--line); }
-input, select { background:#0f172a; color:var(--text); border-color:var(--line); }
-input::placeholder { color:#6b7280; }
-.btn.ghost { background:#0f172a; color:var(--text); border:1px solid var(--line); }
-.btn.secondary { background:#1f2937; color:#dbeafe; }
-.badge, .tier .pill { background:#0f172a; border-color:var(--line); color:var(--muted); }
-.hint { color:var(--muted); }
-.ovr .menu { background:var(--card); border-color:var(--line); }
-.chip { background:#0f172a; border-color:#22304a; color:#cbd5e1; }
-.chip.vip { background:#1f2937; border-color:#f3c97a; color:#fde68a; }
-.chip.pri-Urgent { background:#1f2937; border-color:#f5b1b1; color:#fecaca; }
-.chip.pri-High { background:#1f2937; border-color:#f3d98a; color:#fde68a; }
-.chip.pri-Normal { background:#0f172a; border-color:#89a4ff; color:#c7d2fe; }
+/* Dark theme overrides only */
+html.theme-dark .card, 
+html.theme-dark .email { background:var(--card); border-color:var(--line); }
+
+html.theme-dark input, 
+html.theme-dark select { background:#0f172a; color:var(--text); border-color:var(--line); }
+html.theme-dark input::placeholder { color:#6b7280; }
+
+html.theme-dark .btn.ghost { background:#0f172a; color:var(--text); border:1px solid var(--line); }
+html.theme-dark .btn.secondary { background:#1f2937; color:#dbeafe; }
+
+html.theme-dark .badge, 
+html.theme-dark .tier .pill { background:#0f172a; border-color:var(--line); color:var(--muted); }
+
+html.theme-dark .hint { color:var(--muted); }
+
+html.theme-dark .ovr .menu { background:var(--card); border-color:var(--line); }
+
+html.theme-dark .chip { background:#0f172a; border-color:#22304a; color:#cbd5e1; }
+html.theme-dark .chip.vip { background:#1f2937; border-color:#f3c97a; color:#fde68a; }
+html.theme-dark .chip.pri-Urgent { background:#1f2937; border-color:#f5b1b1; color:#fecaca; }
+html.theme-dark .chip.pri-High { background:#1f2937; border-color:#f3d98a; color:#fde68a; }
+html.theme-dark .chip.pri-Normal { background:#0f172a; border-color:#89a4ff; color:#c7d2fe; }
 </style>
 </head>
 <body>
