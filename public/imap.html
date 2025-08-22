@@ -336,8 +336,18 @@ window.addEventListener('unhandledrejection', e => {
   if (m) m.innerHTML = `<div class="alert err">${txt}</div>`;
 });
   const $ = (id)=>document.getElementById(id);
-  const list = $("list");
-  const msg = $("msg");
+const list = $("list");
+const msg  = $("msg");
+
+// ---- Theme (manual toggle with persistence) ----
+const THEME_KEY = 'imap.theme';
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === 'dark') root.classList.add('theme-dark');
+  else root.classList.remove('theme-dark');
+}
+// apply saved theme ('' or 'dark')
+applyTheme(localStorage.getItem(THEME_KEY) || '');
   const state = {
   emails: [], view: [], page: 1, perPage: 20,
   tier: 'free', isPaid: false, tierKnown: false,
