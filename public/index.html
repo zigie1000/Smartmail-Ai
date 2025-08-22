@@ -414,60 +414,48 @@ document.getElementById("images").addEventListener("change",function(){ const pr
       wrap.appendChild(img); wrap.appendChild(del); preview.appendChild(wrap); }; r.readAsDataURL(file); }); });
 function getTimestampFilename(base,ext){ const ts=new Date().toISOString().replace(/[:.]/g,'-'); return `${base}_${ts}.${ext}`; }
 /* ================ END CORE JS ================ */
-<script>
-<script>
-  /* Step 0: note whether a session payload exists so URL prefill can bail out */
-  window.__imapPayloadPresent = !!sessionStorage.getItem("imap.generatorPayload");
-</script>
 
-/* ========== Prefill from IMAP URL ========== */
+/* =========== Prefill from IMAP URL =========== */
 (function universalPrefill(){
   try{
-    /* If a session payload exists (full body path), skip URL prefill entirely */
-    if (window.__imapPayloadPresent) return;
+    const qs=new URLSearchParams(window.location.search); if(qs.toString()==='') return;
+    const getAny=(keys,def='')=>{ for(const k of keys){ const v=qs.get(k); if(v) return v; } return def; };
+    const fromName=getAny(['from','prefill_from_name','prefill_from','sender','sender_name']);
+    const fromEmail=getAny(['prefill_from_email','sender_email','email_from']);
+    const subject=getAny(['subject','prefill_subject','email_subject']);
+    const body=getAny(['body','prefill_body','content','email_content']);
+    const when=getAny(['prefill_date','date']);
+    const importance=getAny(['prefill_importance','importance']);
+    const $=id=>document.getElementById(id); const pick=(...ids)=>ids.map($).find(Boolean);
 
-    const qs = new URLSearchParams(window.location.search);
-    if (qs.toString() === '') return;
-    /* … keep the rest of your existing universalPrefill code … */
+    const subjectEl=pick('subject','emailSubject','email_subject','email-subject');
+    if(subjectEl&&subject){ subjectEl.value=subject; subjectEl.dispatchEvent(new Event('input',{bubbles:true})); subjectEl.dispatchEvent(new Event('change',{bubbles:true})); }
 
-    const getAny = (keys, def='') => { for (const k of keys) { const v = qs.get(k); if (v) return v; } return def; };
-    const fromName   = getAny(['from','prefill_from_name','prefill_from','sender','sender_name']);
-    const fromEmail  = getAny(['prefill_from_email','sender_email','email_from']);
-    const subject    = getAny(['subject','prefill_subject','email_subject']);
-    const body       = getAny(['body','prefill_body','content','email_content']);
-    const when       = getAny(['prefill_date','date']);
-    const importance = getAny(['prefill_importance','importance']);
-    const $ = id => document.getElementById(id);
-    const pick = (...ids) => ids.map($).find(Boolean);
+    const audienceEl=pick('target_audience','audience');
+    if(audienceEl&&!audienceEl.value){ audienceEl.value=fromName||fromEmail||'Original sender'; audienceEl.dispatchEvent(new Event('change',{bubbles:true})); }
 
-    const subjectEl = pick('subject','emailSubject','email_subject','email-subject');
-    if (subjectEl && subject) {
-      subjectEl.value = subject;
-      subjectEl.dispatchEvent(new Event('input',{bubbles:true}));
-      subjectEl.dispatchEvent(new Event('change',{bubbles:true}));
+    const bodyEl=pick('email_content','emailContent','content','context','message','emailText','body');
+    if(bodyEl){
+      const header=[]; if(fromName||fromEmail) header.push(`> From: ${fromName||fromEmail}${fromEmail?` <${fromEmail}>`:''}`);
+      if(when) header.push(`> Date: ${new Date(when).toLocaleString()}`); if(importance) header.push(`> Marked: ${importance}`);
+      const prefix=(header.length?header.join('\n')+'\n\n':'')+(subject?`Subject: ${subject}\n\n`:'' );
+      bodyEl.value=prefix+(body||''); bodyEl.dispatchEvent(new Event('input',{bubbles:true})); bodyEl.dispatchEvent(new Event('change',{bubbles:true}));
     }
 
-    const audienceEl = pick('target_audience','audience');
-    if (audienceEl && !audienceEl.value) {
-      audienceEl.value = fromName || fromEmail || 'Original sender';
-      audienceEl.dispatchEvent(new Event('change',{bubbles:true}));
-    }
-
-    const bodyEl = pick('email_content','emailContent','content','context','message','emailText','body');
-    if (bodyEl) {
-      const header = [];
-      if (fromName || fromEmail) header.push(`> From: ${fromName || fromEmail}${fromEmail ? ` <${fromEmail}>` : ''}`);
-      if (when)                 header.push(`> Date: ${new Date(when).toLocaleString()}`);
-      if (importance)           header.push(`> Marked: ${importance}`);
-      const prefix = (header.length ? header.join('\n') + '\n\n' : '') + (subject ? `Subject: ${subject}\n\n` : '');
-      bodyEl.value = prefix + (body || '');
-      bodyEl.dispatchEvent(new Event('input',{bubbles:true}));
-      bodyEl.dispatchEvent(new Event('change',{bubbles:true}));
-    }
-
-    // Do not touch #sender_details per your rule.
-  } catch (e) { console.warn('Prefill (URL) skipped:', e); }
+    // NOTE: per your instruction, DO NOT auto-fill "sender_details" from incoming sender.
+  }catch(e){ console.warn('Prefill skipped:',e); }
 })();
+
+/* =========== Attach listeners once =========== */
+document.addEventListener("DOMContentLoaded",()=>{
+  const generateBtn=document.getElementById("generateBtn");
+  const enhanceBtn=document.getElementById("enhanceBtn");
+  if(generateBtn) generateBtn.addEventListener("click", generate, { once:false });
+  if(enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement, { once:false });
+  // Reflect current tier on first paint
+  const tier=(window.userTier||"free"); const badge=document.getElementById("tierBadge");
+  if(badge) badge.textContent=(tier.charAt(0).toUpperCase()+tier.slice(1))+" Tier";
+});
 </script>
 
 <!-- ========= LEGAL FOOTER & MODALS ========= -->
