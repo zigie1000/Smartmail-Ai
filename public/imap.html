@@ -1184,6 +1184,10 @@ list.addEventListener('click', async (ev) => {
   // Init
   loadForm();
   applyProviderPreset();
+  // Apply saved theme on first paint
+if (localStorage.getItem("imap.theme") === "dark") {
+  document.documentElement.classList.add("theme-dark");
+}
   $("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
 if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
   $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
