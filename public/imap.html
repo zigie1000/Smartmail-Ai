@@ -472,11 +472,30 @@ applyTheme(localStorage.getItem(THEME_KEY) || '');
   function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
 
   function updateMonthUI(){
-    const hasMonth = !!(($("monthStr")?.value || "").trim());
-    $("range").disabled = hasMonth;
-    $("monthClear").disabled = !hasMonth;
-    if (hasMonth) setMessage("ok","Month selected. Range is disabled and ignored.");
+  const hasMonth = !!(($("monthStr")?.value || "").trim());
+
+  // clear button enable
+  $("monthClear").disabled = !hasMonth;
+
+  // DIM instead of disabling
+  const rangeCol = $("range")?.parentElement;
+  const monthCol = $("monthStr")?.parentElement;
+
+  if (rangeCol && monthCol){
+    rangeCol.classList.toggle("field-dim", hasMonth);
+    monthCol.classList.toggle("field-dim", !hasMonth);
   }
+
+  // helper text (optional)
+  const rangeHelp = rangeCol?.querySelector(".field-help");
+  const monthHelp = monthCol?.querySelector(".field-help");
+  if (rangeHelp) rangeHelp.textContent = hasMonth
+    ? "Range is ignored while a Month is selected."
+    : "Use this to fetch rolling days of emails.";
+  if (monthHelp) monthHelp.textContent = hasMonth
+    ? "Using a specific month. Clear to switch back to Range."
+    : "Use this if you want a specific month instead of a range.";
+}
 
   function priorityOf(e){
     const imp = String(e.importance||"unimportant").toLowerCase();
