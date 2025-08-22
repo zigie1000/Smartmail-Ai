@@ -102,43 +102,70 @@ input::placeholder{color:var(--muted);}
   .subject{font-weight:600}
   .tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
   .tag.imp{background:#fff7ed;border-color:#fed7aa}
-  /* Base chip style */
-.chip {
+  /* === Chips: Light (default) === */
+.chip{
   display:inline-block;
   font-size:11px;
-  padding:2px 8px;
+  line-height:1.8;
+  padding:2px 10px;
   border-radius:999px;
-  border:1px solid #dbeafe;
-  background:#f0f0f0;   /* light background */
-  color:#222;           /* dark text */
-  transition:all 0.2s ease;
+  border:1px solid #e5e7eb;         /* light gray border */
+  background:#f9fafb;                /* subtle pill bg */
+  color:#374151;                     /* slate-700 text */
+  white-space:nowrap;
 }
 
-/* Variants (light mode) */
-.chip.u1 {border-color:#bfdbfe; background:#eff6ff;}
-.chip.u2 {border-color:#d6e68a; background:#f7ffed;}
-.chip.u3 {border-color:#fecaca; background:#fee2e2;}
-.chip.pri-Urgent {border-color:#fca5a5; background:#fee2e2;}
-.chip.pri-High {border-color:#d6e68a; background:#f7ffed;}
-.chip.pri-Normal {border-color:#bfdbfe; background:#eff6ff;}
-.chip.pri-Low {opacity:.6;}
-.chip.vip {border-color:#f59e0b; background:#fff7eb;}
+/* urgency levels */
+.chip.u1{ border-color:#bfdbfe; background:#eff6ff; color:#1e3a8a; }     /* blue-100 */
+.chip.u2{ border-color:#fde68a; background:#fffbeb; color:#92400e; }     /* amber-50 */
+.chip.u3{ border-color:#fecaca; background:#fee2e2; color:#7f1d1d; }     /* rose-50 */
 
-/* 🌙 Dark Mode Overrides */
-@media (prefers-color-scheme: dark) {
-  .chip {
-    background:#2a2a2a;   /* neutral dark */
-    border:1px solid #444;
-    color:#f5f5f5;
-  }
-  .chip.u1 {border-color:#60a5fa; background:#1e3a8a;}
-  .chip.u2 {border-color:#a3e635; background:#1a2e05;}
-  .chip.u3 {border-color:#f87171; background:#450a0a;}
-  .chip.pri-Urgent {border-color:#ef4444; background:#3a0d0d; color:#ff9999;}
-  .chip.pri-High {border-color:#a3e635; background:#1a2e05; color:#d9f99d;}
-  .chip.pri-Normal {border-color:#60a5fa; background:#1e3a8a; color:#bfdbfe;}
-  .chip.pri-Low {opacity:.7;}
-  .chip.vip {border-color:#f59e0b; background:#3a2a00; color:#ffd54f;}
+/* derived priority */
+.chip.pri-Urgent{ border-color:#fca5a5; background:#fee2e2; color:#7f1d1d; }
+.chip.pri-High  { border-color:#fde68a; background:#fffbeb; color:#92400e; }
+.chip.pri-Normal{ border-color:#bfdbfe; background:#eff6ff; color:#1e3a8a; }
+.chip.pri-Low   { opacity:.65; }
+
+/* VIP */
+.chip.vip{ border-color:#f59e0b; background:#fff7ed; color:#92400e; }
+
+/* Optional: hover polish (light) */
+.chip:hover{ filter:brightness(0.97); }
+
+/* === Chips: Dark (only when toggled) === */
+body.dark .chip,
+[data-theme="dark"] .chip{
+  border-color:#3f3f46;              /* zinc-700 */
+  background:#26272b;                /* near-neutral */
+  color:#e5e7eb;                     /* zinc-200 */
+}
+
+body.dark .chip.u1,
+[data-theme="dark"] .chip.u1{ border-color:#60a5fa; background:#0b2942; color:#bfdbfe; }
+
+body.dark .chip.u2,
+[data-theme="dark"] .chip.u2{ border-color:#fbbf24; background:#3a2a00; color:#fde68a; }
+
+body.dark .chip.u3,
+[data-theme="dark"] .chip.u3{ border-color:#f87171; background:#3a0d0d; color:#fecaca; }
+
+body.dark .chip.pri-Urgent,
+[data-theme="dark"] .chip.pri-Urgent{ border-color:#ef4444; background:#3a0d0d; color:#ffb4b4; }
+
+body.dark .chip.pri-High,
+[data-theme="dark"] .chip.pri-High{ border-color:#f59e0b; background:#3a2a00; color:#ffd589; }
+
+body.dark .chip.pri-Normal,
+[data-theme="dark"] .chip.pri-Normal{ border-color:#60a5fa; background:#0b2942; color:#bfdbfe; }
+
+body.dark .chip.pri-Low,
+[data-theme="dark"] .chip.pri-Low{ opacity:.75; }
+
+body.dark .chip.vip,
+[data-theme="dark"] .chip.vip{ border-color:#f59e0b; background:#3a2a00; color:#ffd589; }
+
+body.dark .chip:hover,
+[data-theme="dark"] .chip:hover{ filter:brightness(1.05); }
 }
   details{margin-top:8px}
   summary{cursor:pointer;color:#374151}
