@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <title>SmartEmail IMAP</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+   
+<style>
 /* ===============================
    THEME TOKENS
 =============================== */
@@ -31,8 +33,6 @@
   --outline:#93c5fd;
   --shadow:0 6px 24px rgba(2,8,20,.06);
 }
-
-/* Manual dark toggle: <html class="theme-dark"> */
 .theme-dark{
   --bg:#0b1220;
   --card:#111827;
@@ -53,8 +53,6 @@
   --outline:#60a5fa;
   --shadow:0 8px 26px rgba(0,0,0,.35);
 }
-
-/* Prefer system dark when no manual choice set */
 @media (prefers-color-scheme: dark){
   :root:not(.theme-dark):not(.theme-light){
     --bg:#0b1220; --card:#111827; --surface:#0f172a; --surface-2:#0b1220;
@@ -87,14 +85,14 @@ header h1{font-size:20px;margin:0}
   border:1px solid var(--line);
   box-shadow:var(--shadow);
 }
-
-/* Form grid (explicit and responsive) */
-.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.form-grid .col{display:flex;flex-direction:column}
-.span-2{grid-column:span 2}
-.span-4{grid-column:span 4}
+.row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.row>.col{display:flex;flex-direction:column}
 
 label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
+.muted{color:var(--muted);font-size:12px}
+.field-help{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.35}
+.field-dim{opacity:.55;pointer-events:none;filter:saturate(.85)}
+
 input,select{
   padding:11px 12px;border:1px solid var(--line);border-radius:10px;
   background:var(--surface);color:var(--text);
@@ -103,40 +101,27 @@ input,select{
 input::placeholder{color:var(--muted)}
 input[type="number"]{max-width:140px}
 
-/* Month + Clear inline */
-.inline-group{display:flex;gap:8px;align-items:center}
-.btn-ghost.sm{padding:8px 10px;font-size:13px}
-
-/* Primary actions aligned beside Password */
-.col-actions{display:flex;align-items:end;gap:8px}
-.btn-xl{padding:14px 18px;font-size:16px;font-weight:600}
-.col-actions .btn-primary{min-width:210px}
-
-/* Secondary Toolbar */
-.toolbar{
-  display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;align-items:center}
+button{
+  padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;
+  border:1px solid transparent;transition:background .2s,color .2s,border-color .2s,opacity .15s,filter .15s;
 }
-.toolbar input[type="text"]{flex:1;min-width:220px;max-width:280px}
-.toolbar .sep{flex:0 0 1px;height:26px;background:var(--line);margin:0 4px;border-radius:1px}
+.btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn-primary:hover:not(:disabled){filter:brightness(1.05)}
+.btn-secondary,.btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line)}
+.btn-ghost{background:var(--surface)}
+.btn-secondary:hover:not(:disabled),.btn-ghost:hover:not(:disabled){background:var(--surface)}
+.is-active,[aria-pressed="true"]{
+  background:var(--brand)!important;color:#fff!important;border-color:var(--brand)!important;
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--brand) 30%, transparent);
+}
+button:disabled{opacity:.55;cursor:not-allowed}
+.btn-xl{padding:14px 18px;font-size:16px;font-weight:600} /* if you enlarge Fetch */
 
-/* Flex order for an intelligent, consistent button order */
-.toolbar [data-role="showall"]{order:10}
-.toolbar [data-role="vip"]    {order:20}
-.toolbar [data-role="urgent"] {order:30}
-.toolbar [data-role="needs"]  {order:40}
-.toolbar [data-role="meeting"]{order:50}
-.toolbar [data-role="finance"]{order:60}
-.toolbar [data-role="legal"]  {order:70}
-.toolbar [data-role="important"]{order:80}
-.toolbar [data-role="export"] {order:100}
-.toolbar [data-role="search"] {order:110}
-
-/* Alerts */
 .alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
 .alert.err{background:var(--imp-bg);border:1px solid var(--imp-line);color:#b91c1c}
 .alert.ok{background:#dcfce7;border:1px solid #bbf7d0;color:#065f46}
 
-/* List & Email cards */
 .list{margin-top:8px}
 .email{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:12px;margin:10px 0}
 .email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
@@ -150,12 +135,10 @@ summary{cursor:pointer;color:#374151}
 .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sel{margin-right:6px}
 
-/* Skeleton loader */
 .skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
 .sk-card{height:86px;border-radius:12px;margin:10px 0}
 @keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
 
-/* Footer / pager */
 .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
 .pager{display:flex;gap:6px;align-items:center}
 .pager button{padding:8px 12px}
@@ -166,79 +149,33 @@ summary{cursor:pointer;color:#374151}
 .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
 .filters .col{display:flex;flex-direction:column}
 
-/* Responsive stacking */
 @media (max-width:900px){
-  .form-grid{grid-template-columns:1fr 1fr}
-  .span-2{grid-column:span 2}
-  .span-4{grid-column:span 2}
+  .row{grid-template-columns:1fr 1fr}
+  .filters{grid-template-columns:1fr 1fr}
   .email-header{grid-template-columns:1fr auto}
   .footer{flex-direction:column;align-items:flex-start}
   .tier{flex-wrap:wrap;gap:6px}
-  .col-actions{align-items:stretch;flex-wrap:wrap}
-  .col-actions .btn-primary{width:100%}
 }
 
 /* ===============================
-   BUTTON SYSTEM
-   - Neutral by default
-   - Selected = brand blue
+   CHIPS (inside email cards)
 =============================== */
-button{
-  padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;
-  border:1px solid transparent;transition:background .2s,color .2s,border-color .2s,opacity .15s,filter .15s;
-}
-
-/* Primary (main actions like Fetch) */
-.btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
-.btn-primary:hover:not(:disabled){filter:brightness(1.05)}
-
-/* Neutral toolbar buttons */
-.btn-secondary,.btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line)}
-.btn-ghost{background:var(--surface)}
-.btn-secondary:hover:not(:disabled),.btn-ghost:hover:not(:disabled){background:var(--surface)}
-
-/* Selected/highlighted state */
-.is-active,[aria-pressed="true"]{
-  background:var(--brand)!important;color:#fff!important;border-color:var(--brand)!important;
-  box-shadow:0 0 0 2px color-mix(in oklab, var(--brand) 30%, transparent);
-}
-
-/* Disabled */
-button:disabled{opacity:.55;cursor:not-allowed}
-
-/* VIP star only when active */
-button[data-kind="vip"].is-active::before,
-button[data-kind="vip"][aria-pressed="true"]::before{
-  content:"★";margin-right:6px;font-size:12px;opacity:.9
-}
-
-/* ===============================
-   CHIPS (badges inside email cards)
-=============================== */
-/* Light */
 .chip{
   display:inline-block;font-size:11px;line-height:1.8;padding:2px 10px;border-radius:999px;
   border:1px solid var(--chip-line);background:var(--chip);color:var(--chip-text);white-space:nowrap;
 }
-/* urgency levels */
 .chip.u1{border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a}
 .chip.u2{border-color:#fde68a;background:#fffbeb;color:#92400e}
 .chip.u3{border-color:#fecaca;background:#fee2e2;color:#7f1d1d}
-/* derived priority */
 .chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2;color:#7f1d1d}
 .chip.pri-High{border-color:#fde68a;background:#fffbeb;color:#92400e}
 .chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a}
 .chip.pri-Low{opacity:.65}
-/* VIP */
 .chip.vip{border-color:var(--vip-line);background:var(--vip-bg);color:#92400e}
-/* Legal (category) */
 .chip.legal{border-color:#c7d2fe;background:#eef2ff;color:#3730a3}
-/* hover polish */
 .chip:hover{filter:brightness(0.97)}
-/* Soften explicit Category chip a touch */
 .chip[title="Category"]{opacity:.85}
 
-/* Dark */
 html.theme-dark .chip{border-color:#373f46;background:#26272b;color:#e5e7eb}
 html.theme-dark .chip.u1{border-color:#6085a6;background:#0b2942;color:#bfdbfe}
 html.theme-dark .chip.u2{border-color:#ffbb24;background:#3a2a00;color:#fde68a}
@@ -252,7 +189,7 @@ html.theme-dark .chip.legal{border-color:#a5b4fc;background:#1e1b4b;color:#c7d2f
 html.theme-dark .chip:hover{filter:brightness(1.05)}
 
 /* ===============================
-   ACTIONS DROPDOWN
+   DROPDOWN (card actions)
 =============================== */
 .actions{display:flex;gap:8px;align-items:center}
 .ovr{position:relative}
@@ -268,15 +205,14 @@ html.theme-dark .chip:hover{filter:brightness(1.05)}
 }
 .ovr .menu button:hover{background:var(--surface-2);border-color:var(--line)}
 
-/* ===============================
-   DARK-THEME INPUT OVERRIDES
-=============================== */
+/* Dark-specific input surfaces */
 html.theme-dark .card, 
 html.theme-dark .email{background:var(--card);border-color:var(--line)}
 html.theme-dark input, 
 html.theme-dark select{background:#0f172a;color:var(--text);border-color:var(--line)}
 html.theme-dark input::placeholder{color:#6b7280}
 </style>
+   
 </head>
 <body>
   <a href="/index.html" class="switch">Back to SmartEmail</a>
