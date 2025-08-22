@@ -697,27 +697,52 @@ const vipChip = e.isVip
     const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.csv"; a.click(); URL.revokeObjectURL(a.href);
   }
 
-  function sendSelected(){
-  const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
+  async function sendSelected(){
+  const ids = Array.from(document.querySelectorAll(".sel:checked"))
+                   .map(cb => cb.dataset.id);
   if (!ids.length){
     setMessage("err","Select at least one email.");
     return;
   }
 
-  const first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
+  // Use first selected
+  let first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
 
-  // prefer full body first
-  const fullBody = first.text || first.html || first.snippet || "";
+  // If we don’t have text/html yet, fetch full message from server
+  if (!first.text && !first.html) {
+    try {
+      first = await fetchFullEmail(first.id);
+    } catch (e) {
+      console.warn("Could not fetch full body, fallback to snippet", e);
+    }
+  }
 
-  // payload rebuilt below;
+  const htmlToText = (h)=> String(h||"")
+    .replace(/<style[\s\S]*?<\/style>/gi," ")
+    .replace(/<script[\s\S]*?<\/script>/gi," ")
+    .replace(/<[^>]+>/g," ")
+    .replace(/[\s\u00A0]+/g," ").trim();
 
-  // save in sessionStorage so we don’t hit URL length limits
+  const bodyText =
+      first.text ? String(first.text) :
+      first.html ? htmlToText(first.html) :
+      first.snippet ? String(first.snippet) : "";
+
+  const userEmail = (document.getElementById('email')?.value) || "";
+
+  const payload = {
+    subject: first.subject || "",
+    body: bodyText || "",
+    snippet: first.snippet || "",
+    userEmail
+  };
+
   try {
     sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload));
   } catch(e){}
 
-  // navigate with a short marker instead of long params
-  window.location.href = "/index.html#generator";
+  // Tiny delay to let Safari/iOS flush storage
+  setTimeout(()=>{ window.location.href = "index.html#generator"; }, 15);
 }
 
 
