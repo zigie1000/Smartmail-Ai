@@ -415,17 +415,22 @@ document.getElementById("images").addEventListener("change",function(){ const pr
 function getTimestampFilename(base,ext){ const ts=new Date().toISOString().replace(/[:.]/g,'-'); return `${base}_${ts}.${ext}`; }
 /* ================ END CORE JS ================ */
 
-<script>window.__imapPayloadPresent = !!sessionStorage.getItem("imap.generatorPayload");</script>
+<script>
+  /* Step 0: note whether a session payload exists so URL prefill can bail out */
+  window.__imapPayloadPresent = !!sessionStorage.getItem("imap.generatorPayload");
+</script>
 
 <!-- =========== Prefill from IMAP URL =========== -->
 <script>
+/* ========== Prefill from IMAP URL ========== */
 (function universalPrefill(){
   try{
-    // If we have session payload, let that path handle prefill (see step 3).
+    /* If a session payload exists (full body path), skip URL prefill entirely */
     if (window.__imapPayloadPresent) return;
 
     const qs = new URLSearchParams(window.location.search);
     if (qs.toString() === '') return;
+    /* … keep the rest of your existing universalPrefill code … */
 
     const getAny = (keys, def='') => { for (const k of keys) { const v = qs.get(k); if (v) return v; } return def; };
     const fromName   = getAny(['from','prefill_from_name','prefill_from','sender','sender_name']);
