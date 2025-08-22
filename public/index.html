@@ -414,7 +414,7 @@ document.getElementById("images").addEventListener("change",function(){ const pr
       wrap.appendChild(img); wrap.appendChild(del); preview.appendChild(wrap); }; r.readAsDataURL(file); }); });
 function getTimestampFilename(base,ext){ const ts=new Date().toISOString().replace(/[:.]/g,'-'); return `${base}_${ts}.${ext}`; }
 /* ================ END CORE JS ================ */
-
+<script>
 <script>
   /* Step 0: note whether a session payload exists so URL prefill can bail out */
   window.__imapPayloadPresent = !!sessionStorage.getItem("imap.generatorPayload");
