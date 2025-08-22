@@ -60,7 +60,12 @@
   .badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
   .tier{margin-left:auto;display:flex;align-items:center;gap:8px}
   .tier .pill{padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#f9fafb;font-size:12px}
-  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(2,8,20,.06);border:1px solid var(--line)}
+  .card {
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  border:1px solid var(--line);
+}
   .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
   .row>.col{display:flex;flex-direction:column}
   label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
