@@ -559,5 +559,29 @@ document.addEventListener("DOMContentLoaded",()=>{
 })();
 // === End runtime Advanced wrapper ===
 </script>
+
+<script>
+// === Prefill from IMAP sessionStorage (full body support) ===
+(function(){
+  let payload = null;
+  try {
+    payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null");
+  } catch {}
+  if (!payload) return;
+
+  // Map values to your existing fields
+  if (payload.subject) document.getElementById("subject").value = payload.subject;
+  if (payload.body) document.getElementById("email_content").value = payload.body;
+  if (payload.from) document.getElementById("email").value = payload.from;
+
+  // optional: mark loaded
+  const log = document.getElementById("debugLog");
+  if (log) log.value += `${new Date().toISOString()} — 📥 Loaded email from IMAP selection\n`;
+
+  // clear after use
+  try { sessionStorage.removeItem("imap.generatorPayload"); } catch {}
+})();
+</script>
+  
 </body>
 </html>
