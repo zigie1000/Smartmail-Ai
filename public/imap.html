@@ -1343,8 +1343,9 @@ document.addEventListener('toggle', async (ev) => {
     const base = (window.state && Array.isArray(state.emails))
       ? state.emails.find(e => String(e.id) === String(id)) || {} : {};
     const initial = base.snippet || base.text ||
-                    (base.html ? htmlToText(base.html) : '');
-    container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
+                (base.html ? htmlToText(base.html) : '') ||
+                '(no preview available)';
+container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
   } catch (_) {
     container.textContent = 'Loading…';
   }
