@@ -1309,16 +1309,6 @@ render();
     }, 200);
   });
 })();
-
-// PATCH: last-resort enabler in case early JS errors prevented binding.
-// This only runs after DOM is fully parsed.
-document.addEventListener('DOMContentLoaded', () => {
-  try {
-    document.querySelectorAll('button[id]').forEach(btn => {
-      if (btn.hasAttribute('disabled')) btn.removeAttribute('disabled');
-    });
-  } catch (_) {}
-});
 </script>
 
 </body>
