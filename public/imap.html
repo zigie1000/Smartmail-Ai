@@ -698,50 +698,74 @@ const vipChip = e.isVip
   }
 
   async function sendSelected(){
-  const ids = Array.from(document.querySelectorAll(".sel:checked"))
-                   .map(cb => cb.dataset.id);
-  if (!ids.length){
-    setMessage("err","Select at least one email.");
-    return;
-  }
+  const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
+  if (!ids.length){ setMessage("err","Select at least one email."); return; }
 
-  // Use first selected
+  // First selected message from the list
   let first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
 
-  // If we don’t have text/html yet, fetch full message from server
-  if (!first.text && !first.html) {
+  // If there is no body in the list row, try to fetch the full message…
+  const needFull = !(first.text || first.html);
+  if (needFull) {
     try {
-      first = await fetchFullEmail(first.id);
+      // …but do NOT block forever. Cap at ~1.2s and fall back to preview/snippet.
+      first = await Promise.race([
+        fetchFullEmail(first.id),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 1200))
+      ]);
     } catch (e) {
-      console.warn("Could not fetch full body, fallback to snippet", e);
+      console.warn("Full fetch failed or timed out; using preview/snippet:", e);
     }
   }
 
+  // Robust HTML → text converter
   const htmlToText = (h)=> String(h||"")
     .replace(/<style[\s\S]*?<\/style>/gi," ")
     .replace(/<script[\s\S]*?<\/script>/gi," ")
     .replace(/<[^>]+>/g," ")
     .replace(/[\s\u00A0]+/g," ").trim();
 
-  const bodyText =
-      first.text ? String(first.text) :
-      first.html ? htmlToText(first.html) :
-      first.snippet ? String(first.snippet) : "";
+  // Accept multiple possible provider keys:
+  const plain =
+      first.text
+   || first.textPlain
+   || first.plain
+   || first.bodyText;
 
-  const userEmail = (document.getElementById('email')?.value) || "";
+  const html =
+      first.html
+   || first.htmlBody
+   || first.textHtml;
+
+  const snippetLike =
+      first.snippet
+   || first.preview      // ← your list often has this
+   || first.bodySnippet
+   || first.summary
+   || "";
+
+  const bodyText = plain ? String(plain)
+                  : html ? htmlToText(html)
+                  : String(snippetLike);
+
+  // Use YOUR login address for the Generator
+  let userEmail = document.getElementById('email')?.value || "";
+  if (!userEmail) {
+    userEmail = localStorage.getItem('imap.email')
+             || localStorage.getItem('smartemail.imapEmail')
+             || "";
+  }
 
   const payload = {
     subject: first.subject || "",
     body: bodyText || "",
-    snippet: first.snippet || "",
+    snippet: snippetLike || "",
     userEmail
   };
 
-  try {
-    sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload));
-  } catch(e){}
+  try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch(e){}
 
-  // Tiny delay to let Safari/iOS flush storage
+  // Tiny delay helps iOS/Safari flush sessionStorage
   setTimeout(()=>{ window.location.href = "index.html#generator"; }, 15);
 }
 
