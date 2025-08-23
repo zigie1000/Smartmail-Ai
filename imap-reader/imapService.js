@@ -2,7 +2,6 @@
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import punycode from 'punycode/';
 
 function domainOf(email='') {
   const m = String(email).toLowerCase().match(/@([^> ]+)/);
