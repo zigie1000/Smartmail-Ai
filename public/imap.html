@@ -687,7 +687,7 @@ async function fetchFullEmail(id){
 }
 
 // Returns a full message (from cache or server)
-async function ensureFullById(id){
+async async function ensureFullById(id){
   if (!id) throw new Error("No id");
   if (FULL_CACHE[id]) return FULL_CACHE[id];
 
@@ -700,7 +700,7 @@ async function ensureFullById(id){
 }
 
 // ---- Send Selected → Generator (always full body) ----
-async function sendSelected(){
+async async function sendSelected(){
   const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
   if (!ids.length){ setMessage("err","Select at least one email."); return; }
 
@@ -1034,6 +1034,7 @@ function on(id, ev, fn) {
 }
 
 // VIP & Quick Filters
+on("btnVip","click", ()=>{ state.view = state.emails.filter(e => !!e.isVip); state.page=1; state.nextCursor=null; state.cursorStack=[null]; $("prev") && ($("prev").disabled=true); $("next") && ($("next").disabled=true); $("pageInfo") && ($("pageInfo").textContent = `VIP • ${state.view.length} emails`); render(); });
 on("btnQVip","click", ()=>{
   state.view = state.emails.filter(e => !!e.isVip);
   state.page = 1;
@@ -1262,6 +1263,21 @@ if (_f) { _f.disabled = false; _f.onclick = fetchAndClassify; }
 
 state.view = [];
 state.cursorStack = [null];
+// PATCH: Restore last IMAP view when returning from generator
+try {
+  const __last = JSON.parse(sessionStorage.getItem("imap.lastState") || "null");
+  if (__last && Array.isArray(__last.view)) {
+    state.view = __last.view;
+    state.page = __last.page || 1;
+    state.perPage = __last.perPage || state.perPage || 20;
+    state.nextCursor = ("nextCursor" in __last) ? __last.nextCursor : state.nextCursor;
+    state.cursorStack = Array.isArray(__last.cursorStack) ? __last.cursorStack : [null];
+    // Do not clear immediately; let user keep state until new fetch
+    setTimeout(()=>{ try{ window.scrollTo(0, __last.scrollTop||0); }catch(_){} }, 0);
+    $("pageInfo") && ( $("pageInfo").textContent = `Restored • Page ${state.page} (${state.view.length} emails)` );
+  }
+} catch (e) { /* ignore */ }
+
 $("prev").disabled = true;
 $("next").disabled = true;
 $("pageInfo").textContent = `Page 1`;
@@ -1293,36 +1309,16 @@ render();
     }, 200);
   });
 })();
-</script>
 
-
-<!-- PATCH: minimal unlock so buttons enable when fields are filled -->
-<script>
-(function(){
-  function $(id){ return document.getElementById(id); }
-  function fieldsOk(){
-    try{
-      const email = ($("email")?.value || "").trim();
-      const pass  = ($("pass")?.value || $("appPass")?.value || $("appPassword")?.value || "").trim();
-      const host  = ($("host")?.value || $("imapHost")?.value || "").trim();
-      const port  = ($("port")?.value || "").trim();
-      return !!(email && host && port && pass);
-    }catch(_){ return false; }
-  }
-  function enableCore(){
-    ["btnFetch","btnSendSelected","btnExportCsv","btnExportJson","btnRefresh","btnQImportant","btnShowAll","btnVip","btnQVip"].forEach(id=>{
-      const el = $(id); if (el) el.disabled = false;
+// PATCH: last-resort enabler in case early JS errors prevented binding.
+// This only runs after DOM is fully parsed.
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    document.querySelectorAll('button[id]').forEach(btn => {
+      if (btn.hasAttribute('disabled')) btn.removeAttribute('disabled');
     });
-  }
-  // Run after DOM ready and also on input/blur changes
-  document.addEventListener("DOMContentLoaded", ()=>{
-    try{
-      const form = document.body;
-      ["input","change","blur"].forEach(ev=>form.addEventListener(ev, ()=>{ if (fieldsOk()) enableCore(); }, true));
-      if (fieldsOk()) enableCore();
-    }catch(_){}
-  });
-})();
+  } catch (_) {}
+});
 </script>
 
 </body>
