@@ -687,7 +687,7 @@ async function fetchFullEmail(id){
 }
 
 // Returns a full message (from cache or server)
-async async function ensureFullById(id){
+async function ensureFullById(id){
   if (!id) throw new Error("No id");
   if (FULL_CACHE[id]) return FULL_CACHE[id];
 
@@ -700,7 +700,7 @@ async async function ensureFullById(id){
 }
 
 // ---- Send Selected → Generator (always full body) ----
-async async function sendSelected(){
+async function sendSelected(){
   const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
   if (!ids.length){ setMessage("err","Select at least one email."); return; }
 
