@@ -1327,6 +1327,53 @@ document.addEventListener('click', (ev) => {
     if (id === 'btnVip' || id === 'btnQVip') return applyQuickFilter && applyQuickFilter('vip');
   } catch (_) {}
 }, true);
+// PATCH: Robust Preview loader—always shows snippet or loading, then upgrades
+document.addEventListener('toggle', async (ev) => {
+  const d = ev.target;
+  if (!(d instanceof HTMLElement)) return;
+  if (!d.matches('details.preview')) return;
+  if (!d.open) return; // only when opening
+
+  const id = d.getAttribute('data-id');
+  const container = d.querySelector('.preview-body');
+  if (!id || !container) return;
+
+  // Show snippet or loading immediately
+  try {
+    const base = (window.state && Array.isArray(state.emails))
+      ? state.emails.find(e => String(e.id) === String(id)) || {} : {};
+    const initial = base.snippet || base.text ||
+                    (base.html ? htmlToText(base.html) : '');
+    container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
+  } catch (_) {
+    container.textContent = 'Loading…';
+  }
+
+  if (container.dataset.full === "1") return;
+
+  // Fetch and upgrade
+  try {
+    const full = await ensureFullById(id);
+    const text =
+      (full.text || full.textPlain || full.plain || full.bodyText) ||
+      ((full.html || full.htmlBody || full.textHtml)
+        ? htmlToText(full.html || full.htmlBody || full.textHtml)
+        : '') ||
+      full.snippet || '';
+
+    if (text && text.trim()) {
+      container.textContent = text;
+      container.dataset.full = "1";
+    } else if (container.textContent === 'Loading…') {
+      container.textContent = '(no content)';
+    }
+  } catch (e) {
+    if (container.textContent === 'Loading…') {
+      container.textContent = '(preview unavailable)';
+    }
+  }
+}, true);
+   
 </script>
 
 </body>
