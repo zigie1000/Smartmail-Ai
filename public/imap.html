@@ -1098,7 +1098,7 @@ function on(id, ev, fn) {
 }
 
 // VIP & Quick Filters
-on("btnVip","click", ()=>{
+on("btnQVip","click", ()=>{
   state.view = state.emails.filter(e => !!e.isVip);
   state.page = 1;
   // local (client) view → disable server paging
