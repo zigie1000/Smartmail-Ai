@@ -1341,26 +1341,34 @@ document.addEventListener('toggle', async (ev) => {
   // Show snippet or loading immediately
   try {
     const base = (window.state && Array.isArray(state.emails))
-      ? state.emails.find(e => String(e.id) === String(id)) || {} : {};
-    const initial = base.snippet || base.text ||
-                (base.html ? htmlToText(base.html) : '') ||
-                '(no preview available)';
-container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
+      ? (state.emails.find(e => String(e.id) === String(id)) || {})
+      : {};
+    const initial =
+      base.snippet ||
+      base.text ||
+      (base.html ? htmlToText(base.html) : '') ||
+      '(no preview available)';
+
+    container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
   } catch (_) {
     container.textContent = 'Loading…';
   }
 
+  // Already upgraded? stop.
   if (container.dataset.full === "1") return;
 
   // Fetch and upgrade
   try {
     const full = await ensureFullById(id);
     const text =
-      (full.text || full.textPlain || full.plain || full.bodyText) ||
-      ((full.html || full.htmlBody || full.textHtml)
-        ? htmlToText(full.html || full.htmlBody || full.textHtml)
-        : '') ||
-      full.snippet || '';
+      (full && (full.text || full.textPlain || full.plain || full.bodyText)) ||
+      (
+        full && (full.html || full.htmlBody || full.textHtml)
+          ? htmlToText(full.html || full.htmlBody || full.textHtml)
+          : ''
+      ) ||
+      (full && full.snippet) ||
+      '';
 
     if (text && text.trim()) {
       container.textContent = text;
@@ -1368,7 +1376,7 @@ container.textContent = (initial && initial.trim()) ? initial : 'Loading…';
     } else if (container.textContent === 'Loading…') {
       container.textContent = '(no content)';
     }
-  } catch (e) {
+  } catch (_) {
     if (container.textContent === 'Loading…') {
       container.textContent = '(preview unavailable)';
     }
