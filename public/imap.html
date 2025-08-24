@@ -847,6 +847,8 @@ const snippetSafe = escapeHtml(_rawSnippet || '(no preview available)');
     </div>
   </div>
 `;
+}
+   
 function render(){
   const start = (state.page-1)*state.perPage;
   const items = state.view.slice(start, start+state.perPage);
