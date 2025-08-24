@@ -1635,6 +1635,7 @@ document.addEventListener('click', (ev)=>{
 
 // ---- Init ----
 loadForm();
+ loadPwdFromSession();   // <── b3: restore pwd back into field  
 applyProviderPreset();
 if (localStorage.getItem("imap.theme") === "dark") {
   document.documentElement.classList.add("theme-dark");
