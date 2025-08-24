@@ -936,16 +936,43 @@ async function fetchFullEmail(id){
 }
 
 // Returns a full message (from cache or server)
-async function ensureFullById(id){
-  if (!id) throw new Error("No id");
-  if (FULL_CACHE[id]) return FULL_CACHE[id];
+async function ensureBodiesLoadedFor(ids, opts = {}) {
+  const force = !!opts.force;
 
-  // start with the lightweight record if present
-  const base = state.emails.find(e => String(e.id) === String(id)) || {};
-  const full = await fetchFullEmail(id).catch(()=> ({}));
-  const merged = { ...base, ...full };
-  FULL_CACHE[id] = merged;
-  return merged;
+  const list = (window.emailList || state.emails || []);
+  const map  = new Map(list.map(e => [String(e.id), e]));
+
+  // If force=true we fetch for all ids; otherwise only for ones that lack text/html
+  const need = force
+    ? ids.map(String)
+    : ids.map(String).filter(id => {
+        const e = map.get(id);
+        const hasText = !!(e && e.text && String(e.text).trim());
+        const hasHtml = !!(e && e.html && String(e.html).trim());
+        return e && !(hasText || hasHtml);
+      });
+
+  if (!need.length && !force) return;
+
+  const items = await bodyBatch(need);
+  for (const it of items) {
+    const e = map.get(String(it.id));
+    if (!e) continue;
+
+    // persist full body into the in-memory record
+    e.text = (it.text ?? e.text ?? '').toString().trim();
+    e.html = (it.html ?? e.html ?? '');
+
+    // If a preview node exists and hasn't been fully rendered yet,
+    // upgrade its placeholder text so the user sees *something* instantly.
+    const pv = document.getElementById(`pv-${it.id}`);
+    if (pv && pv.dataset.full !== "1" && !pv.textContent.trim()) {
+      const raw = e.text || stripAndTrim(e.html, 180);
+      if (raw) pv.textContent = raw;
+    }
+  }
+
+  return items;
 }
 
 /* === NEW: render full preview into the preview mount === */
