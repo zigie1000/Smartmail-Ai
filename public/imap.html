@@ -701,7 +701,37 @@ const state = {
   nextCursor: null,            // server "next" token
   cursorStack: []              // history for Prev (stack of cursors)
 };
+// ---- Save/restore IMAP view state ----
+function saveImapState() {
+  try {
+    const st = {
+      view: state.view,
+      page: state.page,
+      perPage: state.perPage,
+      nextCursor: state.nextCursor,
+      cursorStack: state.cursorStack,
+      scrollTop: (typeof window.scrollY === 'number' ? window.scrollY : 0)
+    };
+    sessionStorage.setItem("imap.lastState", JSON.stringify(st));
+  } catch (_) {}
+}
 
+function restoreImapState() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem("imap.lastState") || "null");
+    if (!s || !Array.isArray(s.view)) return false;
+    state.view = s.view;
+    state.page = s.page || 1;
+    state.perPage = s.perPage || state.perPage || 20;
+    state.nextCursor = (s.nextCursor ?? state.nextCursor);
+    state.cursorStack = Array.isArray(s.cursorStack) ? s.cursorStack : [null];
+    render();
+    setTimeout(()=>{ try{ window.scrollTo(0, s.scrollTop||0); }catch(_){} }, 0);
+    const info = document.getElementById("pageInfo");
+    if (info) info.textContent = `Restored • Page ${state.page} (${state.view.length} emails)`;
+    return true;
+  } catch (_) { return false; }
+}
 // Full body cache to avoid repeat fetches
 const FULL_CACHE = Object.create(null);
 
