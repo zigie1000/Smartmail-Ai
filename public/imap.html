@@ -1639,27 +1639,18 @@ setTimeout(checkTier, 0);
 const _f = document.getElementById('btnFetch');
 if (_f) { _f.disabled = false; _f.onclick = fetchAndClassify; }
 
-state.view = [];
-state.cursorStack = [null];
-// PATCH: Restore last IMAP view when returning from generator
-try {
-  const __last = JSON.parse(sessionStorage.getItem("imap.lastState") || "null");
-  if (__last && Array.isArray(__last.view)) {
-    state.view = __last.view;
-    state.page = __last.page || 1;
-    state.perPage = __last.perPage || state.perPage || 20;
-    state.nextCursor = ("nextCursor" in __last) ? __last.nextCursor : state.nextCursor;
-    state.cursorStack = Array.isArray(__last.cursorStack) ? __last.cursorStack : [null];
-    // Do not clear immediately; let user keep state until new fetch
-    setTimeout(()=>{ try{ window.scrollTo(0, __last.scrollTop||0); }catch(_){} }, 0);
-    $("pageInfo") && ( $("pageInfo").textContent = `Restored • Page ${state.page} (${state.view.length} emails)` );
-  }
-} catch (e) { /* ignore */ }
+// Try restoring any saved IMAP state first (added above)
+const _restored = (typeof restoreImapState === 'function') && restoreImapState();
 
-$("prev").disabled = true;
-$("next").disabled = true;
-$("pageInfo").textContent = `Page 1`;
-render();
+if (!_restored) {
+  // nothing cached → start clean
+  state.view = [];
+  state.cursorStack = [null];
+  $("prev").disabled = true;
+  $("next").disabled = true;
+  $("pageInfo").textContent = `Page 1`;
+  render();
+}
 })();
 </script>
 
