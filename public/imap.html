@@ -1616,14 +1616,20 @@ list.addEventListener('toggle', async (ev) => {
 // Save on tab close / backgrounding / link navigation
 window.addEventListener("beforeunload", saveImapState);
 document.addEventListener("visibilitychange", ()=> {
-  if (document.visibilityState === "hidden") saveImapState();
+  if (document.visibilityState === "hidden") {
+    saveImapState();
+    savePwdToSession();   // <── b2: persist pwd on hide
+  }
 });
 document.addEventListener('click', (ev)=>{
   const a = ev.target && ev.target.closest && ev.target.closest('a');
   if (!a) return;
   const href = a.getAttribute('href') || '';
   if (!href) return;
-  if (!href.startsWith('#')) saveImapState(); // leaving this page
+  if (!href.startsWith('#')) {
+    saveImapState();
+    savePwdToSession();   // <── b2: persist pwd on leaving
+  }
 });   
 
 
