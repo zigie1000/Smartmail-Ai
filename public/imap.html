@@ -1468,25 +1468,23 @@ list.addEventListener('toggle', async (ev) => {
   const id = d.dataset.id;
   const container = d.querySelector('.preview-body');
   if (!id || !container) return;
-
-  // If we already upgraded, skip
-  if (container.dataset.full === "1") return;
+  if (container.dataset.full === "1") return; // already hydrated
 
   try {
-    const full = await ensureFullById(id);
-    const text =
-      full.text || full.textPlain || full.plain || full.bodyText ||
-      (full.html || full.htmlBody || full.textHtml ? htmlToText(full.html || full.htmlBody || full.textHtml) : null);
-
-    if (text && text.trim()) {
-      container.textContent = text;
+    await ensureBodiesLoadedFor([id]); // fills e.text/e.html for this id
+    const email = (window.emailList || state.emails || [])
+      .find(x => String(x.id) === String(id));
+    if (email) {
+      renderFullPreview(email);        // inject full HTML or full text
       container.dataset.full = "1";
     }
-  } catch (_) {
-    // keep snippet
+  } catch {
+    const e = (window.emailList || state.emails || [])
+      .find(x => String(x.id) === String(id));
+    const txt = e && (e.text || '');
+    if (txt) { container.textContent = txt; container.dataset.full = "1"; }
   }
 });
-
 // ---- Init ----
 loadForm();
 applyProviderPreset();
