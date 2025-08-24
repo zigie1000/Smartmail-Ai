@@ -849,7 +849,7 @@ function cardHtml(e) {
   let _rawSnippet = e.snippet || e.preview || e.bodySnippet || e.summary || e.text;
 if(!_rawSnippet){
   const _html = e.html || e.bodyHtml || e.body || '';
-  if(_html) _rawSnippet = stripAndTrim(_html);
+  if(_html) _rawSnippet = stripAndTrim(htmlToText(_html));
 }
 const snippetSafe = escapeHtml(_rawSnippet || '(no preview available)');
 
