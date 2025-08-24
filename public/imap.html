@@ -1546,18 +1546,24 @@ list.addEventListener('toggle', async (ev) => {
   if (container.dataset.full === "1") return; // already hydrated
 
   try {
-    await ensureBodiesLoadedFor([id]); // fills e.text/e.html for this id
+    // force ensures we always pull full body, even if text/html already exists
+    await ensureBodiesLoadedFor([id], { force: true });
+
     const email = (window.emailList || state.emails || [])
       .find(x => String(x.id) === String(id));
+
     if (email) {
       renderFullPreview(email);        // inject full HTML or full text
       container.dataset.full = "1";
     }
-  } catch {
-    const e = (window.emailList || state.emails || [])
+  } catch (e) {
+    const email = (window.emailList || state.emails || [])
       .find(x => String(x.id) === String(id));
-    const txt = e && (e.text || '');
-    if (txt) { container.textContent = txt; container.dataset.full = "1"; }
+    const txt = email && (email.text || '');
+    if (txt) {
+      container.textContent = txt;
+      container.dataset.full = "1";
+    }
   }
 });
 // ---- Init ----
