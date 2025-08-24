@@ -820,33 +820,30 @@ if(!_rawSnippet){
 }
 const snippetSafe = escapeHtml(_rawSnippet || '(no preview available)');
 
-  return `
-    <div class="email">
-      <div class="email-header">
-        <div class="meta">
-          <input type="checkbox" class="sel" data-id="${id}" />
-          <span class="from">${escapeHtml(from)}</span>
-        </div>
-        <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
-        <div class="chips">
-          ${vipChip}${priorityChip}${catChip}${urgencyChip}
-          <span class="actions">${actionsMenu}</span>
-        </div>
+ return `
+  <div class="email">
+    <div class="email-header">
+      <div class="meta">
+        <input type="checkbox" class="sel" data-id="${id}" />
+        <span class="from">${escapeHtml(from)}</span>
       </div>
-      <details class="preview" data-id="${id}">
-        <summary>Preview</summary>
-        <div class="preview-body" id="pv-${id}" style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
-          ${snippetSafe}
-        </div>
-      </details>
-      <div class="meta" style="margin-top:6px">
-        <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
-        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
+      <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+      <div class="chips">
+        ${vipChip}${priorityChip}${catChip}${urgencyChip}
+        <span class="actions">${actionsMenu}</span>
       </div>
     </div>
-  `;
-}
-
+    <details class="preview" data-id="${id}">
+      <summary>Preview</summary>
+      <!-- keep the mount point EMPTY; we'll render full body here -->
+      <div class="preview-body" id="pv-${id}" style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px"></div>
+    </details>
+    <div class="meta" style="margin-top:6px">
+      <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
+      ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
+    </div>
+  </div>
+`;
 function render(){
   const start = (state.page-1)*state.perPage;
   const items = state.view.slice(start, start+state.perPage);
