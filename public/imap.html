@@ -748,6 +748,17 @@ const KEYS = ["email","host","port","provider","tls","range","authType","limit",
 function saveForm(){ KEYS.forEach(k => { const el=$(k); if(el) localStorage.setItem("imap."+k, el.value); }); }
 function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null && $(k)) $(k).value = v; }); }
 
+// ---- Password session persistence ----
+function savePwdToSession(){
+  try { sessionStorage.setItem("imap.pwd", $("password")?.value || ""); } catch {}
+}
+function loadPwdFromSession(){
+  try {
+    const v = sessionStorage.getItem("imap.pwd");
+    if (v != null && $("password")) $("password").value = v;
+  } catch {}
+}
+   
 // ---- Utils ----
 function escapeHtml(s){ s = (s == null ? '' : String(s)); return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind==='ok'?'ok':'err'}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 6000); }
