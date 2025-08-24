@@ -649,12 +649,15 @@ async function ensureBodiesLoadedFor(ids){
     if(!e) continue;
     e.text = (it.text || '').trim();
     e.html = it.html || '';
+     
     // if a preview element exists, update it
-    const pv = document.getElementById(`pv-${it.id}`);
-    if(pv && !pv.textContent.trim()){
-      const raw = e.text || stripAndTrim(e.html, 180);
-      if(raw) pv.textContent = raw;
-    }
+ //   const pv = document.getElementById(`pv-${it.id}`);
+  //  if(pv && !pv.textContent.trim()){
+//    const raw = e.text || stripAndTrim(e.html, 180);
+  //    if(raw) pv.textContent = raw;
+//    }
+
+     
   }
 }
 
