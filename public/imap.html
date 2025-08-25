@@ -1382,14 +1382,12 @@ state.emails = state.emails.filter(e => {
     startTs,
     endTs,
     inRange: (t >= startTs && t <= endTs)
-  });
+
 
   return t >= startTs && t <= endTs;
 });
 
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
-
-  return t >= startTs && t <= endTs;
 });
 
 // After filter
