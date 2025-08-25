@@ -1437,7 +1437,6 @@ $("monthClear")?.addEventListener("click", ()=>{
 ["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
   .forEach(id => on(id, "change", saveForm));
 
-<script>
 // Hide old Range + Month controls (we use the new Mode bar instead)
 (function () {
   function hideOldFilters() {
@@ -1456,7 +1455,6 @@ $("monthClear")?.addEventListener("click", ()=>{
   if (document.readyState !== 'loading') hideOldFilters();
   else document.addEventListener('DOMContentLoaded', hideOldFilters);
 })();
-</script>
 
 // Provider / auth toggles
 on("provider","change", applyProviderPreset);
