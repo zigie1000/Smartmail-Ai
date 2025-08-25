@@ -1313,48 +1313,53 @@ async function fetchAndClassify(next=false, prev=false){
     const emails = Array.isArray(data.emails) ? data.emails : [];
     state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
 
-// --- Enforce client-side date window (Range or Month from Mode bar)
-const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
-const monthMode = !!(mStart && mEnd);
+// --- Enforce client-side date window (Range or Month from Mode bar) ---
+{
+  const mStart   = window._monthStartISO;
+  const mEnd     = window._monthEndISO;
+  const monthMode = !!(mStart && mEnd);
 
-let startTs = -Infinity, endTs = Infinity;
+  let startTs = -Infinity, endTs = Infinity;
 
-if (monthMode) {
-  // month mode from the new toolbar
-  startTs = new Date(mStart + 'T00:00:00Z').getTime();
-  endTs   = new Date(mEnd   + 'T23:59:59Z').getTime();
-} else {
-  // range mode: use toolbar days if present, else fallback to old <select id="range">
-  const days = Number(window._rangeDaysActive || $("range")?.value || 30);
-  const now  = new Date();
-  const end  = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
-  ));
-  const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
-  startTs = start.getTime();
-  endTs   = end.getTime();
-}
-
-state.emails = state.emails.filter(e => {
-  let t = 0;
-
-  // Prefer numeric epoch fields if present
-  if (e.internalDate != null) {
-    t = Number(e.internalDate);
-  } else if (e.receivedAt != null) {
-    t = Number(e.receivedAt);
-  } else if (e.date) {
-    // IMAP "14-Jul-2024 ..." style strings parse better with dashes -> spaces
-    const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
-    if (!Number.isNaN(parsed)) t = parsed;
+  if (monthMode) {
+    // Month mode: inclusive UTC window
+    startTs = new Date(mStart + 'T00:00:00Z').getTime();
+    endTs   = new Date(mEnd   + 'T23:59:59Z').getTime();
+  } else {
+    // Range mode: use toolbar days if present; fallback to old <select id="range">
+    const days = Number(window._rangeDaysActive || $('range')?.value || 30);
+    const now  = new Date();
+    const end  = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+    ));
+    const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
+    startTs = start.getTime();
+    endTs   = end.getTime();
   }
 
-  // If we got seconds, upgrade to ms
-  if (t && t < 1e12) t *= 1000;
+  state.emails = state.emails.filter(e => {
+    let t = null;
 
-  return t && t >= startTs && t <= endTs;
-});
+    // Prefer numeric epoch fields if present
+    if (e.internalDate != null && e.internalDate !== '') {
+      t = Number(e.internalDate);
+    } else if (e.receivedAt != null && e.receivedAt !== '') {
+      t = Number(e.receivedAt);
+    } else if (e.date) {
+      // IMAP "14-Jul-2024 ..." parses better with dashes -> spaces
+      const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
+      if (!Number.isNaN(parsed)) t = parsed;
+    }
+
+    // Unknown date? Drop it.
+    if (!Number.isFinite(t)) return false;
+
+    // If server sent seconds, normalize to ms
+    if (t < 1e12) t *= 1000;
+
+    return t >= startTs && t <= endTs;
+  });
+}
      
     // Re-apply saved overrides
     state.emails = applySavedOverridesTo(state.emails);
