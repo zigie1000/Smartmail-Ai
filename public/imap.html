@@ -1437,15 +1437,21 @@ $("monthClear")?.addEventListener("click", ()=>{
 ["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
   .forEach(id => on(id, "change", saveForm));
 
- // Hide old Range + Month controls (we use the new Mode bar instead)
-(function(){
-  const hideCol = el => { try { el.closest('.seg').style.display = 'none'; } catch(_) {};
-  hideCol(document.getElementById('rangeDays'));   // old Range <select>
-  hideCol(document.getElementById('monthName'));   // old Month <select>
-  hideCol(document.getElementById('monthYear'));   // old Year input
-  hideCol(document.getElementById('monthClear'));  // old Clear Month button
-  hideCol(document.getElementById('applyMonth'));  // old Use Month button
-})();  
+// Hide old Range + Month controls (we use the new Mode bar instead)
+(function () {
+  function hideOldFilters() {
+    const hideCol = el => { try { el.closest('.seg').style.display = 'none'; } catch (_) {}
+    hideCol(document.getElementById('rangeDays'));   // old Range <select>
+    hideCol(document.getElementById('monthName'));   // old Month <select>
+    hideCol(document.getElementById('monthYear'));   // old Year input
+    hideCol(document.getElementById('monthClear'));  // old Clear Month button
+    hideCol(document.getElementById('applyMonth'));  // old Use Month button
+  }
+
+  // Run immediately if DOM is ready; otherwise after it’s loaded
+  if (document.readyState !== 'loading') hideOldFilters();
+  else document.addEventListener('DOMContentLoaded', hideOldFilters);
+})();
 
 // Provider / auth toggles
 on("provider","change", applyProviderPreset);
