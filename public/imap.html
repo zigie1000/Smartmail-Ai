@@ -1396,7 +1396,7 @@ console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.leng
 state.emails = applySavedOverridesTo(state.emails);
 
 state.view = state.emails.slice();
-state.perPage = Math.max(1, Number($("#limit").value || 20));
+state.perPage = Math.max(1, Number($("limit").value || 20));
 state.page = 1;
 render();
 
