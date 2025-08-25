@@ -1314,12 +1314,11 @@ async function fetchAndClassify(next=false, prev=false){
     state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
-{
-  const mStart   = window._monthStartISO;
-  const mEnd     = window._monthEndISO;
-  const monthMode = !!(mStart && mEnd);
+const mStart = window._monthStartISO;
+const mEnd   = window._monthEndISO;
+const monthMode = !!(mStart && mEnd);
 
-  let startTs = -Infinity, endTs = Infinity;
+let startTs = -Infinity, endTs = Infinity;
 
 if (monthMode) {
   // Month mode: inclusive UTC window
@@ -1327,15 +1326,16 @@ if (monthMode) {
   endTs   = new Date(mEnd   + 'T23:59:59Z').getTime();
 } else {
   // Range mode: fallback to <select id="range">
-  const days = Number(window._rangeDaysActive || $('range')?.value || 30);
+  const days = Number(window._rangeDaysActive || $("range")?.value || 30);
   const now  = new Date();
   const end  = new Date(Date.UTC(
     now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
   ));
   const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
+
   startTs = start.getTime();
   endTs   = end.getTime();
-} // ← this closes the else, not the whole block
+} // <— this closes only the else, not the whole block
 
 // Now filter emails
 state.emails = state.emails.filter(e => {
@@ -1350,12 +1350,14 @@ state.emails = state.emails.filter(e => {
     if (!Number.isNaN(parsed)) t = parsed;
   }
 
+  // Drop invalid dates
   if (!Number.isFinite(t)) return false;
-  if (t < 1e12) t *= 1000;  // normalize seconds → ms
+
+  // Normalize seconds → ms
+  if (t < 1e12) t *= 1000;
 
   return t >= startTs && t <= endTs;
 });
-}
    
     // Re-apply saved overrides
     state.emails = applySavedOverridesTo(state.emails);
