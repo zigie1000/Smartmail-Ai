@@ -1339,25 +1339,41 @@ if (monthMode) {
 
 // Now filter emails
 state.emails = state.emails.filter(e => {
-  let t = null;
+    let t = null;
 
-  if (e.internalDate != null && e.internalDate !== '') {
-    t = Number(e.internalDate);
-  } else if (e.receivedAt != null && e.receivedAt !== '') {
-    t = Number(e.receivedAt);
-  } else if (e.date) {
-    const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
-    if (!Number.isNaN(parsed)) t = parsed;
-  }
+    if (e.internalDate != null && e.internalDate !== '') {
+        t = Number(e.internalDate);
+    } else if (e.receivedAt != null && e.receivedAt !== '') {
+        t = Number(e.receivedAt);
+    } else if (e.date) {
+        const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
+        if (!Number.isNaN(parsed)) t = parsed;
+    }
 
-  // Drop invalid dates
-  if (!Number.isFinite(t)) return false;
+    // Drop invalid dates
+    if (!Number.isFinite(t)) {
+        console.log("SKIP invalid date:", e);
+        return false;
+    }
 
-  // Normalize seconds → ms
-  if (t < 1e12) t *= 1000;
+    // Normalize seconds → ms
+    if (t < 1e12) t *= 1000;
 
-  return t >= startTs && t <= endTs;
-});
+    // 🔍 Add logging here
+    console.log("Email filter check", {
+        id: e.id || e.uid,
+        subject: e.subject,
+        date: e.date,
+        internalDate: e.internalDate,
+        receivedAt: e.receivedAt,
+        parsedTs: t,
+        startTs,
+        endTs,
+        inRange: (t >= startTs && t <= endTs)
+    });
+
+    return t >= startTs && t <= endTs;
+});;
    
     // Re-apply saved overrides
     state.emails = applySavedOverridesTo(state.emails);
