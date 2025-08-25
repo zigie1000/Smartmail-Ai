@@ -1330,24 +1330,7 @@ async function fetchAndClassify(next=false, prev=false){
 
    saveForm();
 
-const timeoutMs = 120000; // fixed static timeout for stability
-const controller = new AbortController();
-const t = setTimeout(() => controller.abort(), timeoutMs);
-
-const resp = await fetch("/api/imap/fetch", {
-  method: "POST",
-  headers: {"Content-Type":"application/json"},
-  body: JSON.stringify(payload),
-  signal: controller.signal
-});
-clearTimeout(t);
-
-    if(!resp.ok){
-      let errj=null; try{ errj = await resp.json(); }catch{}
-      throw new Error((errj && errj.error) || `Fetch failed (${resp.status})`);
-    }
-    let data=null; try{ data = await resp.json(); }catch{}
-    if (!data) data = {};
+const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
 
     const emails = Array.isArray(data.emails) ? data.emails : [];
     state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
