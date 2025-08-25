@@ -1337,8 +1337,23 @@ if (monthMode) {
 }
 
 state.emails = state.emails.filter(e => {
-  const t = new Date(e.date || e.internalDate || e.receivedAt || 0).getTime();
-  return Number.isFinite(t) && t >= startTs && t <= endTs;
+  let t = 0;
+
+  // Prefer numeric epoch fields if present
+  if (e.internalDate != null) {
+    t = Number(e.internalDate);
+  } else if (e.receivedAt != null) {
+    t = Number(e.receivedAt);
+  } else if (e.date) {
+    // IMAP "14-Jul-2024 ..." style strings parse better with dashes -> spaces
+    const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
+    if (!Number.isNaN(parsed)) t = parsed;
+  }
+
+  // If we got seconds, upgrade to ms
+  if (t && t < 1e12) t *= 1000;
+
+  return t && t >= startTs && t <= endTs;
 });
      
     // Re-apply saved overrides
