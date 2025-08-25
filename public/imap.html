@@ -772,7 +772,7 @@ function htmlToText(h){
     .replace(/[\s\u00A0]+/g," ").trim();
 }
 
-function updateMonthUI(){
+ <! function updateMonthUI(){
   const hasMonth = !!(($("monthStr")?.value || "").trim());
   $("monthClear").disabled = !hasMonth;
   const rangeCol = $("range")?.parentElement;
@@ -780,7 +780,7 @@ function updateMonthUI(){
   if (rangeCol && monthCol){
     rangeCol.classList.toggle("field-dim", hasMonth);
     monthCol.classList.toggle("field-dim", !hasMonth);
-  }
+  } -->
 }
 
 // ---- Priority helpers ----
