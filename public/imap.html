@@ -1315,7 +1315,7 @@ async function fetchAndClassify(next=false, prev=false){
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
 const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
+const mEnd = window._monthEndISO;
 const monthMode = !!(mStart && mEnd);
 
 let startTs = -Infinity, endTs = Infinity;
@@ -1323,65 +1323,81 @@ let startTs = -Infinity, endTs = Infinity;
 if (monthMode) {
   // Month mode: inclusive UTC window
   startTs = new Date(mStart + 'T00:00:00Z').getTime();
-  endTs   = new Date(mEnd   + 'T23:59:59Z').getTime();
+  endTs = new Date(mEnd   + 'T23:59:59Z').getTime();
 } else {
   // Range mode: fallback to <select id="range">
-  const days = Number(window._rangeDaysActive || $("range")?.value || 30);
+  const days = Number(window._rangeDaysActive || $("#range")?.value || 30);
   const now  = new Date();
   const end  = new Date(Date.UTC(
     now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
   ));
   const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
-
   startTs = start.getTime();
-  endTs   = end.getTime();
-} // <— this closes only the else, not the whole block
+  endTs = end.getTime();
+}
+// ← closes else, not whole block
+
+// Log the active window
+console.log("[IMAP] window", {
+  monthMode,
+  mStart,
+  mEnd,
+  startTs,
+  endTs,
+  startISO: new Date(startTs).toISOString(),
+  endISO:   new Date(endTs).toISOString()
+});
+
+const beforeCount = state.emails.length;
 
 // Now filter emails
 state.emails = state.emails.filter(e => {
-    let t = null;
+  let t = null;
 
-    if (e.internalDate != null && e.internalDate !== '') {
-        t = Number(e.internalDate);
-    } else if (e.receivedAt != null && e.receivedAt !== '') {
-        t = Number(e.receivedAt);
-    } else if (e.date) {
-        const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
-        if (!Number.isNaN(parsed)) t = parsed;
-    }
+  if (e.internalDate != null && e.internalDate !== '') {
+    t = Number(e.internalDate);
+  } else if (e.receivedAt != null && e.receivedAt !== '') {
+    t = Number(e.receivedAt);
+  } else if (e.date) {
+    const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
+    if (!Number.isNaN(parsed)) t = parsed;
+  }
 
-    // Drop invalid dates
-    if (!Number.isFinite(t)) {
-        console.log("SKIP invalid date:", e);
-        return false;
-    }
+  // Drop invalid dates
+  if (!Number.isFinite(t)) {
+    console.log("SKIP invalid date:", e);
+    return false;
+  }
 
-    // Normalize seconds → ms
-    if (t < 1e12) t *= 1000;
+  // Normalize seconds → ms
+  if (t < 1e12) t *= 1000;
 
-    // 🔍 Add logging here
-    console.log("Email filter check", {
-        id: e.id || e.uid,
-        subject: e.subject,
-        date: e.date,
-        internalDate: e.internalDate,
-        receivedAt: e.receivedAt,
-        parsedTs: t,
-        startTs,
-        endTs,
-        inRange: (t >= startTs && t <= endTs)
-    });
+  // Per-email logging
+  console.log("Email filter check:", {
+    id: e.id || e.uid,
+    subject: e.subject,
+    date: e.date,
+    internalDate: e.internalDate,
+    receivedAt: e.receivedAt,
+    parsedTs: t,
+    startTs,
+    endTs,
+    inRange: (t >= startTs && t <= endTs)
+  });
 
-    return t >= startTs && t <= endTs;
-});;
-   
-    // Re-apply saved overrides
-    state.emails = applySavedOverridesTo(state.emails);
+  return t >= startTs && t <= endTs;
+});
 
-    state.view   = state.emails.slice();
-    state.perPage = Math.max(1, Number($("limit").value || 20));
-    state.page = 1;
-    render();
+// After filter
+console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
+
+// --- Re-apply saved overrides ---
+state.emails = applySavedOverridesTo(state.emails);
+
+state.view = state.emails.slice();
+state.perPage = Math.max(1, Number($("#limit").value || 20));
+state.page = 1;
+render();
 
     // Save server cursors
     state.nextCursor = data?.nextCursor || null;
