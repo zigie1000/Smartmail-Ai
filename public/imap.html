@@ -1291,17 +1291,19 @@ async function fetchAndClassify(next=false, prev=false){
 
     saveForm();
 
-    const timeoutMs = /icloud/i.test(provider) || /mail\.me\.com$/i.test(payload.host) ? 120000 : 60000;
-    const controller = new AbortController();
-    const t = setTimeout(()=>controller.abort(), timeoutMs);
+   saveForm();
 
-    const resp = await fetch("/api/imap/fetch",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(t);
+const timeoutMs = 120000;   // fixed static timeout for stability
+const controller = new AbortController();
+const t = setTimeout(() => controller.abort(), timeoutMs);
+
+const resp = await fetch("/api/imap/fetch", {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify(payload),
+  signal: controller.signal
+});
+clearTimeout(t);
 
     if(!resp.ok){
       let errj=null; try{ errj = await resp.json(); }catch{}
@@ -1446,14 +1448,14 @@ async function testLogin(){
     };
 
     const controller = new AbortController();
-    const t = setTimeout(()=>controller.abort(), (/icloud/i.test(provider)? 60000 : 30000));
-    const resp = await fetch("/api/imap/test",{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(t);
+const t = setTimeout(() => controller.abort(), 90000);   // fixed timeout for test login
+const resp = await fetch("/api/imap/test", {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify(payload),
+  signal: controller.signal
+});
+clearTimeout(t);
 
     let data=null; try{ data = await resp.json(); }catch{}
     if(resp.ok && data && data.ok){ setMessage("ok","Login OK"); }
