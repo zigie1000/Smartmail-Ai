@@ -1293,7 +1293,7 @@ async function fetchAndClassify(next=false, prev=false){
 
    saveForm();
 
-const timeoutMs = 120000;   // fixed static timeout for stability
+const timeoutMs = 120000; // fixed static timeout for stability
 const controller = new AbortController();
 const t = setTimeout(() => controller.abort(), timeoutMs);
 
