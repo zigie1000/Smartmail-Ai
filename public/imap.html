@@ -1199,6 +1199,43 @@ async function checkTier() {
   }
 }
 
+async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(to);
+
+      if (resp.ok) return await resp.json().catch(() => ({}));
+
+      // Retry on cold-start / gateway errors
+      if (attempt < retries && [502, 503, 504].includes(resp.status)) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      let msg = "";
+      try { const j = await resp.json(); msg = j.error || j.message || ""; } catch {}
+      throw new Error(msg || `Fetch failed (${resp.status})`);
+    } catch (err) {
+      clearTimeout(to);
+      // Retry on AbortError / transient network errors
+      if (attempt < retries && (err.name === "AbortError" || err instanceof TypeError)) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+   
 // ---- Networking (list) ----
 async function fetchAndClassify(next=false, prev=false){
   skeleton(6);
