@@ -1373,9 +1373,16 @@ if (monthMode) {
   // Range mode: fallback to current Range selector / Mode bar
   const days = Number(window._rangeDaysActive || $("range")?.value || 30);
   const end  = todayEndUTC;
-  const start= end - (Math.max(1, days) - 1) * 86400000;
-  startTs = start;
-  endTs   = end;
+
+  if (!Number.isFinite(days) || days <= 0) {
+    // "All" selected → don’t clamp by start, only prevent future dates
+    startTs = -Infinity;
+    endTs   = end;
+  } else {
+    const start = end - (Math.max(1, days) - 1) * 86400000;
+    startTs = start;
+    endTs   = end;
+  }
 }
 
 // Log the active date window
