@@ -1358,7 +1358,7 @@ const monthMode = !!(mStart && mEnd);
 
 let startTs = -Infinity, endTs = Infinity;
 
-// clamp to end-of-today (UTC) so we never include future dates
+// Clamp end to end-of-today (UTC) so we never include future dates
 const _now = new Date();
 const todayEndUTC = Date.UTC(
   _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
@@ -1370,7 +1370,7 @@ if (monthMode) {
   startTs = new Date(mStart + 'T00:00:00Z').getTime();
   endTs   = Math.min(new Date(mEnd + 'T23:59:59Z').getTime(), todayEndUTC);
 } else {
-  // Range mode: fallback to <select id="range">
+  // Range mode: fallback to current Range selector / Mode bar
   const days = Number(window._rangeDaysActive || $("range")?.value || 30);
   const end  = todayEndUTC;
   const start= end - (Math.max(1, days) - 1) * 86400000;
@@ -1385,24 +1385,13 @@ console.log("IMAP window", {
   endISO:   new Date(endTs).toISOString()
 });
 
-// Log the active date window
-console.log("IMAP window", {
-  monthMode,
-  mStart,
-  mEnd,
-  startTs,
-  endTs,
-  startISO: new Date(startTs).toISOString(),
-  endISO:   new Date(endTs).toISOString()
-});
-
 const beforeCount = state.emails.length;
 
-// Now filter emails
+// Filter emails into the active window using the most reliable timestamp available
 state.emails = state.emails.filter(e => {
   let t = null;
 
-  // Prefer explicit numeric fields if present
+  // Prefer numeric timestamps if present
   if (e.internalDate != null && e.internalDate !== '') {
     t = Number(e.internalDate);
     if (t < 1e12) t *= 1000; // seconds → ms
@@ -1410,36 +1399,24 @@ state.emails = state.emails.filter(e => {
     t = Number(e.receivedAt);
     if (t < 1e12) t *= 1000; // seconds → ms
   } else if (e.date) {
-    // e.date is an ISO string — parse it directly (do NOT mutate it)
+    // e.date is an ISO string — parse but do not mutate it
     const d = new Date(e.date);
     if (!Number.isNaN(d.getTime())) t = d.getTime();
   }
 
-  // Drop invalid dates
   if (!Number.isFinite(t)) {
-    console.log("SKIP invalid date:", e);
+    console.log("SKIP invalid date:", { id: e.id || e.uid, date: e.date, internalDate: e.internalDate, receivedAt: e.receivedAt });
     return false;
   }
 
-  // Per-email logging (unchanged)
+  const ok = (t >= startTs && t <= endTs);
   console.log("Email filter check", {
-    id: e.id || e.uid,
-    subject: e.subject,
-    date: e.date,
-    internalDate: e.internalDate,
-    receivedAt: e.receivedAt,
-    parsedTs: t,
-    startTs,
-    endTs,
-    inRange: (t >= startTs && t <= endTs)
+    id: e.id || e.uid, subject: e.subject, parsedTs: t, startTs, endTs, inRange: ok
   });
-
-  return t >= startTs && t <= endTs;
+  return ok;
 });
 
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
-
-// After filter
 console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
 
 // --- Re-apply saved overrides ---
