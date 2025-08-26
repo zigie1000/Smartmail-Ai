@@ -74,8 +74,8 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
   if (monthStart && monthEnd) {
     return {
       since: new Date(monthStart),
-      before: new Date(new Date(monthEnd).getTime() + 86400000), // add 1 day
-      or: query
+      before: new Date(new Date(monthEnd).getTime() + 86400000), // inclusive
+      ...(query ? { or: query } : {})
     };
   }
 
@@ -83,29 +83,30 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
   if (dateStartISO && dateEndISO) {
     return {
       since: new Date(dateStartISO),
-      before: new Date(new Date(dateEndISO).getTime() + 86400000),
-      or: query
+      before: new Date(new Date(dateEndISO).getTime() + 86400000), // inclusive
+      ...(query ? { or: query } : {})
     };
   }
 
   // 3. Relative range mode (e.g. last 30 days)
   if (rangeDays && Number(rangeDays) > 0) {
     const now = new Date();
-    // 🛑 Safety: if the server clock is in the future (>2024), clamp it
-    if (now.getFullYear() > 2024) now.setFullYear(2024);
-
-    const end = now;
+    // End = today 23:59:59.999 UTC
+    const end = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+      23, 59, 59, 999
+    ));
     const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
 
     return {
       since: start,
-      before: new Date(end.getTime() + 86400000),
-      or: query
+      before: new Date(end.getTime() + 86400000), // inclusive
+      ...(query ? { or: query } : {})
     };
   }
 
   // 4. Fallback: query only
-  return { or: query };
+  return query ? { or: query } : {};
 }
 
 async function parseFromSource(source) {
