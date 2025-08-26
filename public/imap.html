@@ -1270,7 +1270,9 @@ async function fetchAndClassify(next=false, prev=false){
       includeSnippet: true,
       includeBody: false
     };
-
+     
+console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
+     
     // include the IMAP login account email for the generator
     const userEmail = $("email")?.value || "";
     try { payload.userEmail = userEmail; } catch(e){}
@@ -1316,10 +1318,25 @@ async function fetchAndClassify(next=false, prev=false){
     }
 
     saveForm();
-
+     
+console.log("[IMAP] Final payload going to server:", payload);
+     
 const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
 
 const emails = Array.isArray(data.emails) ? data.emails : [];
+
+    console.log(
+  "[IMAP] Server returned", (emails || []).length, "emails. Sample:",
+  (emails || []).slice(0, 3).map(e => ({
+    id: e.id || e.uid,
+    subject: e.subject,
+    date: e.date,
+    internalDate: e.internalDate,
+    receivedAt: e.receivedAt
+  }))
+); 
+
+
 state.emails = emails.map((e, i) => ({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
