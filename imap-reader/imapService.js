@@ -50,7 +50,7 @@ function toModelSkeleton(msg) {
     hasIcs: false,
     attachTypes: [],
     unread: !msg.flags?.has('\\Seen'),
-    flagged: !!msg.flags?.has('\\Flagged'),   // <-- fixed
+    flagged: !msg.flags?.has('\\Flagged'), // <-- wrong (negated)
     contentType: ''
   };
 }
