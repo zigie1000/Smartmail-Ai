@@ -72,13 +72,15 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
 // One-and-only search builder. Pick exactly ONE mode.
 // Modes (in priority order):
 // 1) Month (monthStart+monthEnd)  2) Absolute (dateStartISO+dateEndISO)
-// 3) Relative range (rangeDays)   4) Query only (fallback)function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
+// 3) Relative range (rangeDays)   4) Query only (fallback)
+function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
   const now = new Date();
 
-  // Safety: if server clock is ahead, clamp to the real current year
+  // Safety: if server clock is ahead, clamp to real current year
   const currentYear = (new Date()).getUTCFullYear();
   if (now.getUTCFullYear() > currentYear) now.setUTCFullYear(currentYear);
 
+  // End of today in UTC
   const todayEndUTC = new Date(Date.UTC(
     now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
     23, 59, 59, 999
@@ -86,31 +88,31 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
 
   const withQuery = (obj) => (query ? { ...obj, or: query } : obj);
 
-  // 1) Month mode (inclusive start/end, clamped to today)
+  // 1) Month mode
   if (monthStart && monthEnd) {
-    const start  = new Date(monthStart);
-    const end    = new Date(monthEnd);
+    const start = new Date(monthStart);
+    const end   = new Date(monthEnd);
     const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
     return withQuery({ since: start, before });
   }
 
-  // 2) Absolute ISO window (inclusive end, clamped to today)
+  // 2) Absolute ISO mode
   if (dateStartISO && dateEndISO) {
-    const start  = new Date(dateStartISO);
-    const end    = new Date(dateEndISO);
+    const start = new Date(dateStartISO);
+    const end   = new Date(dateEndISO);
     const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
     return withQuery({ since: start, before });
   }
 
-  // 3) Relative range (last N days), inclusive, never beyond today
+  // 3) Relative range (last N days)
   if (rangeDays && Number(rangeDays) > 0) {
-    const end    = todayEndUTC;
-    const start  = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-    const before = new Date(end.getTime() + 1); // exclusive boundary at end-of-today
+    const end   = todayEndUTC;
+    const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
+    const before = new Date(end.getTime() + 1); // exclusive boundary end-of-today
     return withQuery({ since: start, before });
   }
 
-  // 4) No dates → query only
+  // 4) Fallback: query only
   return withQuery({});
 }
 
