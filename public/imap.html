@@ -1270,7 +1270,8 @@ async function fetchAndClassify(next=false, prev=false){
       includeSnippet: true,
       includeBody: false
     };
-     
+
+console.log("[CLIENT] IMAP payload being sent:", payload);     
 console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
      
     // include the IMAP login account email for the generator
