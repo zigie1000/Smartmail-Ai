@@ -25,13 +25,15 @@ function toModelSkeleton(msg) {
     to: toAddr.address || '',
       // keep both ISO and numeric timestamps
   date: (msg.internalDate ? new Date(msg.internalDate).toISOString() : '') || '',
-  internalDate: (() => {
+internalDate: (() => {
     if (msg.internalDate) {
-      const raw = Number(msg.internalDate);
-      return raw < 1e12 ? raw * 1000 : raw; // normalize seconds → ms
+        const raw = Number(msg.internalDate);
+        // Always treat values < 10^12 as seconds (convert to ms),
+        // values >= 10^12 as already ms
+        return raw < 1e11 ? raw * 1000 : raw;
     }
     return null;
-  })(),
+})(),
     snippet: '',
     text: '',
     html: '',
