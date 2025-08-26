@@ -1408,22 +1408,6 @@ state.emails = state.emails.filter(e => {
   return t >= startTs && t <= endTs;
 });
 
-  // Per-email logging
-  console.log("Email filter check", {
-    id: e.id || e.uid,
-    subject: e.subject,
-    date: e.date,
-    internalDate: e.internalDate,
-    receivedAt: e.receivedAt,
-    parsedTs: t,
-    startTs,
-    endTs,
-    inRange: (t >= startTs && t <= endTs)
-  });
-
-  return t >= startTs && t <= endTs;
-});
-
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
 
 // After filter
