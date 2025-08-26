@@ -10,49 +10,49 @@ function domainOf(email='') {
 
 function toModelSkeleton(msg) {
   const env = msg.envelope || {};
-  const fromAddr = (env.from && env.from[0]) ? env.from[0] : {};
-  const toAddr = (env.to && env.to[0]) ? env.to[0] : {};
-  const fromEmail = (fromAddr.address || '').toLowerCase();
+  const fromAddr   = (env.from && env.from[0]) ? env.from[0] : {};
+  const toAddr     = (env.to   && env.to[0])   ? env.to[0]   : {};
+  const fromEmail  = (fromAddr.address || '').toLowerCase();
   const fromDomain = domainOf(fromEmail);
 
- return {
-  id: String(msg.uid || msg.id || msg.seq || ''),
-  uid: msg.uid,
-  subject: env.subject || '',
-  from: fromAddr.name ? `${fromAddr.name} <${fromEmail}>` : fromEmail,
-  fromEmail,
-  fromDomain,
-  to: toAddr.address || '',
+  return {
+    id: String(msg.uid || msg.id || msg.seq || ''),
+    uid: msg.uid,
+    subject: env.subject || '',
+    from: fromAddr.name ? `${fromAddr.name} <${fromEmail}>` : fromEmail,
+    fromEmail,
+    fromDomain,
+    to: toAddr.address || '',
 
-  // keep both ISO and numeric timestamps
-  date: (msg.internalDate ? new Date(msg.internalDate).toISOString() : '') || '',
+    // keep both ISO and numeric timestamps
+    date: (msg.internalDate ? new Date(msg.internalDate).toISOString() : '') || '',
 
-  internalDate: (() => {
-    if (msg.internalDate) {
-      const raw = Number(msg.internalDate);
-      return raw < 1e11 ? raw * 1000 : raw; // normalize seconds → ms
-    }
-    return null;
-  })(),
+    internalDate: (() => {
+      if (msg.internalDate) {
+        const raw = Number(msg.internalDate);
+        return raw < 1e11 ? raw * 1000 : raw; // seconds → ms
+      }
+      return null;
+    })(),
 
-  receivedAt: (() => {
-    if (msg.internalDate) {
-      const raw = Number(msg.internalDate);
-      return raw < 1e11 ? raw * 1000 : raw; // same normalization
-    }
-    return null;
-  })(),
+    receivedAt: (() => {
+      if (msg.internalDate) {
+        const raw = Number(msg.internalDate);
+        return raw < 1e11 ? raw * 1000 : raw; // same normalization
+      }
+      return null;
+    })(),
 
-  snippet: '',
-  text: '',
-  html: '',
-  headers: {},
-  hasIcs: false,
-  attachTypes: [],
-  unread: !msg.flags?.has('\\Seen'),
-  flagged: !msg.flags?.has('\\Flagged'),
-  contentType: ''
-};
+    snippet: '',
+    text: '',
+    html: '',
+    headers: {},
+    hasIcs: false,
+    attachTypes: [],
+    unread: !msg.flags?.has('\\Seen'),
+    flagged: !!msg.flags?.has('\\Flagged'),   // <-- fixed
+    contentType: ''
+  };
 }
 
 async function openClient({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
