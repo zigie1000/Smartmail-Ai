@@ -287,11 +287,23 @@ html.theme-dark input::placeholder{color:#6b7280}
   function lastDayOfMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
   function fmtISO(d){ return d.toISOString().slice(0,10); }
   function computeRangeWindow(days){
+  if (!Number.isFinite(days) || days <= 0) {
+    // "All" → return an open-ended start; end is today (UTC 23:59:59.999)
     const now = new Date();
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23,59,59,999));
-    const start = new Date(end.getTime() - (Math.max(1,Number(days))-1)*24*3600*1000);
-    return {startISO: fmtISO(start), endISO: fmtISO(end)};
+    const end = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+      23, 59, 59, 999
+    ));
+    return { startISO: null, endISO: end.toISOString().slice(0,10) };
   }
+  const now = new Date();
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+    23,59,59,999
+  ));
+  const start = new Date(end.getTime() - (Math.max(1,Number(days))-1)*24*3600*1000);
+  return { startISO: start.toISOString().slice(0,10), endISO: end.toISOString().slice(0,10) };
+}
   function computeMonthWindow(y, m){
     const startISO = `${y}-${String(m+1).padStart(2,'0')}-01`;
     const endISO = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDayOfMonth(y,m)).padStart(2,'0')}`;
