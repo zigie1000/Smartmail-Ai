@@ -1338,7 +1338,18 @@ console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.sli
 ); 
 
 
-state.emails = emails.map((e, i) => ({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
+state.emails = emails.map((e, i) => {
+  // #4: per-email log while mapping
+  console.log("[IMAP] map#", i, {
+    id: e.id || e.uid,
+    subject: e.subject,
+    date: e.date,
+    internalDate: e.internalDate,
+    receivedAt: e.receivedAt
+  });
+
+  return { ...e, id: e.id ?? e.uid ?? String(i+1) };
+});
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
 const mStart = window._monthStartISO;
