@@ -1411,21 +1411,29 @@ const beforeCount = state.emails.length;
 state.emails = state.emails.filter(e => {
   let t = null;
 
-  // Prefer numeric timestamps if present
-  if (e.internalDate != null && e.internalDate !== '') {
-    t = Number(e.internalDate);
-    if (t < 1e12) t *= 1000; // seconds → ms
-  } else if (e.receivedAt != null && e.receivedAt !== '') {
-    t = Number(e.receivedAt);
-    if (t < 1e12) t *= 1000; // seconds → ms
-  } else if (e.date) {
-    // e.date is an ISO string — parse but do not mutate it
-    const d = new Date(e.date);
+  // Prefer internalDate, then receivedAt, then date (accept numbers or strings)
+  const candidates = [e.internalDate, e.receivedAt, e.date];
+
+  for (const cand of candidates) {
+    if (t) break;
+    if (cand == null || cand === '') continue;
+
+    // numeric seconds/ms (as number or digits-only string)
+    if (typeof cand === 'number' || (/^\d+$/.test(String(cand)))) {
+      t = Number(cand);
+      if (t < 1e12) t *= 1000; // seconds → ms
+      continue;
+    }
+
+    // parse date-like strings (RFC/ISO)
+    const d = new Date(String(cand));
     if (!Number.isNaN(d.getTime())) t = d.getTime();
   }
 
   if (!Number.isFinite(t)) {
-    console.log("SKIP invalid date:", { id: e.id || e.uid, date: e.date, internalDate: e.internalDate, receivedAt: e.receivedAt });
+    console.log("SKIP invalid date:", {
+      id: e.id || e.uid, date: e.date, internalDate: e.internalDate, receivedAt: e.receivedAt
+    });
     return false;
   }
 
