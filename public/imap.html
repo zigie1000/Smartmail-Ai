@@ -1373,13 +1373,17 @@ const beforeCount = state.emails.length;
 state.emails = state.emails.filter(e => {
   let t = null;
 
+  // Prefer explicit numeric fields if present
   if (e.internalDate != null && e.internalDate !== '') {
     t = Number(e.internalDate);
+    if (t < 1e12) t *= 1000; // seconds → ms
   } else if (e.receivedAt != null && e.receivedAt !== '') {
     t = Number(e.receivedAt);
+    if (t < 1e12) t *= 1000; // seconds → ms
   } else if (e.date) {
-    const parsed = Date.parse(String(e.date).replace(/-/g, ' '));
-    if (!Number.isNaN(parsed)) t = parsed;
+    // e.date is an ISO string — parse it directly (do NOT mutate it)
+    const d = new Date(e.date);
+    if (!Number.isNaN(d.getTime())) t = d.getTime();
   }
 
   // Drop invalid dates
@@ -1388,8 +1392,21 @@ state.emails = state.emails.filter(e => {
     return false;
   }
 
-  // Normalize seconds → ms
-  if (t < 1e12) t *= 1000;
+  // Per-email logging (unchanged)
+  console.log("Email filter check", {
+    id: e.id || e.uid,
+    subject: e.subject,
+    date: e.date,
+    internalDate: e.internalDate,
+    receivedAt: e.receivedAt,
+    parsedTs: t,
+    startTs,
+    endTs,
+    inRange: (t >= startTs && t <= endTs)
+  });
+
+  return t >= startTs && t <= endTs;
+});
 
   // Per-email logging
   console.log("Email filter check", {
