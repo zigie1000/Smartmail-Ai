@@ -1328,12 +1328,10 @@ async function fetchAndClassify(next=false, prev=false){
 
     saveForm();
 
-   saveForm();
-
 const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
 
-    const emails = Array.isArray(data.emails) ? data.emails : [];
-    state.emails = emails.map((e,i)=>({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
+const emails = Array.isArray(data.emails) ? data.emails : [];
+state.emails = emails.map((e, i) => ({ ...e, id: e.id ?? e.uid ?? String(i+1) }));
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
 const mStart = window._monthStartISO;
