@@ -1346,21 +1346,32 @@ const monthMode = !!(mStart && mEnd);
 
 let startTs = -Infinity, endTs = Infinity;
 
+// clamp to end-of-today (UTC) so we never include future dates
+const _now = new Date();
+const todayEndUTC = Date.UTC(
+  _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
+  23, 59, 59, 999
+);
+
 if (monthMode) {
   // Month mode: inclusive UTC window
   startTs = new Date(mStart + 'T00:00:00Z').getTime();
-  endTs   = new Date(mEnd   + 'T23:59:59Z').getTime();
+  endTs   = Math.min(new Date(mEnd + 'T23:59:59Z').getTime(), todayEndUTC);
 } else {
   // Range mode: fallback to <select id="range">
   const days = Number(window._rangeDaysActive || $("range")?.value || 30);
-  const now  = new Date();
-  const end  = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
-  ));
-  const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
-  startTs = start.getTime();
-  endTs   = end.getTime();
+  const end  = todayEndUTC;
+  const start= end - (Math.max(1, days) - 1) * 86400000;
+  startTs = start;
+  endTs   = end;
 }
+
+// Log the active date window
+console.log("IMAP window", {
+  monthMode, mStart, mEnd, startTs, endTs,
+  startISO: new Date(startTs).toISOString(),
+  endISO:   new Date(endTs).toISOString()
+});
 
 // Log the active date window
 console.log("IMAP window", {
