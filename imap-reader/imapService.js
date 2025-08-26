@@ -69,15 +69,43 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
-function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, query }) {
-  // Priority: month window -> absolute date window -> none
+function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
+  // 1. Month mode takes precedence
   if (monthStart && monthEnd) {
-    return { since: new Date(monthStart), before: new Date(new Date(monthEnd).getTime() + 24*3600*1000), or: query };
+    return {
+      since: new Date(monthStart),
+      before: new Date(new Date(monthEnd).getTime() + 86400000), // add 1 day
+      or: query
+    };
   }
+
+  // 2. Absolute date range mode
   if (dateStartISO && dateEndISO) {
-    return { since: new Date(dateStartISO), before: new Date(new Date(dateEndISO).getTime() + 24*3600*1000), or: query };
+    return {
+      since: new Date(dateStartISO),
+      before: new Date(new Date(dateEndISO).getTime() + 86400000),
+      or: query
+    };
   }
-  return { or: query }; // fallback (be careful with unbounded)
+
+  // 3. Relative range mode (e.g. last 30 days)
+  if (rangeDays && Number(rangeDays) > 0) {
+    const now = new Date();
+    // 🛑 Safety: if the server clock is in the future (>2024), clamp it
+    if (now.getFullYear() > 2024) now.setFullYear(2024);
+
+    const end = now;
+    const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
+
+    return {
+      since: start,
+      before: new Date(end.getTime() + 86400000),
+      or: query
+    };
+  }
+
+  // 4. Fallback: query only
+  return { or: query };
 }
 
 async function parseFromSource(source) {
