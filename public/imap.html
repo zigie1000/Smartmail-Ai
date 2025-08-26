@@ -1283,16 +1283,19 @@ async function fetchAndClassify(next=false, prev=false){
       if (backCursor) payload.cursor = backCursor;
     }
 
-    // Month override → monthStart/monthEnd
-    const m = ($("monthStr")?.value || "").trim();
-    if (m) {
-      const [yy, mm] = m.split("-").map(Number);
-      const start = new Date(yy, mm - 1, 1);
-      const end   = new Date(yy, mm, 0);
-      payload.monthStart = start.toISOString();
-      payload.monthEnd   = end.toISOString();
-      delete payload.rangeDays;
-    }
+   // Month override → monthStart/monthEnd
+const m = ($("#monthStr")?.value || "").trim();
+if (m) {
+  const [yy, mm] = m.split("-").map(Number);
+  const start = new Date(yy, mm - 1, 1);
+  const end   = new Date(yy, mm, 0);
+  payload.monthStart = start.toISOString();
+  payload.monthEnd   = end.toISOString();
+  delete payload.rangeDays;
+} else {
+  delete payload.monthStart;
+  delete payload.monthEnd;
+}
 
     // XOAUTH2 requires a token
     if ((payload.authType||"").toLowerCase()==="xoauth2" &&
