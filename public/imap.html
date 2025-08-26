@@ -1323,9 +1323,9 @@ console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
 console.log("[IMAP] Final payload going to server:", payload);
      
 const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
-
+console.log("[IMAP] Raw server response:", data);
 const emails = Array.isArray(data.emails) ? data.emails : [];
-
+console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.slice(0, 3));
     console.log(
   "[IMAP] Server returned", (emails || []).length, "emails. Sample:",
   (emails || []).slice(0, 3).map(e => ({
