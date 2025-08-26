@@ -70,43 +70,40 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
 }
 
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  // 1. Month mode takes precedence
+  const now = new Date();
+  // End of *today* in UTC (prevents “future” windows if the server clock is off)
+  const todayEndUTC = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999
+  ));
+
+  const withQuery = (obj) => (query ? { ...obj, or: query } : obj);
+
+  // 1) Month mode (inclusive end, clamped to today)
   if (monthStart && monthEnd) {
-    return {
-      since: new Date(monthStart),
-      before: new Date(new Date(monthEnd).getTime() + 86400000), // inclusive
-      ...(query ? { or: query } : {})
-    };
+    const start  = new Date(monthStart);
+    const end    = new Date(monthEnd);
+    const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
+    return withQuery({ since: start, before });
   }
 
-  // 2. Absolute date range mode
+  // 2) Absolute date window (inclusive end, clamped to today)
   if (dateStartISO && dateEndISO) {
-    return {
-      since: new Date(dateStartISO),
-      before: new Date(new Date(dateEndISO).getTime() + 86400000), // inclusive
-      ...(query ? { or: query } : {})
-    };
+    const start  = new Date(dateStartISO);
+    const end    = new Date(dateEndISO);
+    const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
+    return withQuery({ since: start, before });
   }
 
-  // 3. Relative range mode (e.g. last 30 days)
+  // 3) Range mode (last N days, inclusive, never beyond today)
   if (rangeDays && Number(rangeDays) > 0) {
-    const now = new Date();
-    // End = today 23:59:59.999 UTC
-    const end = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-      23, 59, 59, 999
-    ));
+    const end   = todayEndUTC;
     const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-
-    return {
-      since: start,
-      before: new Date(end.getTime() + 86400000), // inclusive
-      ...(query ? { or: query } : {})
-    };
+    const before = new Date(end.getTime() + 1); // exclusive boundary
+    return withQuery({ since: start, before });
   }
 
-  // 4. Fallback: query only
-  return query ? { or: query } : {};
+  // 4) No date filter → query only (careful: this can be large)
+  return withQuery({});
 }
 
 async function parseFromSource(source) {
