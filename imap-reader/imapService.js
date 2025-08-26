@@ -15,35 +15,44 @@ function toModelSkeleton(msg) {
   const fromEmail = (fromAddr.address || '').toLowerCase();
   const fromDomain = domainOf(fromEmail);
 
-  return {
-    id: String(msg.uid || msg.id || msg.seq || ''),
-    uid: msg.uid,
-    subject: env.subject || '',
-    from: fromAddr.name ? `${fromAddr.name} <${fromEmail}>` : fromEmail,
-    fromEmail,
-    fromDomain,
-    to: toAddr.address || '',
-      // keep both ISO and numeric timestamps
+ return {
+  id: String(msg.uid || msg.id || msg.seq || ''),
+  uid: msg.uid,
+  subject: env.subject || '',
+  from: fromAddr.name ? `${fromAddr.name} <${fromEmail}>` : fromEmail,
+  fromEmail,
+  fromDomain,
+  to: toAddr.address || '',
+
+  // keep both ISO and numeric timestamps
   date: (msg.internalDate ? new Date(msg.internalDate).toISOString() : '') || '',
-internalDate: (() => {
+
+  internalDate: (() => {
     if (msg.internalDate) {
-        const raw = Number(msg.internalDate);
-        // Always treat values < 10^12 as seconds (convert to ms),
-        // values >= 10^12 as already ms
-        return raw < 1e11 ? raw * 1000 : raw;
+      const raw = Number(msg.internalDate);
+      return raw < 1e11 ? raw * 1000 : raw; // normalize seconds → ms
     }
     return null;
-})(),
-    snippet: '',
-    text: '',
-    html: '',
-    headers: {},
-    hasIcs: false,
-    attachTypes: [],
-    unread: !msg.flags?.has('\\Seen'),
-    flagged: !!msg.flags?.has('\\Flagged'),
-    contentType: ''
-  };
+  })(),
+
+  receivedAt: (() => {
+    if (msg.internalDate) {
+      const raw = Number(msg.internalDate);
+      return raw < 1e11 ? raw * 1000 : raw; // same normalization
+    }
+    return null;
+  })(),
+
+  snippet: '',
+  text: '',
+  html: '',
+  headers: {},
+  hasIcs: false,
+  attachTypes: [],
+  unread: !msg.flags?.has('\\Seen'),
+  flagged: !msg.flags?.has('\\Flagged'),
+  contentType: ''
+};
 }
 
 async function openClient({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
