@@ -870,7 +870,16 @@ function cardHtml(e) {
   `;
 
   const id = escapeHtml(e.id || '');
-  let _rawSnippet = e.snippet || e.preview || e.bodySnippet || e.summary || e.text;
+
+// Build a safe snippet for the list preview
+let rawSnippet =
+      e.snippet
+   || e.preview
+   || e.bodySnippet
+   || e.summary
+   || e.text
+   || '';
+
 // Always sanitize what we show in the preview
 if (rawSnippet) {
   // turn any HTML into plain text (drops <style>, <script>, tags)
