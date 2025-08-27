@@ -1098,27 +1098,42 @@ async function sendSelected(){
     ]);
   } catch (_) { /* keep lightweight */ }
 
-  const plain =
-        first.text
-     || first.textPlain
-     || first.plain
-     || first.bodyText;
+  // Prefer true plain text; otherwise convert HTML to text.
+// As a last resort, sanitize the snippet too (never send raw HTML/CSS).
+const plain =
+      first.text
+   || first.textPlain
+   || first.plain
+   || first.bodyText
+   || "";
 
-  const html =
-        first.html
-     || first.htmlBody
-     || first.textHtml;
+const html =
+      first.html
+   || first.htmlBody
+   || first.textHtml
+   || "";
 
-  const snippetLike =
-        first.snippet
-     || first.preview
-     || first.bodySnippet
-     || first.summary
-     || "";
+const snippetLike =
+      first.snippet
+   || first.preview
+   || first.bodySnippet
+   || first.summary
+   || "";
 
-  const bodyText = plain ? String(plain)
-                  : html ? htmlToText(html)
-                  : String(snippetLike);
+// helper: robust sanitize -> plain text
+const toPlain = (s) => (s && String(s).trim()) ? htmlToText(String(s)) : "";
+
+let bodyText = "";
+if (plain && /\S/.test(plain)) {
+  bodyText = String(plain);
+} else if (html && /\S/.test(html)) {
+  bodyText = toPlain(html);
+} else if (snippetLike) {
+  bodyText = toPlain(snippetLike);  // sanitize fallback too
+}
+
+// normalize spaces
+bodyText = bodyText.replace(/\u00A0/g, " ").trim();
 
   // Use YOUR login address for the Generator
   let userEmail = $("email")?.value || "";
