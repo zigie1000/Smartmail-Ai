@@ -1371,7 +1371,8 @@ const mStart = window._monthStartISO;
 const mEnd   = window._monthEndISO;
 const monthMode = !!(mStart && mEnd);
 
-let startTs = -Infinity, endTs = Infinity;
+let startTs = -Infinity;
+let endTs   =  Infinity;
 
 // Clamp end to end-of-today (UTC) so we never include future dates
 const _now = new Date();
@@ -1382,15 +1383,18 @@ const todayEndUTC = Date.UTC(
 
 if (monthMode) {
   // Month mode: inclusive UTC window
-  startTs = new Date(mStart + 'T00:00:00Z').getTime();
-  endTs   = Math.min(new Date(mEnd + 'T23:59:59Z').getTime(), todayEndUTC);
+  const s = new Date(mStart + 'T00:00:00Z').getTime();
+  const e = new Date(mEnd   + 'T23:59:59Z').getTime();
+  startTs = Number.isFinite(s) ? s : -Infinity;
+  endTs   = Math.min(Number.isFinite(e) ? e : Infinity, todayEndUTC);
 } else {
-  // Range mode: fallback to current Range selector / Mode bar
-  const days = Number(window._rangeDaysActive || $("range")?.value || 30);
+  // Range mode: fallback to the Mode bar's current range selection
+  const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
+  const days = Number.isFinite(daysSel) ? daysSel : 30;
   const end  = todayEndUTC;
 
-  if (!Number.isFinite(days) || days <= 0) {
-    // "All" selected → don’t clamp by start, only prevent future dates
+  if (days <= 0) {
+    // "All" → only clamp the future
     startTs = -Infinity;
     endTs   = end;
   } else {
@@ -1400,7 +1404,7 @@ if (monthMode) {
   }
 }
 
-// Log the active date window
+// Log the active date window (helps if anything looks off)
 console.log("IMAP window", {
   monthMode, mStart, mEnd, startTs, endTs,
   startISO: new Date(startTs).toISOString(),
@@ -1408,19 +1412,20 @@ console.log("IMAP window", {
 });
 
 const beforeCount = state.emails.length;
+const originalEmails = state.emails.slice(); // for safe fallback
 
 // Filter emails into the active window using the most reliable timestamp available
 state.emails = state.emails.filter(e => {
   let t = null;
 
-  // Prefer internalDate, then receivedAt, then date (accept numbers or strings)
+  // Try: internalDate → receivedAt → date (accept number/number-like string/ISO)
   const candidates = [e.internalDate, e.receivedAt, e.date];
 
   for (const cand of candidates) {
-    if (t) break;
+    if (t != null) break;
     if (cand == null || cand === '') continue;
 
-    // numeric seconds/ms (as number or digits-only string)
+    // numeric seconds/ms (or digits-only string)
     if (typeof cand === 'number' || (/^\d+$/.test(String(cand)))) {
       t = Number(cand);
       if (t < 1e12) t *= 1000; // seconds → ms
@@ -1429,7 +1434,9 @@ state.emails = state.emails.filter(e => {
 
     // parse date-like strings (RFC/ISO)
     const d = new Date(String(cand));
-    if (!Number.isNaN(d.getTime())) t = d.getTime();
+    if (!Number.isNaN(d.getTime())) {
+      t = d.getTime();
+    }
   }
 
   if (!Number.isFinite(t)) {
@@ -1440,11 +1447,17 @@ state.emails = state.emails.filter(e => {
   }
 
   const ok = (t >= startTs && t <= endTs);
-  console.log("Email filter check", {
-    id: e.id || e.uid, subject: e.subject, parsedTs: t, startTs, endTs, inRange: ok
-  });
+  // Optional: detailed per-email log
+  // console.log("Email filter check", { id: e.id || e.uid, subject: e.subject, parsedTs: t, startTs, endTs, inRange: ok });
   return ok;
 });
+
+// Safety net: if our date window removed everything but the server clearly returned emails,
+// show the unfiltered batch rather than an empty screen. Keeps UX sane if clocks/timezones wobble.
+if (state.emails.length === 0 && beforeCount > 0) {
+  console.warn("Date filter removed all emails — falling back to unfiltered server page.");
+  state.emails = originalEmails;
+}
 
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
 console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
