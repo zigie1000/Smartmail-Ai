@@ -871,11 +871,11 @@ function cardHtml(e) {
 
   const id = escapeHtml(e.id || '');
   let _rawSnippet = e.snippet || e.preview || e.bodySnippet || e.summary || e.text;
-if(!_rawSnippet){
-  const _html = e.html || e.bodyHtml || e.body || '';
-  if(_html) _rawSnippet = stripAndTrim(htmlToText(_html));
+if (rawSnippet) {
+  // Always strip tags for clean preview/snippet
+  rawSnippet = stripInvalidHtmlText(rawSnippet);
 }
-const snippetSafe = escapeHtml(_rawSnippet || '(no preview available)');
+const snippetSafe = escapeHtml(rawSnippet || "(no preview available)");
 
  return `
   <div class="email">
