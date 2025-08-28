@@ -1592,6 +1592,37 @@ function applyProviderPreset(){
   saveForm();
 }
 
+// Fully reset search, filters, quick-filter flags and paging,
+// and show the full (overrides-applied) email list.
+function resetAllFilters() {
+  // Clear search box
+  const sb = document.getElementById("searchBox");
+  if (sb) sb.value = "";
+
+  // Reset filter selects
+  ["fPriority","fIntent","fAction","fTime","smartView"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  // Clear any quick-filter hint your code might have set
+  state.__quickFilter = null;
+
+  // Restore the full list
+  state.view = state.emails.slice();
+  state.page = 1;
+
+  // Reset pagination cursors (so Prev/Next make sense again)
+  state.nextCursor = null;
+  state.cursorStack = [null];
+
+  // Update page label
+  const info = document.getElementById("pageInfo");
+  if (info) info.textContent = `${state.view.length} emails`;
+
+  render();
+}
+   
 // ---- Events binder ----
 function on(id, ev, fn) {
   const el = document.getElementById(id);
