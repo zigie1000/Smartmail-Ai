@@ -723,9 +723,7 @@ function restoreImapState() {
     state.nextCursor = (s.nextCursor ?? state.nextCursor);
     state.cursorStack = Array.isArray(s.cursorStack) ? s.cursorStack : [null];
 
-    // Restore search box text (if any)
-    const sb = document.getElementById("searchBox");
-    if (sb && s.filters && typeof s.filters.search === "string") sb.value = s.filters.search;
+    
 
     render();
 
