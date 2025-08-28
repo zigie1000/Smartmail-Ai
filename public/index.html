@@ -1,2031 +1,587 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>SmartEmail IMAP</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8"/>
+  <title>SmartEmail | AI Email Generator</title>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <link rel="icon" type="image/png" href="/favicon.png" />
 <style>
-/* ===============================
-   THEME TOKENS
-=============================== */
-:root{
-  /* Light */
-  --bg:#f6f8fc;
-  --card:#ffffff;
-  --surface:#fbfcff;
-  --surface-2:#f3f4f6;
-  --line:#e5e7eb;
-  --text:#1f2937;
-  --muted:#6b7280;
-  --brand:#2563eb;
-  --radius:14px;
-
-  /* Chips (light) */
-  --chip:#f9fafb;
-  --chip-line:#e5e7eb;
-  --chip-text:#374151;
-
-  /* Accents */
-  --imp-bg:#fff7ed;  --imp-line:#fed7aa;
-  --vip-bg:#fffbeb;  --vip-line:#f59e0b;
-
-  --outline:#93c5fd;
-  --shadow:0 6px 24px rgba(2,8,20,.06);
-}
-.theme-dark{
-  --bg:#0b1220;
-  --card:#111827;
-  --surface:#0f172a;
-  --surface-2:#0b1220;
-  --line:#1f2937;
-  --text:#e5e7eb;
-  --muted:#9aa4b2;
-  --brand:#3b82f6;
-
-  --chip:#111827;
-  --chip-line:#273449;
-  --chip-text:#cbd5e1;
-
-  --imp-bg:#1f2937;  --imp-line:#374151;
-  --vip-bg:#1f2937;  --vip-line:#f59e0b;
-
-  --outline:#60a5fa;
-  --shadow:0 8px 26px rgba(0,0,0,.35);
-}
-@media (prefers-color-scheme: dark){
-  :root:not(.theme-dark):not(.theme-light){
-    --bg:#0b1220; --card:#111827; --surface:#0f172a; --surface-2:#0b1220;
-    --line:#1f2937; --text:#e5e7eb; --muted:#9aa4b2; --brand:#3b82f6;
-    --chip:#111827; --chip-line:#273449; --chip-text:#cbd5e1;
-    --imp-bg:#1f2937; --imp-line:#374151; --vip-bg:#1f2937; --vip-line:#f59e0b;
-    --outline:#60a5fa; --shadow:0 8px 26px rgba(0,0,0,.35);
+  body { font-family: 'Segoe UI', sans-serif; background:#f4f4f4; margin:0; padding:40px 20px; color:#333; }
+  .container { max-width:750px; margin:32px auto; background:#fff; padding:32px 24px 28px; border-radius:14px; box-shadow:0 0 12px rgba(0,0,0,.09); }
+  #tierBadge { float:right; background:#eee; color:#888; font-weight:700; padding:6px 16px; border-radius:20px; margin-left:10px; border:2px solid #bbb; font-size:15px; letter-spacing:.5px; }
+  #tierBadge.pro{ background:#e3f1ff; color:#1976d2; border-color:#1976d2; }
+  #tierBadge.premium{ background:#fffbe3; color:#c79a0b; border-color:#c79a0b; }
+  h2 { font-size:1.3rem; margin:0 0 16px; font-weight:600; letter-spacing:.2px; }
+  .container > div[style*="margin-bottom"] { margin-bottom:26px !important; }
+  button, .modal-card button { padding:10px 16px; border:none; border-radius:6px; cursor:pointer; font-size:15px; margin:7px 8px 0 0; font-family:inherit; transition:background .15s; }
+  button:disabled { opacity:.56 !important; cursor:not-allowed !important; }
+  .modal-bg { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(30,30,30,.5); backdrop-filter:blur(2px); }
+  .modal-card { background:#fff; border-radius:16px; padding:36px 28px 28px; max-width:360px; margin:90px auto 0; position:relative; box-shadow:0 6px 40px rgba(0,0,0,.15); }
+  .form-row { margin-bottom:14px; display:flex; flex-direction:column; }
+  .form-row label { margin-bottom:6px; font-size:15px; font-weight:500; }
+  .form-row input[type="text"], .form-row input[type="number"], .form-row textarea, .form-row select {
+    font-size:15px; padding:9px 11px; border-radius:6px; border:1px solid #bfc9d1; outline:none; transition:border .15s; background:#f9f9f9;
   }
-}
-
-/* ===============================
-   BASE & LAYOUT
-=============================== */
-*{box-sizing:border-box}
-body{
-  margin:0; background:var(--bg); color:var(--text);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;
-  transition:background .2s,color .2s;
-}
-.wrap{max-width:1120px;margin:24px auto;padding:0 14px}
-header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-header h1{font-size:20px;margin:0}
-.badge{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-size:12px}
-.tier{margin-left:auto;display:flex;align-items:center;gap:8px}
-.tier .pill{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12px}
-
-.card{
-  background:var(--card);
-  border-radius:var(--radius);
-  border:1px solid var(--line);
-  box-shadow:var(--shadow);
-}
-.row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.row>.col{display:flex;flex-direction:column}
-
-label{font-size:12px;color:var(--muted);margin:10px 2px 6px}
-.muted{color:var(--muted);font-size:12px}
-.field-help{margin-top:4px;font-size:12px;color:var(--muted);line-height:1.35}
-.field-dim{opacity:.55;pointer-events:none;filter:saturate(.85)}
-
-input,select{
-  padding:11px 12px;border:1px solid var(--line);border-radius:10px;
-  background:var(--surface);color:var(--text);
-  transition:background .2s,border-color .2s,color .2s,box-shadow .15s;
-}
-input::placeholder{color:var(--muted)}
-input[type="number"]{max-width:140px}
-
-.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;align-items:center}
-button{
-  padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;
-  border:1px solid transparent;transition:background .2s,color .2s,border-color .2s,opacity .15s,filter .15s;
-}
-.btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
-.btn-primary:hover:not(:disabled){filter:brightness(1.05)}
-.btn-secondary,.btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line)}
-.btn-ghost{background:var(--surface)}
-.btn-secondary:hover:not(:disabled),.btn-ghost:hover:not(:disabled){background:var(--surface)}
-.is-active,[aria-pressed="true"]{
-  background:var(--brand)!important;color:#fff!important;border-color:var(--brand)!important;
-  box-shadow:0 0 0 2px color-mix(in oklab, var(--brand) 30%, transparent);
-}
-button:disabled{opacity:.55;cursor:not-allowed}
-.btn-xl{padding:14px 18px;font-size:16px;font-weight:600}
-
-.alert{border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}
-.alert.err{background:var(--imp-bg);border:1px solid var(--imp-line);color:#b91c1c}
-.alert.ok{background:#dcfce7;border:1px solid #bbf7d0;color:#065f46}
-
-.list{margin-top:8px}
-.email{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:12px;margin:10px 0}
-.email-header{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
-.from{color:var(--muted);font-size:12px}
-.subject{font-weight:600}
-.tag{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid #dbeafe;background:#eff6ff}
-.tag.imp{background:var(--imp-bg);border-color:var(--imp-line)}
-
-details{margin-top:8px}
-summary{cursor:pointer;color:#374151}
-.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.sel{margin-right:6px}
-
-.skeleton{animation:pulse 1.3s ease-in-out infinite;background:linear-gradient(90deg,#f3f4f6,#e5e7eb,#f3f4f6);background-size:300% 100%}
-.sk-card{height:86px;border-radius:12px;margin:10px 0}
-@keyframes pulse{0%{background-position:0 0}100%{background-position:100% 0}}
-
-.footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
-.pager{display:flex;gap:6px;align-items:center}
-.pager button{padding:8px 12px}
-.hint{font-size:12px;color:var(--muted)}
-
-.switch{position:fixed;top:10px;right:10px;text-decoration:none;background:var(--brand);color:#fff;padding:8px 12px;border-radius:8px}
-
-.filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0 4px}
-.filters .col{display:flex;flex-direction:column}
-
-@media (max-width:900px){
-  .row{grid-template-columns:1fr 1fr}
-  .filters{grid-template-columns:1fr 1fr}
-  .email-header{grid-template-columns:1fr auto}
-  .footer{flex-direction:column;align-items:flex-start}
-  .tier{flex-wrap:wrap;gap:6px}
-}
-
-/* ===============================
-   CHIPS (inside email cards)
-=============================== */
-.chip{
-  display:inline-block;font-size:11px;line-height:1.8;padding:2px 10px;border-radius:999px;
-  border:1px solid var(--chip-line);background:var(--chip);color:var(--chip-text);white-space:nowrap;
-}
-.chip.u1{border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a}
-.chip.u2{border-color:#fde68a;background:#fffbeb;color:#92400e}
-.chip.u3{border-color:#fecaca;background:#fee2e2;color:#7f1d1d}
-.chip.pri-Urgent{border-color:#fca5a5;background:#fee2e2;color:#7f1d1d}
-.chip.pri-High{border-color:#fde68a;background:#fffbeb;color:#92400e}
-.chip.pri-Normal{border-color:#bfdbfe;background:#eff6ff;color:#1e3a8a}
-.chip.pri-Low{opacity:.65}
-.chip.vip{border-color:var(--vip-line);background:var(--vip-bg);color:#92400e}
-.chip.legal{border-color:#c7d2fe;background:#eef2ff;color:#3730a3}
-.chip:hover{filter:brightness(0.97)}
-.chip[title="Category"]{opacity:.85}
-
-html.theme-dark .chip{border-color:#373f46;background:#26272b;color:#e5e7eb}
-html.theme-dark .chip.u1{border-color:#6085a6;background:#0b2942;color:#bfdbfe}
-html.theme-dark .chip.u2{border-color:#ffbb24;background:#3a2a00;color:#fde68a}
-html.theme-dark .chip.u3{border-color:#f87171;background:#3a0d0d;color:#fecaca}
-html.theme-dark .chip.pri-Urgent{border-color:#ff4444;background:#3a0d0d;color:#fecaca}
-html.theme-dark .chip.pri-High{border-color:#ffbb24;background:#3a2a00;color:#fde68a}
-html.theme-dark .chip.pri-Normal{border-color:#6085a6;background:#0b2942;color:#bfdbfe}
-html.theme-dark .chip.pri-Low{opacity:.75}
-html.theme-dark .chip.vip{border-color:#f3c97a;background:#1f2937;color:#fde68a}
-html.theme-dark .chip.legal{border-color:#a5b4fc;background:#1e1b4b;color:#c7d2fe}
-html.theme-dark .chip:hover{filter:brightness(1.05)}
-
-/* ===============================
-   DROPDOWN (card actions)
-=============================== */
-.actions{display:flex;gap:8px;align-items:center}
-.ovr{position:relative}
-.ovr summary{list-style:none;cursor:pointer;font-weight:600}
-.ovr summary::-webkit-details-marker{display:none}
-.ovr .menu{
-  position:absolute;right:0;top:24px;background:var(--card);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:6px;min-width:180px;z-index:10
-}
-.ovr .menu button{
-  width:100%;text-align:left;background:var(--card);padding:8px 10px;margin:2px 0;
-  border:1px solid transparent;border-radius:8px;font-size:13px;cursor:pointer
-}
-.ovr .menu button:hover{background:var(--surface-2);border-color:var(--line)}
-
-/* Dark-specific input surfaces */
-html.theme-dark .card,
-html.theme-dark .email{background:var(--card);border-color:var(--line)}
-html.theme-dark input,
-html.theme-dark select{background:#0f172a;color:var(--text);border-color:var(--line)}
-html.theme-dark input::placeholder{color:#6b7280}
+  .form-row input[type="text"]:focus, .form-row input[type="number"]:focus, .form-row textarea:focus, .form-row select:focus { border:1.5px solid #1976d2; background:#fff; }
+  textarea { min-height:36px; resize:vertical; }
+  #logo-preview img, #image-preview img { max-height:92px; margin:4px 10px 6px 0; border-radius:6px; }
+  #output-container { display:none; margin-top:32px; background:#f9f9f9; border-left:4px solid #4CAF50; padding:20px 20px 14px 24px; white-space:pre-wrap; font-size:15px; border-radius:8px; box-shadow:0 2px 10px rgba(80,110,70,.04); }
+  #export-buttons { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 7px; }
+  #char-count { margin-top:12px; font-size:13px; color:#555; }
+  #debugLog { width:100%; min-height:70px; font-family:monospace; font-size:13px; color:#333; margin-top:18px; border-radius:6px; padding:7px; border:1px solid #ccc; background:#fafafa; }
+  @media (max-width:700px){ .container{max-width:98vw; padding:13vw 2vw 7vw; border-radius:0;} h2{font-size:1.07rem;}
+    .form-row input, .form-row textarea, .form-row select{font-size:16px;} button, .modal-card button{font-size:15px;} }
 </style>
 </head>
 <body>
-<style>
-/* === Mode toolbar (device-friendly) === */
-#modeBar{position:sticky;top:0;z-index:1000;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-  padding:10px 12px;margin:8px 0;background:rgba(0,0,0,.06);border-radius:10px}
-#modeBar .seg{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-#modeBar .seg>*{font-size:14px}
-#modeBanner{margin:6px 0 0 0;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.08);
-  font-size:13px}
-#modeBar select,#modeBar input[type="number"],#modeBar button{padding:6px 10px;border-radius:8px;border:0}
-#modeBar small{opacity:.8}
-@media (max-width:640px){#modeBar{gap:8px}}
+    <a href="/imap.html" class="switch-btn">Switch to SmartEmail IMAP</a>
+<div class="container">
+  <span id="tierBadge">Free Tier</span>
+  <h2>🏡 SmartEmail – AI Email Generator</h2>
 
-/* Prominent Fetch & Classify button */
-.primary-cta{
-  font-weight:600;
-  padding:10px 16px !important;
-  border-radius:10px !important;
-  box-shadow:0 2px 8px rgba(0,0,0,.12);
-  outline:none;border:0;
-}
-.primary-cta[data-theme="light"], .primary-cta{
-  background: #2563eb; /* blue-ish */
-  color: #fff !important;
-}
-.primary-cta:active{ transform: translateY(1px); }
-</style>
-
-<div id="modeBar">
-  <div class="seg">
-    <label><input type="radio" name="mode" id="mRange" checked> Range</label>
-    <select id="rangeDays">
-  <option value="7">Last 7 days</option>
-  <option value="14">Last 14 days</option>
-  <option value="30" selected>Last 30 days</option>
-  <option value="0">All</option>
-</select>
+  <div style="margin-bottom:18px">
+    <button onclick="showBuyPro()" style="background:#1976d2;color:white;">Buy Pro (Monthly)</button>
+    <button onclick="showBuyPremium()" style="background:#7c9ab0;color:white;">Buy Premium (Annual)</button>
+    <button onclick="clearLicense()" style="background:#8e2424;color:white;">Clear License</button>
+    <button onclick="showLicenseEntry()" style="background:#1976d2;color:white;">Enter License Key</button>
+    <button onclick="recheckLicense()" style="background:#8bc34a;color:white;">Recheck License</button>
   </div>
-  <div class="seg">
-    <label style="display:flex;align-items:center;gap:8px">
-      <input type="radio" name="mode" id="mMonth"> Month
-      <button id="clearMonthInline" disabled>Clear Month</button>
-    </label>
-    <select id="monthName">
-      <option value="0">January</option><option value="1">February</option><option value="2">March</option>
-      <option value="3">April</option><option value="4">May</option><option value="5">June</option>
-      <option value="6">July</option><option value="7">August</option><option value="8">September</option>
-      <option value="9">October</option><option value="10">November</option><option value="11">December</option>
+
+  <!-- Email Modal -->
+  <div id="modalBg" class="modal-bg">
+    <div class="modal-card">
+      <label for="emailInput">Enter your email to unlock features:</label>
+      <p style="margin:4px 0 12px 0; color:#888; font-size:13px;">
+        Your email is used only to activate your free license. We never sell or share your information.
+        <span style="text-decoration:underline; cursor:pointer;" onclick="showLegal('privacy')">Privacy Policy</span>
+      </p>
+      <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" style="margin-bottom:12px;" />
+      <button id="continueBtn">Continue</button>
+      <div id="statusMsg" style="margin-top:10px; color:#666; font-size:14px;"></div>
+    </div>
+  </div>
+
+  <!-- Manual License Modal -->
+  <div id="licenseModalBg" class="modal-bg">
+    <div class="modal-card">
+      <label for="licenseInput">Enter License Key:</label>
+      <input type="text" id="licenseInput" placeholder="xxxx-xxxx-xxxx-xxxx" maxlength="32" autocomplete="off"/>
+      <button onclick="saveLicense()">Submit</button>
+      <button onclick="hideLicenseEntry()" style="background:#aaa;">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ✅ SmartEmail Form Fields -->
+  <div class="form-row">
+    <label for="audience">Target Audience</label>
+    <select id="audience">
+      <option value="">Select Audience</option>
+      <option value="Customers">Customers</option>
+      <option value="Leads">Leads</option>
+      <option value="Partners">Partners</option>
+      <option value="Employees">Employees</option>
+      <option value="Vendors">Vendors</option>
     </select>
-    <input id="monthYear" type="number" style="width:96px" min="1970" max="2100">
-    <button id="applyMonth">Use Month</button>
   </div>
-  <small>Month overrides Range. Full bodies are fetched in Month mode.</small>
-  <div id="modeBanner">Mode: Range — last 30 day(s)</div>
+
+  <div class="form-row">
+    <label for="purpose">Email Purpose</label>
+    <select id="purpose">
+      <option value="">Select Purpose</option>
+      <option value="Welcome">Welcome</option>
+      <option value="Reminder">Reminder</option>
+      <option value="Promotion">Promotion</option>
+      <option value="Follow-up">Follow-up</option>
+      <option value="Apology">Apology</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label for="tone">Tone</label>
+    <select id="tone">
+      <option value="">Select Tone</option>
+      <option value="Friendly">Friendly</option>
+      <option value="Professional">Professional</option>
+      <option value="Urgent">Urgent</option>
+      <option value="Empathetic">Empathetic</option>
+      <option value="Direct">Direct</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label for="language">Language</label>
+    <select id="language">
+      <option value="English" selected>English</option>
+      <option value="Italian">Italian</option>
+      <option value="Spanish">Spanish</option>
+      <option value="French">French</option>
+      <option value="German">German</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label for="email">Your Email Address</label>
+    <input id="email" type="email" placeholder="you@example.com" />
+  </div>
+
+  <!-- NEW: Subject field -->
+  <div class="form-row">
+    <label for="subject">Subject (optional)</label>
+    <input id="subject" type="text" placeholder="Subject of your reply" />
+  </div>
+    <!-- Minimal additions -->
+    <div class="form-row">
+      <label for="formality">Formality</label>
+      <select id="formality">
+        <option value="">Select</option>
+        <option>Casual</option><option>Neutral</option><option>Formal</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="length">Preferred Length</label>
+      <select id="length">
+        <option value="">Select</option>
+        <option>Under 75 words</option><option>~150 words</option><option>~300 words</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="audience_role">Audience Role</label>
+      <select id="audience_role">
+        <option value="">Select</option>
+        <option>Founder</option><option>CFO</option><option>Procurement</option><option>HR</option><option>IT</option><option>Sales</option>
+        <option>New customer</option><option>Returning customer</option><option>VIP</option>
+      </select>
+    </div>
+
+
+  <div class="form-row">
+    <label for="email_content">Email Content</label>
+    <textarea id="email_content" placeholder="Paste or type your email content here..."></textarea>
+  </div>
+
+  <div class="form-row">
+    <label for="sender_details">Email Signature</label>
+    <textarea id="sender_details" placeholder="e.g. Jane Doe&#10;Sales Director&#10;jane@example.com"></textarea>
+  </div>
+
+  <div class="form-row">
+    <label for="action">Desired Outcome</label>
+    <input id="action" type="text" placeholder="e.g. Book a call, Visit our site" />
+  </div>
+
+  <div class="form-row">
+    <label for="logoFile">Upload Logo (Max 2MB)</label>
+    <input type="file" id="logoFile" accept="image/*" />
+  </div>
+  <div id="logo-preview"></div>
+
+  <div class="form-row">
+    <label for="images">Upload Additional Images (Max 3, 2MB each)</label>
+    <input type="file" id="images" accept="image/*" multiple />
+  </div>
+  <div id="image-preview"></div>
+
+  <div class="form-row">
+    <button id="generateBtn" style="background:#1976d2;color:white;font-size:18px;padding:16px 32px;border-radius:9px;font-weight:bold;width:100%;">Generate Email</button>
+  </div>
+
+  <div id="output-container">
+    <h3>Generated Email:</h3>
+    <div id="result"></div>
+    <div id="char-count"></div>
+    <div id="export-buttons">
+      <button id="copyBtn" onclick="copyToClipboard()">Copy</button>
+      <button id="exportBtn" class="proOnly" onclick="exportToWord()" title="Upgrade to Pro to enable this feature">Export Word</button>
+      <button id="exportPdfBtn" class="proOnly" onclick="exportToPDF_Instant()" title="Upgrade to Pro to enable this feature">Export PDF</button>
+      <button id="exportTextBtn" class="proOnly" onclick="exportToText()" title="Upgrade to Pro to enable this feature">Export Text</button>
+      <button onclick="clearAll()">Clear</button>
+    </div>
+    <label>Enhance or Correct Listing (Optional)</label>
+    <textarea id="enhance" placeholder="e.g. Fix spelling, add more detail about garden..." rows="5" style="width:100%; font-size:16px; min-height:90px;"></textarea>
+    <button id="enhanceBtn" class="proOnly" style="background:#4CAF50;color:white;font-size:17px;font-weight:bold;padding:14px 30px;border-radius:9px;margin-top:8px;width:100%;">Enhance Listing</button>
+  </div>
+
+  <textarea id="debugLog" readonly placeholder="Debug log will appear here..."></textarea>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-(function(){
-  const mRange = document.getElementById('mRange');
-  const mMonth = document.getElementById('mMonth');
-  const rangeDaysSel = document.getElementById('rangeDays');
-  const monthSel = document.getElementById('monthName');
-  const yearInput = document.getElementById('monthYear');
-  const applyBtn = document.getElementById('applyMonth');
-  const clearMonthInline = document.getElementById('clearMonthInline');
-  const banner = document.getElementById('modeBanner');
-
-  // init year/month defaults
-  const now = new Date();
-  yearInput.value = now.getFullYear();
-  monthSel.value = String(now.getMonth());
-
-  function lastDayOfMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
-  function fmtISO(d){ return d.toISOString().slice(0,10); }
-  function computeRangeWindow(days){
-  if (!Number.isFinite(days) || days <= 0) {
-    // "All" → return an open-ended start; end is today (UTC 23:59:59.999)
-    const now = new Date();
-    const end = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-      23, 59, 59, 999
-    ));
-    return { startISO: null, endISO: end.toISOString().slice(0,10) };
-  }
-  const now = new Date();
-  const end = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-    23,59,59,999
-  ));
-  const start = new Date(end.getTime() - (Math.max(1,Number(days))-1)*24*3600*1000);
-  return { startISO: start.toISOString().slice(0,10), endISO: end.toISOString().slice(0,10) };
+/* ================= LICENSE / TIER ================= */
+function showCheckingModal(msg="Checking..."){
+  let m=document.createElement('div'); m.id="checkingModal"; Object.assign(m.style,{position:"fixed",zIndex:2000,left:0,top:0,width:"100%",height:"100%",background:"rgba(30,30,30,.4)"});
+  m.innerHTML=`<div style="background:#fff;padding:36px 36px 18px;border-radius:14px;max-width:340px;margin:120px auto;box-shadow:0 6px 30px rgba(0,0,0,.18);text-align:center;">
+    <div style="font-size:18px;margin-bottom:18px">${msg}</div><button onclick="hideModal()" style="background:#aaa;padding:8px 22px;">Close</button></div>`;
+  document.body.appendChild(m);
 }
-  function computeMonthWindow(y, m){
-    const startISO = `${y}-${String(m+1).padStart(2,'0')}-01`;
-    const endISO = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDayOfMonth(y,m)).padStart(2,'0')}`;
-    return {startISO, endISO};
-  }
-  function setBanner(mode, startISO, endISO, rangeDays){
-    if(mode==='month'){
-      const d = new Date(startISO+'T00:00:00Z');
-      banner.textContent = `Mode: Month — ${d.toLocaleString(undefined,{month:'long', year:'numeric'})} (${startISO} → ${endISO})`;
-    }else if(mode==='range'){
-      banner.textContent = `Mode: Range — last ${rangeDays} day(s) (${startISO} → ${endISO})`;
-    }else{
-      banner.textContent = `Mode: Unbounded`;
-    }
-  }
-  function updateEnabling(){
-    const monthMode = mMonth.checked;
-    rangeDaysSel.disabled = monthMode;
-    monthSel.disabled = !monthMode;
-    yearInput.disabled = !monthMode;
-    applyBtn.disabled = !monthMode;
-    clearMonthInline.disabled = !monthMode || !(window._monthStartISO && window._monthEndISO);
-  }
-
-  // Public state used by fetch patch
-  window._monthStartISO = undefined;
-  window._monthEndISO = undefined;
-  window._rangeDaysActive = Number(rangeDaysSel.value);
-
-  // initial banner
-  const rw = computeRangeWindow(window._rangeDaysActive);
-  setBanner('range', rw.startISO, rw.endISO, window._rangeDaysActive);
-
-  // Events
-  mRange.addEventListener('change', updateEnabling);
-  mMonth.addEventListener('change', updateEnabling);
-  rangeDaysSel.addEventListener('change', function(){
-    window._rangeDaysActive = Number(rangeDaysSel.value);
-    const w = computeRangeWindow(window._rangeDaysActive);
-    setBanner('range', w.startISO, w.endISO, window._rangeDaysActive);
-  });
-  applyBtn.addEventListener('click', function(){
-    const y = Number(yearInput.value), m = Number(monthSel.value);
-    const w = computeMonthWindow(y, m);
-    window._monthStartISO = w.startISO;
-    window._monthEndISO = w.endISO;
-    setBanner('month', w.startISO, w.endISO);
-    updateEnabling();
-  });
-  clearMonthInline.addEventListener('click', function(){
-    window._monthStartISO = undefined;
-    window._monthEndISO = undefined;
-    mRange.checked = true;
-    mMonth.checked = false;
-    updateEnabling();
-    const w = computeRangeWindow(window._rangeDaysActive);
-    setBanner('range', w.startISO, w.endISO, window._rangeDaysActive);
-  });
-  updateEnabling();
-
-  // Patch fetch for /api/imap/fetch to inject chosen mode
-  const _origFetch = window.fetch;
-  window.fetch = async function(resource, init){
-    const url = (typeof resource === 'string') ? resource : (resource?.url || '');
-    if(url.includes('/api/imap/fetch') && init && typeof init.body === 'string' && init.body.trim().startsWith('{')){
-      try{
-        const body = JSON.parse(init.body);
-        if(mMonth.checked && window._monthStartISO && window._monthEndISO){
-          body.monthStart = window._monthStartISO;
-          body.monthEnd   = window._monthEndISO;
-          body.fullBodies = true;   // guarantee full content in month mode
-          delete body.rangeDays;
-        }else{
-          body.rangeDays  = window._rangeDaysActive;
-        }
-        init.body = JSON.stringify(body);
-
-        // Banner echo of what we actually sent
-        if(body.monthStart && body.monthEnd){
-          setBanner('month', body.monthStart, body.monthEnd);
-        }else if(body.rangeDays){
-          const w = computeRangeWindow(body.rangeDays);
-          setBanner('range', w.startISO, w.endISO, body.rangeDays);
-        }
-      }catch(e){}
-    }
-    return _origFetch.apply(this, arguments);
-  };
-
-  // Make "Fetch & Classify" prominent: find relevant button and style it
-  function upgradeFetchButton(){
-    const candidates = Array.from(document.querySelectorAll('button, input[type="button"], a[role="button"]'));
-    for(const el of candidates){
-      const txt = (el.textContent || el.value || '').toLowerCase();
-      if(txt.includes('fetch') && txt.includes('classify')){
-        el.classList.add('primary-cta');
-        el.setAttribute('data-theme','light');
-        // ensure it’s keyboard focusable
-        el.setAttribute('tabindex','0');
-      }
-    }
-  }
-  // run now and after small delay in case button renders later
-  upgradeFetchButton();
-  setTimeout(upgradeFetchButton, 300);
-  const mo = new MutationObserver(upgradeFetchButton);
-  mo.observe(document.documentElement, {childList:true, subtree:true});
-})();
-</script>
-
-  <a href="/index.html" class="switch">Back to SmartEmail</a>
-  <div class="wrap">
-    <header>
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 7l10 6 10-6" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17l10 6 10-6" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12l10 6 10-6" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h1>SmartEmail IMAP</h1>
-      <span class="badge">Facets • Chips • Test Login</span>
-      <div class="tier">
-        <span id="tierPill" class="pill">Tier: free</span>
-        <input id="licenseKey" placeholder="License key (optional)" style="min-width:240px"/>
-        <button id="btnTier" class="btn ghost" type="button">Check Tier</button>
-      </div>
-    </header>
-
-    <section class="card" style="padding:16px 16px 8px">
-      <div class="row">
-        <div class="col">
-          <label for="email">Email</label>
-          <input id="email" type="email" placeholder="name@domain.com" autocomplete="username" />
-        </div>
-        <div class="col">
-          <label for="password">App Password / Password</label>
-          <input id="password" type="password" placeholder="•••• •••• •••• ••••" autocomplete="current-password" />
-        </div>
-        <div class="col">
-          <label for="host">IMAP Host</label>
-          <input id="host" placeholder="imap.gmail.com" />
-        </div>
-        <div class="col">
-          <label for="port">Port</label>
-          <input id="port" type="number" value="993" min="1" />
-        </div>
-      </div>
-
-      <div class="row" style="margin-top:6px">
-        <div class="col">
-          <label for="provider">Provider</label>
-          <select id="provider">
-            <option value="custom">— custom —</option>
-            <option value="gmail">Gmail</option>
-            <option value="outlook">Outlook / Office 365</option>
-            <option value="yahoo">Yahoo</option>
-            <option value="icloud">iCloud</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="tls">TLS</label>
-          <select id="tls">
-            <option value="on" selected>On (recommended)</option>
-            <option value="off">Off</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="range">Range</label>
-          <select id="range">
-            <option value="2" selected>Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="0">All</option>
-          </select>
-        </div>
-
-        <!-- Month filter -->
-        <div class="col">
-          <label for="monthStr">Month</label>
-          <input id="monthStr" type="month" />
-        </div>
-        <div class="col">
-          <label for="monthClear">&nbsp;</label>
-          <button id="monthClear" class="btn ghost" type="button" disabled>Clear Month</button>
-        </div>
-        <!-- /Month filter -->
-
-        <div class="col">
-          <label for="limit">Limit</label>
-          <select id="limit">
-            <option value="20" selected>20</option>
-            <option value="30">30</option>
-            <option value="40">40</option>
-            <option value="50">50</option>
-            <option value="75">75</option>
-            <option value="100">100</option>
-            <option value="150">150</option>
-            <option value="200">200</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="authType">Auth</label>
-          <select id="authType">
-            <option value="password" selected>Password / App Password</option>
-            <option value="xoauth2">XOAUTH2 (access token)</option>
-          </select>
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <a class="btn secondary" href="/auth/microsoft">Sign in with Microsoft</a>
-        </div>
-      </div>
-
-      <div class="row" id="xoRow" style="display:none;margin-top:6px">
-        <div class="col" style="grid-column:span 3">
-          <label for="accessToken">Access Token (OAuth)</label>
-          <input id="accessToken" placeholder="Paste OAuth access token here when using XOAUTH2" />
-        </div>
-      </div>
-
-      <div class="toolbar">
-        <button id="btnTheme" class="btn ghost" type="button" title="Toggle theme">🌙</button>
-        <button class="btn" id="btnFetch" type="button" disabled>Fetch &amp; Classify</button>
-        <button class="btn ghost" id="btnTest" type="button" disabled>Test Login</button>
-        <button class="btn ghost" id="btnRefresh" type="button" disabled>Refresh</button>
-        <button class="btn secondary" id="btnImportant" type="button" disabled>Filter: Important</button>
-        <button class="btn ghost" id="btnAll" type="button" disabled>Show All</button>
-
-        <!-- Quick Filters -->
-        <button class="btn secondary" id="btnQVip"       type="button" disabled>VIP</button>
-        <button class="btn secondary" id="btnQUrgent"    type="button" disabled>Urgent</button>
-        <button class="btn ghost"     id="btnQNeeds"     type="button" disabled>Needs Action</button>
-        <button class="btn ghost"     id="btnQMeeting"   type="button" disabled>Meetings</button>
-        <button class="btn ghost"     id="btnQBilling"   type="button" disabled>Finance</button>
-
-        <button class="btn ghost" id="btnExportJson" type="button" disabled>Export JSON</button>
-        <button class="btn ghost" id="btnExportCsv" type="button" disabled>Export CSV</button>
-        <button class="btn secondary" id="btnSendSelected" type="button" disabled>Send Selected → Generator</button>
-        <button class="btn ghost" id="btnMore" type="button" disabled>More (30d)</button>
-
-        <!-- 🔎 Search -->
-        <input id="searchBox" type="text" placeholder="Search subject/from/text…" style="flex:1;max-width:260px" />
-        <button id="btnSearch" class="btn ghost" type="button" disabled>Search</button>
-      </div>
-
-      <div class="filters">
-        <div class="col">
-          <label for="fPriority">Priority</label>
-          <select id="fPriority">
-            <option value="">All</option>
-            <option>Urgent</option>
-            <option>High</option>
-            <option>Normal</option>
-            <option>Low</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fIntent">Intent</label>
-          <select id="fIntent">
-            <option value="">All</option>
-            <option>billing</option>
-            <option>meeting</option>
-            <option>sales</option>
-            <option>support</option>
-            <option>hr</option>
-            <option>legal</option>
-            <option>security</option>
-            <option>newsletter</option>
-            <option>social</option>
-            <option>other</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fAction">Action</label>
-          <select id="fAction">
-            <option value="">All</option>
-            <option value="needs">Needs action</option>
-            <option value="awaiting">Awaiting reply</option>
-            <option value="fyi">FYI</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="fTime">Time</label>
-          <select id="fTime">
-            <option value="">All</option>
-            <option value="today">Today</option>
-            <option value="2">Last 2 days</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-          </select>
-        </div>
-        <div class="col">
-          <label for="smartView">Smart View</label>
-          <select id="smartView">
-            <option value="">select —</option>
-            <option value="needs_action">Needs Action</option>
-            <option value="awaiting_reply">Awaiting Reply</option>
-            <option value="meetings_48h">Meetings (Next 48h)</option>
-            <option value="billing">Billing & Invoices</option>
-            <option value="security_legal">Security & Legal</option>
-            <option value="newsletters">Newsletters</option>
-            <option value="today">Today</option>
-          </select>
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <div class="hint">Tip: Many providers require an <b>App Password</b> for IMAP (Gmail/iCloud).</div>
-        </div>
-      </div>
-      <div id="msg"></div>
-    </section>
-
-    <section class="card list" id="list" aria-live="polite" style="padding:10px 12px"></section>
-
-    <div class="footer card" style="margin-top:12px;">
-      <div class="pager" style="padding:8px 10px">
-        <button id="prev" class="btn ghost" type="button" disabled>Prev</button>
-        <span id="pageInfo" class="hint">Page 1</span>
-        <button id="next" class="btn ghost" type="button" disabled>Next</button>
-      </div>
-      <div class="hint" style="padding:8px 10px">Select emails and click <b>Send Selected → Generator</b> to prefill the reply screen.</div>
-    </div>
-  </div>
-
-<script>
-/* --- preview helpers --- */
-function stripAndTrim(html, maxLen=180){
-  try{
-    const tmp=document.createElement('div');
-    tmp.innerHTML=String(html ?? '');
-    let t=tmp.textContent||tmp.innerText||'';
-    t=t.replace(/\s+/g,' ').trim();
-    if(t.length>maxLen) t=t.slice(0,maxLen-1)+'…';
-    return t;
-  }catch(e){ return '';}
+function hideModal(){ let m=document.getElementById('checkingModal'); if(m) m.remove(); }
+async function detectAndSyncLicense(showPromptIfFree=true){
+  let licenseKey=localStorage.getItem("licenseKey"); let userEmail=localStorage.getItem("userEmail"); let triedEmail=false;
+  if(licenseKey){ showCheckingModal("Checking license key..."); try{ const r=await fetch(`/validate-license?licenseKey=${encodeURIComponent(licenseKey)}`); const d=await r.json(); hideModal();
+    if(d.tier&&d.status==="active"){ setTier(d.tier); updateFeatureAccess(); if(d.licenseKey) localStorage.setItem("licenseKey",d.licenseKey); if(d.email) localStorage.setItem("userEmail",d.email); log("✅ Loaded license via key."); return; }
+    else{ localStorage.removeItem("licenseKey"); triedEmail=true; log("❌ Bad/expired key."); } }catch(e){ hideModal(); log("❌ License check failed: "+e.message); } }
+  if(userEmail&&!triedEmail){ showCheckingModal("Checking for license linked to your email..."); try{ const r=await fetch(`/validate-license?email=${encodeURIComponent(userEmail)}`); const d=await r.json(); hideModal();
+    if(d.tier&&d.status==="active"){ setTier(d.tier); updateFeatureAccess(); if(d.licenseKey) localStorage.setItem("licenseKey",d.licenseKey); if(d.email) localStorage.setItem("userEmail",d.email); log("✅ Loaded license via email."); return; }
+    else{ localStorage.removeItem("userEmail"); log("❌ Email not licensed."); } }catch(e){ hideModal(); log("❌ Email license check failed: "+e.message); } }
+  setTier("free"); updateFeatureAccess(); log("👤 No license found; set free."); if(showPromptIfFree) showEmailPrompt();
 }
-/* --- end helpers --- */
-/* ==== Full-content hydration helpers ==== */
-async function bodyBatch(ids){
-  const r = await fetch('/api/imap/bodyBatch', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ids })
-  });
-  if(!r.ok) throw new Error('bodyBatch failed');
-  const j = await r.json();
-  return j.items || [];
-}
-
-async function ensureBodiesLoadedFor(ids){
-  const map = new Map((window.emailList||[]).map(e => [e.id, e]));
-  const need = ids.filter(id => {
-    const e = map.get(id);
-    return e && !(e.text || e.html);
-  });
-  if(!need.length) return;
-
-  const items = await bodyBatch(need);
-  for(const it of items){
-    const e = map.get(it.id);
-    if(!e) continue;
-    e.text = (it.text || '').trim();
-    e.html = it.html || '';
-     
-    // if a preview element exists, update it
- //   const pv = document.getElementById(`pv-${it.id}`);
-  //  if(pv && !pv.textContent.trim()){
-//    const raw = e.text || stripAndTrim(e.html, 180);
-  //    if(raw) pv.textContent = raw;
-//    }
-
-     
-  }
-}
-
-// hydrate a single card on-demand
-async function hydrateOnePreview(id){
-  try{
-    await ensureBodiesLoadedFor([id]);
-  }catch(e){ console.warn('hydrateOnePreview failed', e); }
-}
-/* ==== End hydration helpers ==== */
-
-
-(function(){
-window.addEventListener('error', e => {
-  const m = document.getElementById('msg');
-  if (m) m.innerHTML = `<div class="alert err">${(e && e.message) || 'Script error'}</div>`;
-});
-window.addEventListener('unhandledrejection', e => {
-  const m = document.getElementById('msg');
-  const txt = e?.reason?.message || e?.reason || 'Promise error';
-  if (m) m.innerHTML = `<div class="alert err">${txt}</div>`;
-});
-
-const $ = (id)=>document.getElementById(id);
-const list = $("list");
-const msg  = $("msg");
-
-// ---- Theme (manual toggle with persistence) ----
-const THEME_KEY = 'imap.theme';
-function applyTheme(mode) {
-  const root = document.documentElement;
-  if (mode === 'dark') root.classList.add('theme-dark');
-  else root.classList.remove('theme-dark');
-}
-applyTheme(localStorage.getItem(THEME_KEY) || '');
-
-// ---- State ----
-const state = {
-  emails: [], view: [], page: 1, perPage: 20,
-  tier: 'free', isPaid: false, tierKnown: false,
-  nextCursor: null,            // server "next" token
-  cursorStack: []              // history for Prev (stack of cursors)
-};
-// ---- Save/restore IMAP view state ----
-function saveImapState() {
+function showEmailPrompt(){ document.getElementById('modalBg').style.display='block'; }
+function hideEmailPrompt(){ document.getElementById('modalBg').style.display='none'; }
+function showLicenseEntry(){ document.getElementById('licenseInput').value=""; document.getElementById('licenseModalBg').style.display='block'; }
+function hideLicenseEntry(){ document.getElementById('licenseModalBg').style.display='none'; }
+document.getElementById("continueBtn").onclick=async function(){
+const emailInput=document.getElementById("emailInput"); const hiddenEmailField=document.getElementById("email"); const statusMsg=document.getElementById("statusMsg"); const btn=this;
+  if(!emailInput||!btn) return; btn.disabled=true; btn.innerText="Processing...";
+  let email=emailInput.value.trim(); if(!email){ email=localStorage.getItem("userEmail")?.trim()||""; if(email) emailInput.value=email; }
+  const re=/^[^\s@]+@[^\s@]+\.[^\s@]+$/; if(!re.test(email)){ alert("Please enter a valid email address."); btn.disabled=false; btn.innerText="Continue"; return; }
+  localStorage.setItem("userEmail",email); if(hiddenEmailField) hiddenEmailField.value=email;
+  try{ await syncTierFromSQL(email); }catch(_){}
   try {
-    const st = {
-      view: state.view,
-      page: state.page,
-      perPage: state.perPage,
-      nextCursor: state.nextCursor,
-      cursorStack: state.cursorStack,
-      scrollTop: (typeof window.scrollY === 'number' ? window.scrollY : 0)
-    };
-    sessionStorage.setItem("imap.lastState", JSON.stringify(st));
-  } catch (_) {}
-}
-
-function restoreImapState() {
-  try {
-    const s = JSON.parse(sessionStorage.getItem("imap.lastState") || "null");
-    if (!s || !Array.isArray(s.view)) return false;
-    state.view = s.view;
-    state.page = s.page || 1;
-    state.perPage = s.perPage || state.perPage || 20;
-    state.nextCursor = (s.nextCursor ?? state.nextCursor);
-    state.cursorStack = Array.isArray(s.cursorStack) ? s.cursorStack : [null];
-    render();
-    setTimeout(()=>{ try{ window.scrollTo(0, s.scrollTop||0); }catch(_){} }, 0);
-    const info = document.getElementById("pageInfo");
-    if (info) info.textContent = `Restored • Page ${state.page} (${state.view.length} emails)`;
-    return true;
-  } catch (_) { return false; }
-}
-// Full body cache to avoid repeat fetches
-const FULL_CACHE = Object.create(null);
-
-// ---- Providers ----
-const PROVIDERS = {
-  gmail:   { host: "imap.gmail.com",        port: 993, tls: "on" },
-  outlook: { host: "outlook.office365.com", port: 993, tls: "on" },
-  yahoo:   { host: "imap.mail.yahoo.com",   port: 993, tls: "on" },
-  icloud:  { host: "imap.mail.me.com",      port: 993, tls: "on" }
-};
-
-// ---- Persistence ----
-const KEYS = ["email","host","port","provider","tls","range","authType","limit","licenseKey","monthStr"];
-function saveForm(){ KEYS.forEach(k => { const el=$(k); if(el) localStorage.setItem("imap."+k, el.value); }); }
-function loadForm(){ KEYS.forEach(k => { const v = localStorage.getItem("imap."+k); if(v!==null && $(k)) $(k).value = v; }); }
-
-// ---- Password session persistence ----
-function savePwdToSession(){
-  try { sessionStorage.setItem("imap.pwd", $("password")?.value || ""); } catch {}
-}
-function loadPwdFromSession(){
-  try {
-    const v = sessionStorage.getItem("imap.pwd");
-    if (v != null && $("password")) $("password").value = v;
-  } catch {}
-}
-   
-// ---- Utils ----
-function escapeHtml(s) {
-  s = (s == null ? '' : String(s));
-  return s.replace(/[&<>"']/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[c]));
-}
-function setMessage(kind, text){ msg.innerHTML = `<div class="alert ${kind==='ok'?'ok':'err'}">${escapeHtml(text)}</div>`; setTimeout(()=>{ msg.innerHTML=""; }, 6000); }
-function skeleton(n=5){ list.innerHTML = Array.from({length:n}).map(()=>'<div class="sk-card skeleton"></div>').join(''); }
-
-function htmlToText(h){
-  return String(h||"")
-    .replace(/<style[\s\S]*?<\/style>/gi," ")
-    .replace(/<script[\s\S]*?<\/script>/gi," ")
-    .replace(/<[^>]+>/g," ")
-    .replace(/[\s\u00A0]+/g," ").trim();
-}
-
-  function updateMonthUI(){
-  const hasMonth = !!(($("monthStr")?.value || "").trim());
-  $("monthClear").disabled = !hasMonth;
-  const rangeCol = $("range")?.parentElement;
-  const monthCol = $("monthStr")?.parentElement;
-  if (rangeCol && monthCol){
-    rangeCol.classList.toggle("field-dim", hasMonth);
-    monthCol.classList.toggle("field-dim", !hasMonth);
-  } 
-}
-
-// ---- Priority helpers ----
-function priorityOf(e){
-  const imp = String(e.importance||"unimportant").toLowerCase();
-  const urg = Number.isFinite(+e.urgency) ? +e.urgency : 0;
-  const conf = Number.isFinite(+e.confidence) ? +e.confidence : 1;
-  if (imp==="important" && urg===3 && conf>=0.5) return "Urgent";
-  if (imp==="important" && (urg===2 || urg===1)) return "High";
-  if (imp==="important" || urg>=2) return "Normal";
-  return "Low";
-}
-function derivePriority(importance, urgency){
-  const imp = String(importance||'').toLowerCase();
-  const u = Number(urgency||0);
-  if (imp === 'important' && u >= 3) return { label:'Urgent',    cls:'Urgent' };
-  if (imp === 'important' && u === 2) return { label:'High',      cls:'High'   };
-  if (imp === 'important')            return { label:'Important', cls:'High'   };
-  if (u >= 3) return { label:'Urgent', cls:'Urgent' };
-  if (u === 2) return { label:'High',  cls:'High'   };
-  if (imp === 'unimportant') return { label:'Low',  cls:'Low'    };
-  return { label:'', cls:'' };
-}
-
-// ---- Tier UI ----
-function setTierUI(tier, isPaid){
-  state.tier = tier || 'free';
-  state.isPaid = !!isPaid;
-  state.tierKnown = true;
-  $("tierPill").textContent = `Tier: ${state.tier}`;
-  [
-    "btnFetch","btnTest","btnRefresh","btnImportant","btnAll",
-    "btnExportJson","btnExportCsv","btnSendSelected","btnMore","prev","next",
-    "btnQImportant","btnQVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling",
-    "btnSearch"
-  ].forEach(id => { const el = $(id); if (el) el.disabled = false; });
-  if (!state.isPaid) setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
-}
-
-// ---- Render ----
-function cardHtml(e) {
-  const importance = String(e.importance || '').toLowerCase();
-  const category   = e.category || e.intent || '';
-  const from       = e.from || e.fromEmail || '';
-  const reasons    = Array.isArray(e.reasons) ? e.reasons.join(' • ') : '';
-  const fromEmail  = e.fromEmail || '';
-  const fromDomain = e.fromDomain || '';
-
-  const pr = derivePriority(importance, e.urgency);
-  const priorityChip = pr.label ? `<span class="chip pri-${pr.cls}" title="Priority">${pr.label}</span>` : '';
-  const catChip = category ? `<span class="chip" title="Category">${escapeHtml(category)}</span>` : '';
-  const urgVal = Number.isInteger(e.urgency) ? e.urgency : 0;
-  const urgencyChip = urgVal >= 2 ? `<span class="chip u${urgVal}" title="${escapeHtml(reasons.slice(0, 140))}">Urgency ${urgVal}</span>` : '';
-  const vipChip = e.isVip ? `<span class="chip vip" title="VIP sender">VIP</span>` : '';
-
-  const actionsMenu = `
-    <details class="ovr">
-      <summary>⋯</summary>
-      <div class="menu">
-        <button class="ovr-imp" data-lab="important"   data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Mark as Important</button>
-        <button class="ovr-imp" data-lab="unimportant" data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Mark as Unimportant</button>
-        <hr style="border:none;border-top:1px solid #eee;margin:6px 0"/>
-        <button class="ovr-cat" data-cat="meeting"     data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: meeting</button>
-        <button class="ovr-cat" data-cat="billing"     data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: billing</button>
-        <button class="ovr-cat" data-cat="security"    data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: security</button>
-        <button class="ovr-cat" data-cat="legal"       data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: legal</button>
-        <button class="ovr-cat" data-cat="newsletter"  data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: newsletter</button>
-        <button class="ovr-cat" data-cat="sales"       data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: sales</button>
-        <button class="ovr-cat" data-cat="social"      data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: social</button>
-        <button class="ovr-cat" data-cat="system"      data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Set category: system</button>
-        <button class="ovr-cat" data-cat=""            data-email="${escapeHtml(fromEmail)}" data-domain="${escapeHtml(fromDomain)}">Clear category override</button>
-      </div>
-    </details>
-  `;
-
-  const id = escapeHtml(e.id || '');
-
-// Build a safe snippet for the list preview
-let rawSnippet =
-      e.snippet
-   || e.preview
-   || e.bodySnippet
-   || e.summary
-   || e.text
-   || '';
-
-// Always sanitize what we show in the preview
-if (rawSnippet) {
-  // turn any HTML into plain text (drops <style>, <script>, tags)
-  rawSnippet = htmlToText(rawSnippet);
-}
-const snippetSafe = escapeHtml(rawSnippet || "(no preview available)");
-
- return `
-  <div class="email">
-    <div class="email-header">
-      <div class="meta">
-        <input type="checkbox" class="sel" data-id="${id}" />
-        <span class="from">${escapeHtml(from)}</span>
-      </div>
-      <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
-      <div class="chips">
-        ${vipChip}${priorityChip}${catChip}${urgencyChip}
-        <span class="actions">${actionsMenu}</span>
-      </div>
-    </div>
-    <details class="preview" data-id="${id}">
-      <summary>Preview</summary>
-      <!-- keep the mount point EMPTY; we'll render full body here -->
-      <div class="preview-body" id="pv-${id}" style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
-  ${snippetSafe}
-</div>
-    </details>
-    <div class="meta" style="margin-top:6px">
-      <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
-      ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
-    </div>
-  </div>
-`;
-}
-   
-function render(){
-  const start = (state.page-1)*state.perPage;
-  const items = state.view.slice(start, start+state.perPage);
-  if(!items.length){
-    list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
-    $("pageInfo").textContent = `Page ${state.page}`;
-    $("prev").disabled = true; $("next").disabled = true;
-    return;
-  }
-  list.innerHTML = items.map(cardHtml).join("");
-  const total = state.view.length;
-  $("pageInfo").textContent = `${total} emails`;
-}
-
-// ---- Filters ----
-function applyFilters(){
-  let filtered = [...state.emails];
-  const fPri = $("fPriority").value, fIntent = $("fIntent").value, fAction = $("fAction").value, fTime = $("fTime").value;
-  if (fPri)     filtered = filtered.filter(e => priorityOf(e) === fPri);
-  if (fIntent)  filtered = filtered.filter(e => (e.intent||"") === fIntent);
-  if (fAction === "needs")     filtered = filtered.filter(e => !!e.action_required || (Number(e.urgency)>=2));
-  if (fAction === "fyi")       filtered = filtered.filter(e => !e.action_required && String(e.importance)!=="important");
-  if (fAction === "awaiting")  filtered = filtered.filter(e => String(e.importance)==="important" && !e.action_required);
-  if (fTime){
-    const now = Date.now();
-    if (fTime === "today"){
-      const start = new Date(); start.setHours(0,0,0,0);
-      filtered = filtered.filter(e => new Date(e.date||0) >= start);
-    } else {
-      const days = Number(fTime);
-      if (Number.isFinite(days) && days>0){
-        const since = now - days*24*3600*1000;
-        filtered = filtered.filter(e => new Date(e.date||0).getTime() >= since);
-      }
-    }
-  }
-  state.view = filtered; state.page = 1; render();
-}
-function applyQuickFilter(kind){
-  let filtered = [...state.emails];
-  switch (kind) {
-    case 'important': filtered = filtered.filter(e => String(e.importance || '').toLowerCase() === 'important'); break;
-    case 'urgent':    filtered = filtered.filter(e => priorityOf(e) === 'Urgent'); break;
-    case 'needs':     filtered = filtered.filter(e => !!e.action_required || Number(e.urgency) >= 2); break;
-    case 'meeting':   filtered = filtered.filter(e => (e.intent || '') === 'meeting'); break;
-    case 'billing':   filtered = filtered.filter(e => (e.intent || '') === 'billing'); break;
-  }
-  state.view = filtered; state.page = 1; render();
-}
-
-// ---- Export ----
-function exportJSON(){
-  const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.json"; a.click(); URL.revokeObjectURL(a.href);
-}
-function exportCSV(){
-  const cols=["id","from","to","subject","date","importance","intent","urgency","action_required"];
-  const hdr=cols.join(",");
-  const rows=state.view.map(e=>cols.map(c=>JSON.stringify(e[c]??"")).join(","));
-  const b=new Blob([hdr+"\n"+rows.join("\n")],{type:"text/csv"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.csv"; a.click(); URL.revokeObjectURL(a.href);
-}
-
-// ---- Full message retrieval helpers ----
-async function fetchFullEmail(id){
-  if (!id) throw new Error("No id");
-  const payload = {
-    email: $("email")?.value || "",
-    password: $("password")?.value || "",
-    host: $("host")?.value || "",
-    port: Number($("port")?.value || 993),
-    tls: ($("tls")?.value || "on") !== "off",
-    authType: $("authType")?.value || "password",
-    accessToken: $("accessToken")?.value || "",
-    ids: [String(id)],
-    limit: 1,
-    includeBody: true
-  };
-  const resp = await fetch("/api/imap/fetch", {
+  const res = await fetch("/api/register-free-user", {
     method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email })
   });
-  if (!resp.ok) throw new Error("Fetch full failed " + resp.status);
-  const data = await resp.json().catch(()=>({}));
-  return (Array.isArray(data.emails) && data.emails[0]) || {};
-}
-
-// Returns a full message (from cache or server)
-async function ensureBodiesLoadedFor(ids, opts = {}) {
-  const force = !!opts.force;
-
-  const list = (window.emailList || state.emails || []);
-  const map  = new Map(list.map(e => [String(e.id), e]));
-
-  // If force=true we fetch for all ids; otherwise only for ones that lack text/html
-  const need = force
-    ? ids.map(String)
-    : ids.map(String).filter(id => {
-        const e = map.get(id);
-        const hasText = !!(e && e.text && String(e.text).trim());
-        const hasHtml = !!(e && e.html && String(e.html).trim());
-        return e && !(hasText || hasHtml);
-      });
-
-  if (!need.length && !force) return;
-
-  const items = await bodyBatch(need);
-  for (const it of items) {
-    const e = map.get(String(it.id));
-    if (!e) continue;
-
-    // persist full body into the in-memory record
-    e.text = (it.text ?? e.text ?? '').toString().trim();
-    e.html = (it.html ?? e.html ?? '');
-
-    // If a preview node exists and hasn't been fully rendered yet,
-    // upgrade its placeholder text so the user sees *something* instantly.
-    const pv = document.getElementById(`pv-${it.id}`);
-    if (pv && pv.dataset.full !== "1" && !pv.textContent.trim()) {
-      const raw = e.text || stripAndTrim(e.html, 180);
-      if (raw) pv.textContent = raw;
-    }
-  }
-
-  return items;
-}
-
-/* === NEW: render full preview into the preview mount === */
-function renderFullPreview(email){
-  const pv = document.getElementById(`pv-${email.id}`);
-  if (!pv) return;
-
-  // clear any previous snippet
-  pv.innerHTML = '';
-
-  // Prefer HTML if present; otherwise plain text
-  const html = email.html || email.htmlBody || email.bodyHtml || email.textHtml;
-  const text = email.text || email.bodyText || email.textPlain || email.plain;
-
-  if (html) {
-    // sandboxed iframe so the email’s CSS doesn’t break the app
-    const iframe = document.createElement('iframe');
-    iframe.style.width = '100%';
-    iframe.style.border = 'none';
-    iframe.style.background = '#fff';
-    pv.appendChild(iframe);
-
-    // write the HTML and auto-size
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.open(); doc.write(html); doc.close();
-
-    // grow height after layout
-    const resize = () => {
-      try {
-        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-        iframe.style.height = (h || 300) + 'px';
-      } catch(_) {}
-    };
-    iframe.onload = resize;
-    // in case onload doesn’t fire (same-origin), schedule a measure
-    setTimeout(resize, 30);
-  } else if (text) {
-    const pre = document.createElement('pre');
-    pre.textContent = text;
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontSize = '14px';
-    pv.appendChild(pre);
-  } else {
-    // last resort: show whatever we can
-    const fallback = email.snippet || email.preview || '';
-    pv.textContent = fallback ? String(fallback) : '(no body available)';
+  await res.json().catch(() => ({}));  // tolerate empty/invalid JSON
+} catch (e) {
+  const msg = String(e?.message || '').toLowerCase();
+  if (
+    !msg.includes("duplicate") &&
+    !msg.includes("pattern") &&
+    !msg.includes("did not match")
+  ) {
+    alert("Something went wrong while saving your email. Please try again.");
   }
 }
-
-   
-// ---- Send Selected → Generator (always full body) ----
-async function sendSelected(){
-  const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
-  if (!ids.length){ setMessage("err","Select at least one email."); return; }
-
-  // First selected message from the list
-  let first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
-
-  // Try to upgrade to full within 3s; otherwise fall back
-  try {
-    first = await Promise.race([
-      ensureFullById(first.id),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 3000))
-    ]);
-  } catch (_) { /* keep lightweight */ }
-
-  // Prefer true plain text; otherwise convert HTML to text.
-// As a last resort, sanitize the snippet too (never send raw HTML/CSS).
-const plain =
-      first.text
-   || first.textPlain
-   || first.plain
-   || first.bodyText
-   || "";
-
-const html =
-      first.html
-   || first.htmlBody
-   || first.textHtml
-   || "";
-
-const snippetLike =
-      first.snippet
-   || first.preview
-   || first.bodySnippet
-   || first.summary
-   || "";
-
-// helper: robust sanitize -> plain text
-const toPlain = (s) => (s && String(s).trim()) ? htmlToText(String(s)) : "";
-
-let bodyText = "";
-if (plain && /\S/.test(plain)) {
-  bodyText = String(plain);
-} else if (html && /\S/.test(html)) {
-  bodyText = toPlain(html);
-} else if (snippetLike) {
-  bodyText = toPlain(snippetLike);  // sanitize fallback too
+  
+  hideEmailPrompt();
+  setTimeout(()=>{ if(statusMsg) statusMsg.innerText="🔍 Checking license (post-registration)..."; log("📡 Post-reg license check."); detectAndSyncLicense(false); },700);
+  btn.disabled=false; btn.innerText="Continue";
+};
+function maskLicense(k){ if(!k||k.length<4) return'xxxx'; return'xxxx-xxxx-xxxx-'+k.slice(-4); }
+async function saveLicense(){
+  const key=document.getElementById("licenseInput").value.trim(); if(!key) return alert("❗ Please enter a license key.");
+  localStorage.setItem("licenseKey",key); log("🔑 Saved key locally: "+maskLicense(key)); showCheckingModal("Checking license key...");
+  try{ const r=await fetch(`/validate-license?licenseKey=${encodeURIComponent(key)}`); const d=await r.json(); hideModal();
+    if(d.tier&&d.status==="active"){ setTier(d.tier); updateFeatureAccess(); if(d.licenseKey) localStorage.setItem("licenseKey",d.licenseKey); if(d.email) localStorage.setItem("userEmail",d.email); alert("✅ License applied: "+(d.tier||'free').toUpperCase()); hideLicenseEntry(); }
+    else{ localStorage.removeItem("licenseKey"); setTier("free"); updateFeatureAccess(); alert("❌ License not recognized or expired."); } }catch(e){ hideModal(); alert("❌ Error validating license: "+e.message); }
 }
-
-// normalize spaces
-bodyText = bodyText.replace(/\u00A0/g, " ").trim();
-
-  // Use YOUR login address for the Generator
-  let userEmail = $("email")?.value || "";
-  if (!userEmail) {
-    userEmail = localStorage.getItem('imap.email')
-             || localStorage.getItem('smartemail.imapEmail')
-             || "";
-  }
-
-  const payload = {
-    subject: first.subject || "",
-    body: bodyText || "",
-    snippet: snippetLike || "",
-    userEmail
-  };
-
-  try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch(e){}
-try { saveImapState(); } catch(e){}
-
-setTimeout(()=>{ window.location.href = "index.html#generator"; }, 15);
+function clearLicense(){ if(!confirm("Clear your license and email?")) return; localStorage.removeItem("licenseKey"); localStorage.removeItem("userEmail"); setTier("free"); updateFeatureAccess(); alert("✅ Cleared. Back to free."); log("🔄 Cleared license."); }
+function setTier(t){ window.userTier=t; const b=document.getElementById("tierBadge"); b.className=''; const v=String(t||'free').toLowerCase(); if(v==="pro") b.classList.add('pro'); else if(v==="premium") b.classList.add('premium'); else b.className=''; b.innerText=(v.charAt(0).toUpperCase()+v.slice(1))+" Tier"; }
+function updateFeatureAccess(){
+  let t=window.userTier||"free"; let pro=(t==="pro"||t==="premium");
+  const ids=[["exportBtn"],["exportPdfBtn"],["exportTextBtn"],["enhanceBtn"]]; ids.forEach(([id])=>{ const el=document.getElementById(id); if(!el) return; el.disabled=!pro; el.style.opacity=pro?"1":"0.5"; el.style.cursor=pro?"pointer":"not-allowed"; });
+  const cp=document.getElementById("copyBtn"); if(cp){ cp.disabled=false; cp.style.opacity="1"; cp.style.cursor="pointer"; }
+  log("✅ Access updated: "+t);
 }
-// ---- Overrides helpers (persist locally / optionally to server) ----
-async function sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label }) {
-  try {
-    const resp = await fetch('/api/imap/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ownerEmail, licenseKey, fromEmail, fromDomain, label })
-    });
-    if (resp.ok) return true;
-  } catch (_) {}
-  setLocalImportanceOverride({ fromEmail, fromDomain, importance: label === 'important' ? 'important' : 'unimportant' });
-  return true;
-}
-function setLocalCategoryOverride({ fromEmail, fromDomain, category }) {
-  const key = 'imap.cat.overrides';
-  let map = {};
-  try { map = JSON.parse(localStorage.getItem(key) || '{}'); } catch {}
-  const id = (fromEmail || fromDomain || '').toLowerCase();
-  if (!id) return;
-  if (category) map[id] = category; else delete map[id];
-  localStorage.setItem(key, JSON.stringify(map));
-  state.emails = state.emails.map(e => {
-    const eid = (e.fromEmail || e.fromDomain || '').toLowerCase();
-    return (eid === id) ? { ...e, category, intent: category } : e;
+function showBuyPro(){ fetch('/config').then(r=>r.json()).then(d=>{ if(d.PRO_URL) window.open(d.PRO_URL,"_blank"); else alert("Pro purchase URL not found."); }).catch(()=>alert("Failed to load Pro purchase URL.")); }
+function showBuyPremium(){ fetch('/config').then(r=>r.json()).then(d=>{ if(d.PREMIUM_URL) window.open(d.PREMIUM_URL,"_blank"); else alert("Premium purchase URL not found."); }).catch(()=>alert("Failed to load Premium purchase URL.")); }
+window.onload=function(){ detectAndSyncLicense(); try{ const e=localStorage.getItem('userEmail'); if(e) syncTierFromSQL(e); }catch(_){} };
+function recheckLicense(){ detectAndSyncLicense(false); alert("🔄 License rechecked and access updated."); }
+function log(m){ const a=document.getElementById("debugLog"); if(!a) return; a.value+=`${new Date().toISOString()} — ${m}\n`; a.scrollTop=a.value.length; if(a.value.length>12000) a.value=a.value.slice(-9000); console.log(m); }
+
+// === SQL-Tier helpers (added, non-blocking; UI unchanged) ===
+async function sqlCheckEmail(email) {
+  const licenseKey = (localStorage.getItem('licenseKey') || '').trim();
+  const res = await fetch('/api/license/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, licenseKey })   // <-- include key
   });
+  if (!res.ok) throw new Error('Lookup failed');
+  return await res.json(); // {found, active, tier}
 }
-function setLocalImportanceOverride({ fromEmail, fromDomain, importance }) {
-  const key = 'imap.imp.overrides';
-  let map = {};
-  try { map = JSON.parse(localStorage.getItem(key) || '{}'); } catch {}
-  const id = (fromEmail || fromDomain || '').toLowerCase();
-  if (!id) return;
-  if (importance) map[id] = importance; else delete map[id];
-  localStorage.setItem(key, JSON.stringify(map));
-  state.emails = state.emails.map(e => {
-    const eid = (e.fromEmail || e.fromDomain || '').toLowerCase();
-    return (eid === id) ? { ...e, importance } : e;
-  });
-}
-function applySavedOverridesTo(emails) {
-  let cm = {}; try { cm = JSON.parse(localStorage.getItem('imap.cat.overrides') || '{}'); } catch {}
-  let im = {}; try { im = JSON.parse(localStorage.getItem('imap.imp.overrides') || '{}'); } catch {}
-  return emails.map(e => {
-    const id = (e.fromEmail || e.fromDomain || '').toLowerCase();
-    const category = cm[id] || e.category || e.intent || '';
-    const importance = im[id] || e.importance || 'unclassified';
-    return { ...e, category, intent: category, importance };
-  });
-}
-
-// ---- Tier preflight ----
-async function checkTier() {
-  try {
-    const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
-    const licenseKey = ($("licenseKey")?.value || localStorage.getItem("smartemail.licenseKey") || localStorage.getItem("licenseKey") || "").trim();
-    if (!email && !licenseKey) { setTierUI("free", false); return; }
-    const resp = await fetch("/api/imap/tier", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, licenseKey })
-    });
-    let data = null; try { data = await resp.json(); } catch {}
-    if (resp.ok && data && typeof data.tier === "string") {
-      setTierUI(data.tier || "free", !!data.isPaid);
-      if (data.notice) setMessage("ok", data.notice);
-    } else {
-      setTierUI("free", false);
-    }
-  } catch (e) {
-    setTierUI("free", false);
-  }
-}
-
-async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
-  for (let attempt = 0; ; attempt++) {
-    const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), timeout);
-    try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      clearTimeout(to);
-
-      if (resp.ok) return await resp.json().catch(() => ({}));
-
-      // Retry on cold-start / gateway errors
-      if (attempt < retries && [502, 503, 504].includes(resp.status)) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-
-      let msg = "";
-      try { const j = await resp.json(); msg = j.error || j.message || ""; } catch {}
-      throw new Error(msg || `Fetch failed (${resp.status})`);
-    } catch (err) {
-      clearTimeout(to);
-      // Retry on AbortError / transient network errors
-      if (attempt < retries && (err.name === "AbortError" || err instanceof TypeError)) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-   
-// ---- Networking (list) ----
-async function fetchAndClassify(next=false, prev=false){
-  skeleton(6);
+async function syncTierFromSQL(email){
   try{
-    const provider = $("provider").value;
+    const d = await sqlCheckEmail(email);
+    const tier = (d && d.active && d.tier) ? d.tier : 'free';
+    localStorage.setItem('smartemail_tier', tier);
 
-    // iCloud defaults
-    if (provider === "icloud") {
-      if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-      $("tls").value = "on";
-      if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
-      if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
-    }
+    // ⬇️ Apply the tier to the UI immediately
+    setTier(tier);
+    updateFeatureAccess();
 
-    const payload = {
-      email: $("email").value||"",
-      password: $("password").value||"",
-      host: $("host").value||"",
-      port: Number($("port").value||993),
-      tls: ($("tls").value||"on")!=="off",
-      rangeDays: Number($("range").value||2),
-      limit: Number($("limit").value||20),
-      authType: $("authType").value||"password",
-      accessToken: $("accessToken")?.value||"",
-      licenseKey:
-        $("licenseKey")?.value ||
-        localStorage.getItem('smartemail.licenseKey') ||
-        localStorage.getItem('licenseKey') ||
-        "",
-      // ensure list view has lightweight text to show
-      includePreview: true,
-      includeSnippet: true,
-      includeBody: false
-    };
-
-console.log("[CLIENT] IMAP payload being sent:", payload);     
-console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
-     
-    // include the IMAP login account email for the generator
-    const userEmail = $("email")?.value || "";
-    try { payload.userEmail = userEmail; } catch(e){}
-
-    // Server pagination
-    if (next && state.nextCursor) payload.cursor = state.nextCursor;
-    if (prev) {
-      state.cursorStack.pop();
-      const backCursor = state.cursorStack[state.cursorStack.length - 1] || null;
-      if (backCursor) payload.cursor = backCursor;
-    } 
-
-    // XOAUTH2 requires a token
-    if ((payload.authType||"").toLowerCase()==="xoauth2" &&
-        !String(payload.accessToken||"").trim()) {
-      list.innerHTML = "";
-      setMessage("err","XOAUTH2 selected — paste a valid access token first.");
-      return;
-    }
-
-    // Gmail app password nudge
-    if ((payload.authType||"").toLowerCase()==="password" &&
-        /imap\.gmail\.com$/i.test(payload.host||"") &&
-        String(payload.password||"").trim().length < 16) {
-      setMessage("err","Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
-    }
-
-    // Fill host from preset if missing
-    if (!payload.host) {
-      const p = $("provider").value;
-      const P = PROVIDERS;
-      if (P[p]) {
-        $("host").value = P[p].host;
-        $("port").value = P[p].port;
-        $("tls").value  = P[p].tls;
-        payload.host    = P[p].host;
-      }
-    }
-    if (!payload.host) {
-      list.innerHTML = "";
-      setMessage("err","IMAP host is required. Choose a Provider or enter the host.");
-      return;
-    }
-
-    saveForm();
-     
-console.log("[IMAP] Final payload going to server:", payload);
-     
-const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
-console.log("[IMAP] Raw server response:", data);
-     
-const emails = Array.isArray(data.emails) ? data.emails : [];
-     
-console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.slice(0, 3));
-    console.log(
-  "[IMAP] Server returned", (emails || []).length, "emails. Sample:",
-  (emails || []).slice(0, 3).map(e => ({
-    id: e.id || e.uid,
-    subject: e.subject,
-    date: e.date,
-    internalDate: e.internalDate,
-    receivedAt: e.receivedAt
-  }))
-); 
-
-
-state.emails = emails.map((e, i) => {
-  // #4: per-email log while mapping
-  console.log("[IMAP] map#", i, {
-    id: e.id || e.uid,
-    subject: e.subject,
-    date: e.date,
-    internalDate: e.internalDate,
-    receivedAt: e.receivedAt
-  });
-
-  return { ...e, id: e.id ?? e.uid ?? String(i+1) };
-});
-
-// --- Enforce client-side date window (Range or Month from Mode bar) ---
-const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
-const monthMode = !!(mStart && mEnd);
-
-let startTs = -Infinity;
-let endTs   =  Infinity;
-
-// Clamp end to end-of-today (UTC) so we never include future dates
-const _now = new Date();
-const todayEndUTC = Date.UTC(
-  _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
-  23, 59, 59, 999
-);
-
-if (monthMode) {
-  // Month mode: inclusive UTC window
-  const s = new Date(mStart + 'T00:00:00Z').getTime();
-  const e = new Date(mEnd   + 'T23:59:59Z').getTime();
-  startTs = Number.isFinite(s) ? s : -Infinity;
-  endTs   = Math.min(Number.isFinite(e) ? e : Infinity, todayEndUTC);
-} else {
-  // Range mode: fallback to the Mode bar's current range selection
-  const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
-  const days = Number.isFinite(daysSel) ? daysSel : 30;
-  const end  = todayEndUTC;
-
-  if (days <= 0) {
-    // "All" → only clamp the future
-    startTs = -Infinity;
-    endTs   = end;
-  } else {
-    const start = end - (Math.max(1, days) - 1) * 86400000;
-    startTs = start;
-    endTs   = end;
-  }
-}
-
-// Log the active date window (helps if anything looks off)
-console.log("IMAP window", {
-  monthMode, mStart, mEnd, startTs, endTs,
-  startISO: new Date(startTs).toISOString(),
-  endISO:   new Date(endTs).toISOString()
-});
-
-const beforeCount = state.emails.length;
-const originalEmails = state.emails.slice(); // for safe fallback
-
-// Filter emails into the active window using the most reliable timestamp available
-state.emails = state.emails.filter(e => {
-  let t = null;
-
-  // Try: internalDate → receivedAt → date (accept number/number-like string/ISO)
-  const candidates = [e.internalDate, e.receivedAt, e.date];
-
-  for (const cand of candidates) {
-    if (t != null) break;
-    if (cand == null || cand === '') continue;
-
-    // numeric seconds/ms (or digits-only string)
-    if (typeof cand === 'number' || (/^\d+$/.test(String(cand)))) {
-      t = Number(cand);
-      if (t < 1e12) t *= 1000; // seconds → ms
-      continue;
-    }
-
-    // parse date-like strings (RFC/ISO)
-    const d = new Date(String(cand));
-    if (!Number.isNaN(d.getTime())) {
-      t = d.getTime();
-    }
-  }
-
-  if (!Number.isFinite(t)) {
-    console.log("SKIP invalid date:", {
-      id: e.id || e.uid, date: e.date, internalDate: e.internalDate, receivedAt: e.receivedAt
-    });
-    return false;
-  }
-
-  const ok = (t >= startTs && t <= endTs);
-  // Optional: detailed per-email log
-  // console.log("Email filter check", { id: e.id || e.uid, subject: e.subject, parsedTs: t, startTs, endTs, inRange: ok });
-  return ok;
-});
-
-// Safety net: if our date window removed everything but the server clearly returned emails,
-// show the unfiltered batch rather than an empty screen. Keeps UX sane if clocks/timezones wobble.
-if (state.emails.length === 0 && beforeCount > 0) {
-  console.warn("Date filter removed all emails — falling back to unfiltered server page.");
-  state.emails = originalEmails;
-}
-
-console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
-console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
-
-// --- Re-apply saved overrides ---
-state.emails = applySavedOverridesTo(state.emails);
-
-state.view = state.emails.slice();
-state.perPage = Math.max(1, Number($("limit").value || 20));
-state.page = 1;
-render();
-
-    // Save server cursors
-    state.nextCursor = data?.nextCursor || null;
-    if (next) {
-      state.cursorStack.push(payload.cursor || null);
-    } else if (!prev) {
-      state.cursorStack = [null];
-    }
-
-    // Update pager buttons + label
-    $("next").disabled = !state.nextCursor;
-    $("prev").disabled = !(state.cursorStack.length > 1);
-    $("pageInfo").textContent = `Page ${state.cursorStack.length}`;
-
-    if (typeof data.tier === 'string') setTierUI(data.tier, data.tier !== 'free');
-    if (data.notice) setMessage("ok", data.notice);
-
-    setMessage("ok", `Fetched ${state.emails.length} emails.`);
-  }catch(err){
-    console.error(err); list.innerHTML="";
-    const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
-      ? "Request timed out. Try a shorter range or check network."
-      : (err.message || "Could not fetch/classify emails.");
-    setMessage("err", m);
-  }
-}
-
-// ---- Test Login ----
-async function testLogin(){
-  try{
-    const provider = $("provider").value;
-    if (provider === "icloud") {
-      if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
-      $("tls").value = "on";
-    }
-
-    const payload = {
-      email: $("email").value||"",
-      password: $("password").value||"",
-      host: $("host").value||"",
-      port: Number($("port").value||993),
-      tls: ($("tls").value||"on")!=="off",
-      authType: $("authType").value||"password",
-      accessToken: $("accessToken")?.value||""
-    };
-
-    const controller = new AbortController();
-const t = setTimeout(() => controller.abort(), 90000);   // fixed timeout for test login
-const resp = await fetch("/api/imap/test", {
-  method: "POST",
-  headers: {"Content-Type":"application/json"},
-  body: JSON.stringify(payload),
-  signal: controller.signal
-});
-clearTimeout(t);
-
-    let data=null; try{ data = await resp.json(); }catch{}
-    if(resp.ok && data && data.ok){ setMessage("ok","Login OK"); }
-    else { throw new Error((data && (data.error||data.message)) || `Login failed (${resp.status})`); }
+    log && log(`🔄 SQL tier sync: ${tier} for ${email}`);
   }catch(e){
-    setMessage("err", e.message || "Login failed");
+    log && log('⚠️ SQL sync failed: '+(e?.message||'error'));
   }
 }
-
-// ---- Provider preset ----
-function applyProviderPreset(){
-  const p = $("provider").value;
-  const P = PROVIDERS;
-  if(P[p]){ $("host").value=P[p].host; $("port").value=P[p].port; $("tls").value=P[p].tls; }
-  saveForm();
-}
-
-// ---- Events binder ----
-function on(id, ev, fn) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.disabled = false;
-  el.removeAttribute('disabled');
-  el.removeEventListener(ev, fn);
-  el.addEventListener(ev, fn);
-}
-
-// VIP & Quick Filters
-on("btnVip","click", ()=>{ state.view = state.emails.filter(e => !!e.isVip); state.page=1; state.nextCursor=null; state.cursorStack=[null]; $("prev") && ($("prev").disabled=true); $("next") && ($("next").disabled=true); $("pageInfo") && ($("pageInfo").textContent = `VIP • ${state.view.length} emails`); render(); });
-on("btnQVip","click", ()=>{
-  state.view = state.emails.filter(e => !!e.isVip);
-  state.page = 1;
-  state.nextCursor = null;
-  state.cursorStack = [null];
-  $("prev") && ($("prev").disabled = true);
-  $("next") && ($("next").disabled = true);
-  $("pageInfo") && ($("pageInfo").textContent = `VIP • ${state.view.length} emails`);
-  render();
-});
-on("btnQImportant","click", ()=>applyQuickFilter('important'));
-on("btnQUrgent","click",   ()=>applyQuickFilter('urgent'));
-on("btnQNeeds","click",    ()=>applyQuickFilter('needs'));
-on("btnQMeeting","click",  ()=>applyQuickFilter('meeting'));
-on("btnQBilling","click",  ()=>applyQuickFilter('billing'));
-
-// Paging size + month UI
-on("limit","change", () => {
-  state.perPage = Math.max(1, Number($("limit").value || 20));
-  state.page = 1;
-  render();
-});
-$("monthStr")?.addEventListener("change", updateMonthUI);
-$("monthStr")?.addEventListener("input",  updateMonthUI);
-$("monthClear")?.addEventListener("click", ()=>{
-  $("monthStr").value = "";
-  updateMonthUI();
-});
-
-// Persist form changes
-["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
-  .forEach(id => on(id, "change", saveForm));
-
-// Hide old Range + Month controls (we use the new Mode bar instead)
-(function () {
-  function hideOldFilters() {
-    const hideCol = (el) => {
-      try {
-        (el && (el.closest('.col') || el)).style.display = 'none';
-      } catch (_) {}
-    }; // ✅ added this line to properly close hideCol
-
-    hideCol(document.getElementById('range'));     // OLD Range <select>
-    hideCol(document.getElementById('monthStr'));  // OLD Month <input type="month">
-    hideCol(document.getElementById('monthClear'));// OLD Clear Month button
-  }
-
-  // Run immediately if DOM is ready; otherwise after it’s loaded
-  if (document.readyState !== 'loading') hideOldFilters();
-  else document.addEventListener('DOMContentLoaded', hideOldFilters);
-})();
-
-// Provider / auth toggles
-on("provider","change", applyProviderPreset);
-on("authType","change", (e)=>{
-  $("xoRow").style.display = e.target.value==="xoauth2" ? "grid" : "none";
-  saveForm();
-});
-
-// Tier + toolbar actions
-on("btnTier","click", checkTier);
-on("btnFetch","click", fetchAndClassify);
-on("btnTest","click", testLogin);
-on("btnRefresh","click", ()=>render());
-
-// Theme toggle
-on("btnTheme","click", ()=>{
-  const root = document.documentElement;
-  const goDark = !root.classList.contains("theme-dark");
-  root.classList.toggle("theme-dark", goDark);
-  localStorage.setItem("imap.theme", goDark ? "dark" : "");
-});
-
-// Important / All
-on("btnImportant","click", ()=>{
-  state.view = state.emails.filter(e => String(e.importance).toLowerCase() === "important");
-  state.page = 1;
-  render();
-});
-on("btnAll","click", ()=>{
-  state.view = state.emails.slice();
-  state.page = 1;
-  render();
-});
-
-on("btnExportJson","click", exportJSON);
-on("btnExportCsv","click",  exportCSV);
-on("btnSendSelected","click", sendSelected);
-on("btnMore","click", ()=>{
-  $("range").value = "30";
-  setMessage("ok","Range set to 30 days. Click Fetch & Classify.");
-});
-
-// Search
-on("btnSearch","click", ()=>{
-  const q = ( ($("searchBox")?.value || "").toLowerCase().trim() );
-  if (!q) {
-    state.view = state.emails.slice();
-  } else {
-    state.view = state.emails.filter(e =>
-      String(e.subject||"").toLowerCase().includes(q) ||
-      String(e.from||"").toLowerCase().includes(q) ||
-      String(e.fromEmail||"").toLowerCase().includes(q) ||
-      String(e.snippet||e.text||"").toLowerCase().includes(q)
-    );
-    state.nextCursor = null;
-    state.cursorStack = [null];
-    const p = $("prev"), n = $("next"), info = $("pageInfo");
-    if (p) p.disabled = true;
-    if (n) n.disabled = true;
-    if (info) info.textContent = `Search • ${state.view.length} emails`;
-  }
-  state.page = 1;
-  render();
-});
-on("searchBox","input", ()=>{
-  const b = $("btnSearch");
-  if (b) b.click();
-});
-
-// Cursor paging
-on("prev","click", ()=>{
-  if (state.cursorStack.length > 1) fetchAndClassify(false, true);
-});
-on("next","click", ()=>{
-  if (state.nextCursor) fetchAndClassify(true, false);
-});
-
-// Filters & Smart View
-on("fPriority","change", applyFilters);
-on("fIntent","change",   applyFilters);
-on("fAction","change",   applyFilters);
-on("fTime","change",     applyFilters);
-on("smartView","change", (e)=>applySmartView(e.target.value));
-
-// Delegated handler for overrides menu
-list.addEventListener('click', async (ev) => {
-  const t = ev.target;
-  if (!(t instanceof HTMLElement)) return;
-
-  if (t.classList.contains('ovr-imp')) {
-    ev.preventDefault();
-    const ownerEmail = ($("email")?.value || "").trim();
-    const licenseKey = ($("licenseKey")?.value || "").trim();
-    const fromEmail  = String(t.dataset.email || "").trim() || null;
-    const fromDomain = String(t.dataset.domain || "").trim() || null;
-    const label      = String(t.dataset.lab || "important");
-    if (!ownerEmail) { setMessage("err", "Enter your mailbox Email first."); return; }
-    if (!fromEmail && !fromDomain) { setMessage("err", "No sender identity on this message."); return; }
-    try {
-      const ok = await sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label });
-      if (ok) {
-        const card = t.closest('.email');
-        const id = card?.querySelector('.sel')?.dataset?.id;
-        const idx = state.emails.findIndex(x => String(x.id) === String(id));
-        if (idx >= 0) {
-          state.emails[idx].importance = (label === "important" ? "important" : "unimportant");
-          if (label === "important") {
-            const u = Number(state.emails[idx].urgency || 0);
-            state.emails[idx].urgency = Math.max(u, 2);
-          }
-          if (label === "unimportant") {
-            state.emails[idx].urgency = 0;
-          }
-          state.view = state.emails.slice();
-          render();
-        }
-      }
-      setMessage("ok", `Saved override: ${label}.`);
-    } catch (e) {
-      setMessage("err", e?.message || "Error saving override.");
-    }
-    return;
-  }
-
-  if (t.classList.contains('ovr-cat')) {
-    ev.preventDefault();
-    const category  = String(t.dataset.cat || "");
-    const fromEmail = String(t.dataset.email || "").trim() || null;
-    const fromDomain= String(t.dataset.domain || "").trim() || null;
-    setLocalCategoryOverride({ fromEmail, fromDomain, category });
-    const card = t.closest('.email');
-    const id = card?.querySelector('.sel')?.dataset?.id;
-    const idx = state.emails.findIndex(x => String(x.id) === String(id));
-    if (idx >= 0) {
-      state.view = state.emails.slice();
-      render();
-    }
-    setMessage("ok", category ? `Category set to "${category}".` : "Category override cleared.");
-    return;
-  }
-});
-
-// Lazy full-body on PREVIEW open
-list.addEventListener('toggle', async (ev) => {
-  const d = ev.target;
-  if (!(d instanceof HTMLElement)) return;
-  if (!d.matches('details.preview')) return;
-  if (!d.open) return; // only when opening
-
-  const id = d.dataset.id;
-  const container = d.querySelector('.preview-body');
-  if (!id || !container) return;
-  if (container.dataset.full === "1") return; // already hydrated
-
-  try {
-    // force ensures we always pull full body, even if text/html already exists
-    await ensureBodiesLoadedFor([id], { force: true });
-
-    const email = (window.emailList || state.emails || [])
-      .find(x => String(x.id) === String(id));
-
-    if (email) {
-      renderFullPreview(email);        // inject full HTML or full text
-      container.dataset.full = "1";
-    }
-  } catch (e) {
-    const email = (window.emailList || state.emails || [])
-      .find(x => String(x.id) === String(id));
-    const txt = email && (email.text || '');
-    if (txt) {
-      container.textContent = txt;
-      container.dataset.full = "1";
-    }
-  }
-});
+/* === END SQL-Tier helpers === */
 
 
-// Save on tab close / backgrounding / link navigation
-window.addEventListener("beforeunload", saveImapState);
-document.addEventListener("visibilitychange", ()=> {
-  if (document.visibilityState === "hidden") {
-    saveImapState();
-    savePwdToSession();   // <── b2: persist pwd on hide
-  }
-});
-document.addEventListener('click', (ev)=>{
-  const a = ev.target && ev.target.closest && ev.target.closest('a');
-  if (!a) return;
-  const href = a.getAttribute('href') || '';
-  if (!href) return;
-  if (!href.startsWith('#')) {
-    saveImapState();
-    savePwdToSession();   // <── b2: persist pwd on leaving
-  }
-});   
+/* ================= END LICENSE ================= */
 
+/* ================= GENERATE / ENHANCE ================= */
+window.logoImageBase64=""; window.propertyImagesBase64=[];
+async function generate(){
+  const email=(localStorage.getItem("userEmail")?.trim()||document.getElementById("email").value.trim());
+  const emailType=document.getElementById("purpose").value.trim();
+  const tone=document.getElementById("tone").value.trim();
+  const language=document.getElementById("language").value.trim();
+  const audience=document.getElementById("audience").value.trim();
+  const content=document.getElementById("email_content").value.trim();
+  const agent=document.getElementById("sender_details").value.trim();
+  const action=document.getElementById("action").value.trim();
 
-// ---- Init ----
-loadForm();
- loadPwdFromSession();   // <── b3: restore pwd back into field  
-applyProviderPreset();
-if (localStorage.getItem("imap.theme") === "dark") {
-  document.documentElement.classList.add("theme-dark");
-}
-$("xoRow").style.display = ($("authType").value==="xoauth2") ? "grid" : "none";
-if (!$("licenseKey").value && localStorage.getItem('smartemail.licenseKey')) {
-  $("licenseKey").value = localStorage.getItem('smartemail.licenseKey');
-}
-updateMonthUI();
+  if(!email||!emailType||!tone||!language||!audience||!content){ alert("Please complete all required fields including your email and content."); return; }
+  log("📧 Generating email for: "+email+" | Purpose: "+emailType);
 
-// Enable UI immediately; then let server check overwrite if available
-setTierUI('free', false);
-// Insurance
-["btnFetch","btnTest","btnRefresh","btnImportant","btnAll","btnExportJson","btnExportCsv",
- "btnSendSelected","btnMore","btnQImportant","btnQVip","btnQUrgent","btnQNeeds","btnQMeeting","btnQBilling",
- "btnSearch"].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+  // Optional refinements (if these fields exist)
+  const formalityEl     = document.getElementById('formality');
+  const lengthEl        = document.getElementById('length');
+  const audienceRoleEl  = document.getElementById('audience_role');
+  const formalityOpt    = (formalityEl && formalityEl.value) ? formalityEl.value.trim() : "";
+  const lengthPrefOpt   = (lengthEl && lengthEl.value) ? lengthEl.value.trim() : "";
+  const audienceRoleOpt = (audienceRoleEl && audienceRoleEl.value) ? audienceRoleEl.value.trim() : "";
 
-setTimeout(checkTier, 0);
-const _f = document.getElementById('btnFetch');
-if (_f) { _f.disabled = false; _f.onclick = fetchAndClassify; }
-
-// Try restoring any saved IMAP state first (added above)
-const _restored = (typeof restoreImapState === 'function') && restoreImapState();
-
-if (!_restored) {
-  // nothing cached → start clean
-  state.view = [];
-  state.cursorStack = [null];
-  $("prev").disabled = true;
-  $("next").disabled = true;
-  $("pageInfo").textContent = `Page 1`;
-  render();
-}
-})();
-</script>
-
-<script>(function(){function r(f){document.readyState!=="loading"?f():document.addEventListener("DOMContentLoaded",f);}r(function(){var b=document.getElementById("btnSendSelected");if(b && !b.__bound && typeof sendSelected==="function"){b.addEventListener("click",sendSelected);b.__bound=true;}});})();</script>
-
-<script>
-// Minimal enhancer: enable "Send Selected → Generator" when at least one email is checked
-(function(){
-  function ready(fn){document.readyState!=="loading"?fn():document.addEventListener("DOMContentLoaded",fn);}
-  ready(function(){
-    var btn = document.getElementById('btnSendSelected');
-    if(!btn) return;
-    function refresh(){
-      var any = !!document.querySelector('.sel:checked');
-      btn.disabled = !any;
-    }
-    document.addEventListener('change', function(e){
-      if(e.target && e.target.matches && e.target.matches('.sel')) refresh();
-    });
-    // also run after list renders (cheap poll for first 2s)
-    var t0 = Date.now();
-    var iv = setInterval(function(){
-      refresh();
-      if (Date.now()-t0>2000) clearInterval(iv);
-    }, 200);
-  });
-})();
-
-/* --- ensure export hydrates bodies first --- */
-(function(){
-  const orig = window.sendSelectedToGenerator;
-  window.sendSelectedToGenerator = async function(){
-    try{
-      const ids = (typeof getSelectedIds==='function') ? getSelectedIds() : [];
-      if(Array.isArray(ids) && ids.length){ await ensureBodiesLoadedFor(ids); }
-    }catch(e){ console.warn('pre-export hydrate failed', e); }
-    return orig ? orig.apply(this, arguments) : undefined;
-  };
-})();
-/* --- end export wrapper --- */
-
-/* ==== Auto-hydrate visible previews (force) ==== */
-async function autoHydrateVisible(){
   try{
-    const cards = Array.from(document.querySelectorAll('[id^="pv-"]'));
-    if(!cards.length) return;
-    const ids = cards.map(el => el.id.replace('pv-','')).slice(0, 20); // hydrate first page only
-    await ensureBodiesLoadedFor(ids);
-  }catch(e){ console.warn('autoHydrateVisible failed', e); }
+    const payload = { email, emailType, tone, language, audience, content, agent, action };
+    if (formalityOpt)    payload.formality     = formalityOpt;
+    if (lengthPrefOpt)   payload.length        = lengthPrefOpt;
+    if (audienceRoleOpt) payload.audience_role = audienceRoleOpt;
+
+    const res = await fetch("/generate",{ method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if(data.error){ alert("Error: "+data.error); log("❌ "+data.error); return; }
+
+    document.getElementById("result").textContent=data.generatedEmail;
+    document.getElementById("char-count").textContent=`Character count: ${data.generatedEmail.length}`;
+    document.getElementById("output-container").style.display="block";
+    document.getElementById("output-container").scrollIntoView({behavior:"smooth"});
+    log("✅ Email generated successfully.");
+  }catch(e){ console.error(e); log("❌ Network/server error."); }
 }
 
-// Wrap renderEmails to auto-hydrate after DOM is built
-(function(){
-  const origRender = window.renderEmails;
-  window.renderEmails = function(list){
-    const r = origRender ? origRender.apply(this, arguments) : undefined;
-    setTimeout(autoHydrateVisible, 50);
-    return r;
-  };
+async function applyEnhancement(){
+  let emailEl=document.getElementById("email"); let email=(emailEl?.value?.trim()||"");
+  let tier=(window.userTier||"").toLowerCase(); if(tier!=="pro"&&tier!=="premium"){ alert("❌ Enhancement is only available for Pro and Premium users."); return; }
+  if(!email){ email=localStorage.getItem("userEmail")?.trim()||""; if(email&&emailEl) emailEl.value=email; }
+  const enhance_request=document.getElementById("enhance").value.trim(); const enhance_content=document.getElementById("result").textContent.trim();
+  if(!enhance_request){ alert("Please enter an enhancement request."); return; }
+  if(!enhance_content||!email){ alert("Missing original content or email address."); return; }
+  log("📝 Applying enhancement: "+enhance_request);
+  try{
+    const res=await fetch("/enhance",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,enhance_request,enhance_content})});
+    const data=await res.json(); if(data.error){ alert("❌ "+data.error); log("❌ Enhance failed: "+data.error); return; }
+    const updated=data.result||data.generatedEmail||enhance_content;
+    document.getElementById("result").textContent=updated;
+    document.getElementById("char-count").textContent=`Character count: ${updated.length}`;
+    document.getElementById("enhance").value="";
+    document.getElementById("output-container").scrollIntoView({behavior:"smooth"});
+    log("✅ Enhancement applied.");
+  }catch(e){ alert("An error occurred during enhancement."); console.error(e); }
+}
+/* ================= EXPORTS / UTIL ================= */
+function copyToClipboard(){ const t=document.getElementById("result").textContent; navigator.clipboard.writeText(t).then(()=>alert("✅ Copied to clipboard!")); log("📋 Copied."); }
+function exportToText(){ const t=document.getElementById("result").textContent; const cleaned=t.replace(/Logo:.*(\n)?/,''); const blob=new Blob([cleaned],{type:"application/octet-stream"}); triggerDownload(blob,getTimestampFilename("Smartlist_Listing","txt")); log("⬇️ TXT exported."); }
+function exportToPDF_Instant(){
+  const { jsPDF }=window.jspdf; const raw=document.getElementById("result").textContent;
+  const stripped=raw.normalize("NFKD").replace(/[\u0300-\u036f]/g,'').replace(/[^\x00-\x7F]/g,''); const doc=new jsPDF();
+  let y=20; if(window.logoImageBase64){ doc.addImage(window.logoImageBase64,'PNG',15,10,40,20); y=35; }
+  const lines=doc.splitTextToSize(stripped,180); doc.text(lines,15,y); y+=lines.length*10;
+  if(window.propertyImagesBase64&&window.propertyImagesBase64.length){ for(const img of window.propertyImagesBase64){ doc.addImage(img,'JPEG',15,y,60,45); y+=50; } }
+  doc.save(getTimestampFilename("Smartlist_Listing","pdf")); log("⬇️ PDF exported (client).");
+}
+function exportToPDF(){
+  if(window.userTier==="free"){ alert("❌ Export requires Pro or Premium tier."); return; }
+  const content=document.getElementById("result").textContent; const logo=window.logoImageBase64||""; const images=window.propertyImagesBase64||[];
+  fetch("/export-pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content,logo,images})})
+    .then(r=>{ if(!r.ok) throw new Error("PDF export failed"); return r.blob(); })
+    .then(b=>{ triggerDownload(b,getTimestampFilename("Smartlist_Listing","pdf")); log("⬇️ PDF exported (server)."); })
+    .catch(e=>{ alert("❌ PDF export error: "+e.message); log("❌ PDF export error: "+e.message); });
+}
+function exportToWord(){
+  if(window.userTier==="free"){ alert("❌ Export requires Pro or Premium tier."); return; }
+  const content=document.getElementById("result").textContent; const logo=window.logoImageBase64||""; const images=window.propertyImagesBase64||[];
+  fetch("/export-word",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content,logo,images})})
+    .then(r=>{ if(!r.ok) throw new Error("DOCX export failed"); return r.blob(); })
+    .then(b=>{ triggerDownload(b,getTimestampFilename("Smartlist_Listing","docx")); log("⬇️ DOCX exported."); })
+    .catch(e=>{ alert("❌ DOCX export error: "+e.message); log("❌ DOCX export error: "+e.message); });
+}
+function triggerDownload(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.style.display='none'; a.rel="noopener"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
+function clearAll(){ ["audience","purpose","tone","language","email","subject","email_content","sender_details","action","enhance"].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
+  document.getElementById("result").textContent=""; document.getElementById("char-count").textContent=""; document.getElementById("output-container").style.display='none'; log("🧹 Form cleared."); }
+document.getElementById("logoFile").addEventListener("change",function(){ const preview=document.getElementById("logo-preview"); preview.innerHTML=""; const file=this.files[0]; if(!file) return;
+  if(file.size>2*1024*1024){ alert(`${file.name} exceeds 2MB limit.`); this.value=""; return; }
+  const r=new FileReader(); r.onload=e=>{ const img=new Image(); img.src=e.target.result; img.style.maxHeight="60px"; img.style.marginBottom="8px"; img.style.borderRadius="4px"; preview.appendChild(img);
+    const del=document.createElement('button'); del.textContent='🗑️ Delete Logo'; del.onclick=function(){ document.getElementById('logoFile').value=""; document.getElementById('logo-preview').innerHTML=""; window.logoImageBase64=""; }; del.style.marginLeft='10px'; preview.appendChild(del);
+    window.logoImageBase64=e.target.result; }; r.readAsDataURL(file); });
+document.getElementById("images").addEventListener("change",function(){ const preview=document.getElementById("image-preview"); preview.innerHTML=""; window.propertyImagesBase64=[]; const files=Array.from(this.files);
+  if(files.length>3){ alert("Maximum 3 images allowed."); this.value=""; return; }
+  files.forEach(file=>{ if(file.size>2*1024*1024){ alert(`${file.name} exceeds 2MB limit.`); this.value=""; preview.innerHTML=""; return; }
+    const r=new FileReader(); r.onload=e=>{ const base64=e.target.result; window.propertyImagesBase64.push(base64); const img=new Image(); img.src=e.target.result; img.style.maxHeight="100px"; img.style.marginRight="10px"; img.style.borderRadius="6px";
+      const wrap=document.createElement('div'); wrap.style.display='inline-block'; wrap.style.position='relative'; const del=document.createElement('button'); del.textContent='🗑️'; del.style.position='absolute'; del.style.top='0'; del.style.right='0';
+      del.style.background='red'; del.style.color='white'; del.style.border='none'; del.style.borderRadius='50%'; del.style.cursor='pointer'; del.onclick=function(){ wrap.remove(); };
+      wrap.appendChild(img); wrap.appendChild(del); preview.appendChild(wrap); }; r.readAsDataURL(file); }); });
+function getTimestampFilename(base,ext){ const ts=new Date().toISOString().replace(/[:.]/g,'-'); return `${base}_${ts}.${ext}`; }
+/* ================ END CORE JS ================ */
+
+/* =========== Prefill from IMAP URL =========== */
+(function universalPrefill(){
+  try{
+    const qs=new URLSearchParams(window.location.search); if(qs.toString()==='') return;
+    const getAny=(keys,def='')=>{ for(const k of keys){ const v=qs.get(k); if(v) return v; } return def; };
+    const fromName=getAny(['from','prefill_from_name','prefill_from','sender','sender_name']);
+    const fromEmail=getAny(['prefill_from_email','sender_email','email_from']);
+    const subject=getAny(['subject','prefill_subject','email_subject']);
+    const body=getAny(['body','prefill_body','content','email_content']);
+    const when=getAny(['prefill_date','date']);
+    const importance=getAny(['prefill_importance','importance']);
+    const $=id=>document.getElementById(id); const pick=(...ids)=>ids.map($).find(Boolean);
+
+    const subjectEl=pick('subject','emailSubject','email_subject','email-subject');
+    if(subjectEl&&subject){ subjectEl.value=subject; subjectEl.dispatchEvent(new Event('input',{bubbles:true})); subjectEl.dispatchEvent(new Event('change',{bubbles:true})); }
+
+    const audienceEl=pick('target_audience','audience');
+    if(audienceEl&&!audienceEl.value){ audienceEl.value=fromName||fromEmail||'Original sender'; audienceEl.dispatchEvent(new Event('change',{bubbles:true})); }
+
+    const bodyEl=pick('email_content','emailContent','content','context','message','emailText','body');
+    if(bodyEl){
+      const header=[]; if(fromName||fromEmail) header.push(`> From: ${fromName||fromEmail}${fromEmail?` <${fromEmail}>`:''}`);
+      if(when) header.push(`> Date: ${new Date(when).toLocaleString()}`); if(importance) header.push(`> Marked: ${importance}`);
+      const prefix=(header.length?header.join('\n')+'\n\n':'')+(subject?`Subject: ${subject}\n\n`:'' );
+      bodyEl.value=prefix+(body||''); bodyEl.dispatchEvent(new Event('input',{bubbles:true})); bodyEl.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+
+    // NOTE: per your instruction, DO NOT auto-fill "sender_details" from incoming sender.
+  }catch(e){ console.warn('Prefill skipped:',e); }
 })();
-/* ==== End auto-hydrate ==== */
+
+/* =========== Attach listeners once =========== */
+document.addEventListener("DOMContentLoaded",()=>{
+  const generateBtn=document.getElementById("generateBtn");
+  const enhanceBtn=document.getElementById("enhanceBtn");
+  if(generateBtn) generateBtn.addEventListener("click", generate, { once:false });
+  if(enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement, { once:false });
+  // Reflect current tier on first paint
+  const tier=(window.userTier||"free"); const badge=document.getElementById("tierBadge");
+  if(badge) badge.textContent=(tier.charAt(0).toUpperCase()+tier.slice(1))+" Tier";
+});
 </script>
 
+<!-- ========= LEGAL FOOTER & MODALS ========= -->
+<footer id="legalFooter" style="margin-top:40px;padding:18px 0 6px 0; text-align:center; background:transparent; color:#888; font-size:13px;">
+  <span style="margin:0 12px; cursor:pointer; text-decoration:underline;" onclick="showLegal('privacy')">Privacy Policy</span>
+  <span style="margin:0 12px; cursor:pointer; text-decoration:underline;" onclick="showLegal('terms')">Terms of Use</span>
+  <span style="margin:0 12px; cursor:pointer; text-decoration:underline;" onclick="showLegal('compliance')">Compliance</span>
+  <span style="margin:0 12px; font-style:italic;">Patent Pending</span>
+</footer>
+
+<div id="legalModal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100vw; height:100vh; background:rgba(25,25,25,0.28); backdrop-filter: blur(1px);">
+  <div id="legalBox" style="background:#fff; max-width:580px; margin:6vh auto 0; border-radius:12px; box-shadow:0 8px 42px rgba(0,0,0,0.17); padding:32px 24px 26px; position:relative; color:#263238; font-size:15px; line-height:1.68;">
+    <button onclick="hideLegal()" style="position:absolute;top:14px;right:18px;background:#f5f5f5;color:#444;border:none;font-size:15px;padding:5px 14px;border-radius:8px;cursor:pointer;">Close</button>
+    <div id="legalContent"></div>
+  </div>
+</div>
+<script>
+  const legalTexts={
+    privacy:`<h3 style="margin-top:0">Privacy Policy</h3>
+      <p>Your privacy is important. We comply with POPIA, GDPR, CCPA and all global data laws. Only essential info (email, license key) is stored to deliver features and is never sold or used for marketing.</p>
+      <ul><li>All data is encrypted in transit and at rest.</li><li>No personal data is shared with third parties except for payment/license verification (e.g., Stripe, Supabase).</li><li>You may request deletion of your account or data any time by emailing <a href="mailto:support@smartmail.store">support@smartmail.store</a>.</li><li>AI outputs are not permanently stored or used to train external models.</li></ul>
+      <p>For full details, <a href="mailto:support@smartmail.store">contact us</a>.</p>`,
+    terms:`<h3 style="margin-top:0">Terms of Use</h3>
+      <ul><li>This service is provided "as is" and may be withdrawn at any time.</li><li>You must not misuse the service, attempt to reverse engineer it, or use it for unlawful activity.</li><li>Paid tiers are delivered on a best effort; refunds for non-delivery will be processed if confirmed.</li><li>AI outputs are for informational use only; we make no guarantee as to accuracy or fitness for any purpose.</li><li>By using this app, you consent to basic data collection (see Privacy Policy).</li><li>All IP, code, and content remain the property of Smartlist. System and Method for Real-Time Multimodal AI Content Generation and Iterative Enhancement – Patent Pending (2025/05246).</li></ul>
+      <p>If you disagree with these terms, do not use the app. For queries, email <a href="mailto:support@promptagenthq.com">support@promptagenthq.com</a>.</p>`,
+    compliance:`<h3 style="margin-top:0">Compliance & Global Notices</h3>
+      <ul><li><b>POPIA/POPI (South Africa):</b> We respect your right to privacy and process all personal info lawfully and minimally.</li><li><b>GDPR (EU/UK):</b> Data subjects may request access, correction, or deletion of their data. No profiling or automated decisions.</li><li><b>CCPA (California):</b> California residents have the right to opt out of data sharing and request deletion.</li><li><b>AI Output Notice:</b> Listings are AI-generated and may contain errors or bias. Use at your own discretion.</li><li>For any privacy or compliance request, contact: <a href="mailto:support@promptagenthq.com">support@promptagenthq.com</a></li></ul>`
+  };
+  function showLegal(which){ document.getElementById('legalContent').innerHTML=legalTexts[which]||''; document.getElementById('legalModal').style.display='block'; document.body.style.overflow='hidden'; }
+  function hideLegal(){ document.getElementById('legalModal').style.display='none'; document.body.style.overflow=''; }
+</script>
 
 <script>
-
-/* ==== MutationObserver-driven hydration (works regardless of render function names) ==== */
+// === Runtime Advanced wrapper (dedupe-safe) ===
 (function(){
-  let hydrateTimer = null;
-  const queued = new Set();
+  try{
+    // Remove any stray duplicate Advanced blocks that might exist
+    document.querySelectorAll('details#advancedRefinements').forEach(el => el.remove());
 
-  async function bodyBatch(ids){
-    const r = await fetch('/api/imap/bodyBatch', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ ids })
-    });
-    if(!r.ok) return [];
-    const j = await r.json();
-    return j.items || [];
-  }
+    // Find existing refinement fields (by IDs already in the page)
+    const f = document.getElementById('formality');
+    const l = document.getElementById('length');
+    const a = document.getElementById('audience_role');
+    if(!f && !l && !a) return; // nothing to wrap
 
-  function stripAndTrim(html, maxLen=180){
-    try{
-      const tmp=document.createElement('div');
-      tmp.innerHTML=String(html ?? '');
-      let t=tmp.textContent||tmp.innerText||'';
-      t=t.replace(/\s+/g,' ').trim();
-      if(t.length>maxLen) t=t.slice(0,maxLen-1)+'…';
-      return t;
-    }catch(e){ return '';}
-  }
+    // Build the <details> container
+    const details = document.createElement('details');
+    details.id = 'advancedRefinements';
+    details.style.margin = '12px 0';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Advanced (optional)';
+    summary.style.cursor = 'pointer';
+    summary.style.fontWeight = '600';
+    details.appendChild(summary);
 
-  async function ensureBodiesLoadedFor(ids){
-    if(!window.emailList) return;
-    const map = new Map(window.emailList.map(e => [String(e.id), e]));
-    const need = ids.filter(id => {
-      const e = map.get(String(id));
-      return e && !(e.text || e.html);
-    });
-    if(!need.length) return;
+    const inner = document.createElement('div');
+    inner.style.display = 'flex';
+    inner.style.gap = '12px';
+    inner.style.flexWrap = 'wrap';
+    inner.style.marginTop = '8px';
+    details.appendChild(inner);
 
-    const items = await bodyBatch(need);
-    for(const it of items){
-      const e = map.get(String(it.id));
-      if(!e) continue;
-      e.text = (it.text || '').trim();
-      e.html = it.html || '';
-      const pv = document.getElementById(`pv-${it.id}`);
-      if(pv && !pv.textContent.trim()){
-        const raw = e.text || stripAndTrim(e.html, 180);
-        if(raw) pv.textContent = raw;
+    // Helper to move a label+field pair into the details in the RIGHT order they appear on page
+    function moveFieldById(id, labelText){
+      const el = document.getElementById(id);
+      if(!el) return;
+      // Try to capture a surrounding label or form-group container to keep styling
+      let container = el.closest('label, .form-group, .row, .col, div') || el;
+      // If the label is separate, create a new wrapper label for clarity
+      if(container === el && !el.closest('label')){
+        const wrap = document.createElement('label');
+        wrap.style.flex = '1 1 220px';
+        wrap.style.minWidth = '220px';
+        wrap.textContent = labelText + ' ';
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+        container = wrap;
+      } else {
+        // Ensure min sizing for grid feel
+        container.style.flex = '1 1 220px';
+        container.style.minWidth = '220px';
       }
+      inner.appendChild(container);
     }
-  }
 
-  function scheduleHydrate(){
-    if(hydrateTimer) return;
-    hydrateTimer = setTimeout(async () => {
-      hydrateTimer = null;
-      const ids = Array.from(document.querySelectorAll('[id^="pv-"]'))
-        .map(el => el.id.replace('pv-',''))
-        .filter(id => !queued.has(id));
-      if(!ids.length) return;
-      ids.slice(0, 20).forEach(id => queued.add(id));
-      try{ await ensureBodiesLoadedFor(ids.slice(0,20)); }catch(e){}
-    }, 120);
-  }
+    // Maintain visual order: Formality, Length, Audience Role
+    moveFieldById('formality','Formality');
+    moveFieldById('length','Preferred Length');
+    moveFieldById('audience_role','Audience Role');
 
-  // Observe additions of preview nodes anywhere in the page
-  const mo = new MutationObserver((muts) => {
-    for(const m of muts){
-      if(m.addedNodes && m.addedNodes.length){
-        scheduleHydrate();
-      }
+    // Insert the Advanced details just before the primary generate button (or at end of main)
+    const insertBeforeBtn = Array.from(document.querySelectorAll('button'))
+      .find(b => /generate/i.test(b.textContent||''));
+    if(insertBeforeBtn && insertBeforeBtn.parentNode){
+      insertBeforeBtn.parentNode.parentNode.insertBefore(details, insertBeforeBtn.parentNode);
+    } else {
+      const main = document.querySelector('main') || document.body;
+      main.appendChild(details);
     }
-  });
-  mo.observe(document.documentElement, { childList:true, subtree:true });
-
-  // Also kick once on load (if previews already on page)
-  window.addEventListener('load', scheduleHydrate);
-
-  // Wrap export to hydrate first
-  (function(){
-    const orig = window.sendSelectedToGenerator;
-    window.sendSelectedToGenerator = async function(){
-      try{
-        const ids = (typeof getSelectedIds==='function') ? getSelectedIds() : [];
-        if(Array.isArray(ids) && ids.length){ await ensureBodiesLoadedFor(ids); }
-      }catch(e){}
-      return orig ? orig.apply(this, arguments) : undefined;
-    };
-  })();
+  }catch(e){ console.warn('Advanced wrapper init failed:', e); }
 })();
-/* ==== End MutationObserver hydration ==== */
-
+// === End runtime Advanced wrapper ===
 </script>
+
+<script>
+// === Prefill from IMAP sessionStorage (full body support) ===
+(function(){
+  let payload = null;
+  try {
+    payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null");
+  } catch {}
+  if (!payload) return;
+
+  // Map values to your existing fields
+  if (payload.subject) document.getElementById("subject").value = payload.subject;
+  if (payload.body && payload.body.trim()) document.getElementById("email_content").value = payload.body; else if (payload.snippet && payload.snippet.trim()) document.getElementById("email_content").value = payload.snippet;
+  if (payload.from) document.getElementById("email").value = payload.from;
+
+  // optional: mark loaded
+  const log = document.getElementById("debugLog");
+  if (log) log.value += `${new Date().toISOString()} — 📥 Loaded email from IMAP selection\n`;
+
+  // clear after use
+  try { sessionStorage.removeItem("imap.generatorPayload"); } catch {}
+})();
+</script>
+  
 </body>
 </html>
