@@ -754,7 +754,13 @@ function restoreImapState() {
     if (sb && s.filters && typeof s.filters.search === "string") sb.value = s.filters.search;
 
     render();
-    setTimeout(()=>{ try{ window.scrollTo(0, s.scrollTop||0); }catch(_){} }, 0);
+
+// ensure UI starts clean when user later clicks "Show All"
+state.__quickFilter = null;
+const sb2 = document.getElementById("searchBox");
+if (sb2) sb2.value = "";
+
+setTimeout(() => { try{ window.scrollTo(0, s.scrollTop||0); }catch(_){ } }, 0);
 
     const info = document.getElementById("pageInfo");
     if (info) info.textContent = `Restored • Page ${state.page} (${state.view.length} emails)`;
