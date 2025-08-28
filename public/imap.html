@@ -969,6 +969,79 @@ function applyQuickFilter(kind){
   state.view = filtered; state.page = 1; render();
 }
 
+// ---- Smart View (preset filters) ----
+function applySmartView(val){
+  let filtered = [...state.emails];
+
+  switch (val) {
+    case "needs_action":
+      filtered = filtered.filter(e => !!e.action_required || Number(e.urgency) >= 2);
+      break;
+    case "awaiting_reply":
+      filtered = filtered.filter(e =>
+        String(e.importance).toLowerCase() === "important" && !e.action_required
+      );
+      break;
+    case "meetings_48h":
+      {
+        const now = Date.now();
+        const cutoff = now + 48*3600*1000;
+        filtered = filtered.filter(e => {
+          const intentOk = (e.intent || e.category || "") === "meeting";
+          const tCand = e.eventTime || e.calendarTime || e.receivedAt || e.internalDate || e.date;
+          let t = null;
+          if (typeof tCand === "number" || (/^\d+$/.test(String(tCand)))) {
+            t = Number(tCand);
+            if (t < 1e12) t *= 1000;
+          } else if (tCand) {
+            const d = new Date(String(tCand));
+            if (!Number.isNaN(d.getTime())) t = d.getTime();
+          }
+          return intentOk && Number.isFinite(t) && t >= now && t <= cutoff;
+        });
+      }
+      break;
+    case "billing":
+      filtered = filtered.filter(e => (e.intent || e.category || "") === "billing");
+      break;
+    case "security_legal":
+      filtered = filtered.filter(e => ["security","legal"].includes(e.intent || e.category || ""));
+      break;
+    case "newsletters":
+      filtered = filtered.filter(e => (e.intent || e.category || "") === "newsletter");
+      break;
+    case "today":
+      {
+        const start = new Date(); start.setHours(0,0,0,0);
+        filtered = filtered.filter(e => new Date(e.date || e.receivedAt || 0) >= start);
+      }
+      break;
+    default:
+      filtered = state.emails.slice();
+  }
+
+  state.view = filtered;
+  state.page = 1;
+  state.nextCursor = null;
+  state.cursorStack = [null];
+
+  const info = document.getElementById("pageInfo");
+  if (info) {
+    const labels = {
+      needs_action: "Needs Action",
+      awaiting_reply: "Awaiting Reply",
+      meetings_48h: "Meetings (Next 48h)",
+      billing: "Billing & Invoices",
+      security_legal: "Security & Legal",
+      newsletters: "Newsletters",
+      today: "Today"
+    };
+    info.textContent = `${labels[val] || "All"} • ${state.view.length} emails`;
+  }
+
+  render();
+}
+   
 // ---- Export ----
 function exportJSON(){
   const b=new Blob([JSON.stringify(state.view,null,2)],{type:"application/json"});
