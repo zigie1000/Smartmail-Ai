@@ -1095,7 +1095,15 @@ function renderFullPreview(email){
     pv.textContent = fallback ? String(fallback) : '(no body available)';
   }
 }
+// Ensure a single message has full body loaded, then return that message
+async function ensureFullById(id){
+  if (!id) return {};
+  // force = true so we always fetch full body even if a preview exists
+  await ensureBodiesLoadedFor([String(id)], { force: true });
 
+  const list = (window.emailList || state.emails || []);
+  return list.find(e => String(e.id) === String(id)) || {};
+}
    
 // ---- Send Selected → Generator (always full body) ----
 async function sendSelected(){
