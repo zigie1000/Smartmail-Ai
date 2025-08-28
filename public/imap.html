@@ -648,32 +648,6 @@ async function bodyBatch(ids){
   return j.items || [];
 }
 
-async function ensureBodiesLoadedFor(ids){
-  const map = new Map((window.emailList||[]).map(e => [e.id, e]));
-  const need = ids.filter(id => {
-    const e = map.get(id);
-    return e && !(e.text || e.html);
-  });
-  if(!need.length) return;
-
-  const items = await bodyBatch(need);
-  for(const it of items){
-    const e = map.get(it.id);
-    if(!e) continue;
-    e.text = (it.text || '').trim();
-    e.html = it.html || '';
-     
-    // if a preview element exists, update it
- //   const pv = document.getElementById(`pv-${it.id}`);
-  //  if(pv && !pv.textContent.trim()){
-//    const raw = e.text || stripAndTrim(e.html, 180);
-  //    if(raw) pv.textContent = raw;
-//    }
-
-     
-  }
-}
-
 // hydrate a single card on-demand
 async function hydrateOnePreview(id){
   try{
