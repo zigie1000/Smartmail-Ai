@@ -1714,14 +1714,7 @@ on("btnImportant","click", ()=>{
   state.page = 1;
   render();
 });
-on("btnAll","click", ()=>{
-  state.view = state.emails.slice();
-  state.page = 1;
-  state.nextCursor = null;
-  state.cursorStack = [null];
-  try { sessionStorage.removeItem("imap.lastState"); } catch {}
-  render();
-});
+on("btnAll","click", resetAllFilters);
 
 on("btnExportJson","click", exportJSON);
 on("btnExportCsv","click",  exportCSV);
