@@ -1684,14 +1684,12 @@ on("btnImportant","click", ()=>{
   render();
 });
 on("btnAll","click", ()=>{
-  // If we returned from SmartEmail and only view was restored, rebuild emails.
-  if (!state.emails.length && state.view.length) {
-    state.emails = state.view.slice();
-  }
   state.view = state.emails.slice();
   state.page = 1;
+  state.nextCursor = null;
+  state.cursorStack = [null];
+  try { sessionStorage.removeItem("imap.lastState"); } catch {}
   render();
-});render();
 });
 
 on("btnExportJson","click", exportJSON);
