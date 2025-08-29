@@ -1358,6 +1358,28 @@ async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
   }
 }
 
+// ---- Timestamp Helper ----
+function bestTimestampMs(e){
+  const fields = [
+    e.internalDate,
+    e.receivedAt,
+    e.internal_date,
+    e.dateEpoch,
+    e.date
+  ];
+  for (const cand of fields){
+    if (cand == null || cand === '') continue;
+    if (typeof cand === 'number' || (/^\d+$/.test(String(cand)))){
+      let t = Number(cand);
+      if (!Number.isFinite(t)) continue;
+      if (t < 1e12) t *= 1000;   // seconds → ms
+      return t;
+    }
+    const d = new Date(String(cand));
+    if (!Number.isNaN(d.getTime())) return d.getTime();
+  }
+  return NaN;
+}  
    
 // ---- Networking (list) ----
 async function fetchAndClassify(next=false, prev=false){
