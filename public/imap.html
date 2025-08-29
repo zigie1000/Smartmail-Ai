@@ -1362,6 +1362,17 @@ async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
   }
 }
 
+// ---- Server-synced now() helper ----
+function nowDate() {
+  if (window.__serverNowMs) {
+    // keep advancing relative to when we fetched the header
+    const drift = Date.now() - (window.__serverNowMsFetchedAt || Date.now());
+    return new Date(window.__serverNowMs + drift);
+  }
+  return new Date(); // fallback: local clock
+}
+
+   
 // ---- Timestamp Helper ----
 function bestTimestampMs(e){
   const fields = [
