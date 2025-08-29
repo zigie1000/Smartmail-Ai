@@ -1533,13 +1533,6 @@ if (monthMode) {
   }
 }
 
-// Log the active date window (helps if anything looks off)
-console.log("IMAP window", {
-  monthMode, mStart, mEnd, startTs, endTs,
-  startISO: new Date(startTs).toISOString(),
-  endISO:   new Date(endTs).toISOString()
-});
-
 const beforeCount = state.emails.length;
 const originalEmails = state.emails.slice(); // for safe fallback
 
