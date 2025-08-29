@@ -1551,8 +1551,13 @@ if (monthMode) {
   const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
   const days = Number.isFinite(daysSel) ? daysSel : 30;
   const end  = todayEndUTC;
-  if (days <= 0) { startTs = -Infinity; endTs = end; }
-  else { const start = end - (Math.max(1, days) - 1) * 86400000; startTs = start; endTs = end; }
+  if (days <= 0) {
+  startTs = -Infinity;
+  endTs   = end;
+} else {
+  const start = end - (Math.max(1, days) - 1) * 86400000;
+  startTs = start;
+  endTs   = end;
 }
 
 // (optional) in your log, show the renamed fields
