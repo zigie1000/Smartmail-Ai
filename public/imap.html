@@ -1543,10 +1543,11 @@ console.log("IMAP window", {
 const beforeCount = state.emails.length;
 const originalEmails = state.emails.slice(); // for safe fallback
 
-// Filter emails into the active window using the most reliable timestamp available
-state.emails = state.emails.filter(e => {
-  const t = Number(e._ts || 0);      // use the precomputed timestamp
-  return Number.isFinite(t) && t >= startTs && t <= endTs;
+// Log the active date window (helps if anything looks off)
+console.log("IMAP window", {
+  monthMode, mStart, mEnd, startTs, endTs,
+  startISO: Number.isFinite(startTs) ? new Date(startTs).toISOString() : "-∞",
+  endISO:   Number.isFinite(endTs)   ? new Date(endTs).toISOString()   : "+∞"
 });
 
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
