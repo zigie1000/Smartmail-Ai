@@ -269,6 +269,16 @@ html.theme-dark input::placeholder{color:#6b7280}
 </div>
 
 <script>
+// Make nowDate() available before any code uses it
+window.nowDate = function () {
+  if (window.__serverNowMs) {
+    const drift = Date.now() - (window.__serverNowMsFetchedAt || Date.now());
+    return new Date(window.__serverNowMs + drift);
+  }
+  return new Date(); // fallback: local clock
+};
+
+   
 (function(){
   const mRange = document.getElementById('mRange');
   const mMonth = document.getElementById('mMonth');
