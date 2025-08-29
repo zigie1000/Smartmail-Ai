@@ -272,48 +272,47 @@ html.theme-dark input::placeholder{color:#6b7280}
 // Make nowDate() available before any code uses it
 window.nowDate = function () {
   if (window.__serverNowMs) {
-    const drift = Date.now() - (window.__serverNowMsFetchedAt || Date.now());
-    return new Date(window.__serverNowMs + drift);
+    const elapsed = Date.now() - (window.__serverNowMsFetchedAt || Date.now());
+    return new Date(window.__serverNowMs + elapsed);
   }
   return new Date(); // fallback: local clock
 };
 
-   
-(function(){
-  const mRange = document.getElementById('mRange');
-  const mMonth = document.getElementById('mMonth');
-  const rangeDaysSel = document.getElementById('rangeDays');
-  const monthSel = document.getElementById('monthName');
-  const yearInput = document.getElementById('monthYear');
-  const applyBtn = document.getElementById('applyMonth');
-  const clearMonthInline = document.getElementById('clearMonthInline');
-  const banner = document.getElementById('modeBanner');
+(function () {
+  const mRange        = document.getElementById('mRange');
+  const mMonth        = document.getElementById('mMonth');
+  const rangeDaysSel  = document.getElementById('rangeDays');
+  const monthSel      = document.getElementById('monthName');
+  const yearInput     = document.getElementById('monthYear');
+  const applyBtn      = document.getElementById('applyMonth');
+  const clearMonthBtn = document.getElementById('clearMonthInline');
+  const banner        = document.getElementById('modeBanner');
 
   // init year/month defaults
-  const now = nowDate();
-  yearInput.value = now.getFullYear();
-  monthSel.value = String(now.getMonth());
+  const nowLocal = nowDate();
+  yearInput.value = nowLocal.getFullYear();
+  monthSel.value  = String(nowLocal.getMonth());
 
-  function lastDayOfMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
-  function fmtISO(d){ return d.toISOString().slice(0,10); }
-  function computeRangeWindow(days){
-  if (!Number.isFinite(days) || days <= 0) {
-    // "All" → return an open-ended start; end is today (UTC 23:59:59.999)
-    const now = new Date();
-    const end = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+  function lastDayOfMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+  function fmtISO(d) { return d.toISOString().slice(0, 10); }
+
+  function computeRangeWindow(days) {
+    // Clamp window to end-of-today (UTC) using server-synced time if available
+    const serverNow = nowDate();
+    const endUtc = new Date(Date.UTC(
+      serverNow.getUTCFullYear(), serverNow.getUTCMonth(), serverNow.getUTCDate(),
       23, 59, 59, 999
     ));
-    return { startISO: null, endISO: end.toISOString().slice(0,10) };
+
+    if (!Number.isFinite(days) || days <= 0) {
+      // "All" → open start, bounded end
+      return { startISO: null, endISO: fmtISO(endUtc) };
+    }
+
+    const startUtc = new Date(endUtc.getTime() - (Math.max(1, Number(days)) - 1) * 86400000);
+    return { startISO: fmtISO(startUtc), endISO: fmtISO(endUtc) };
   }
-  const now = nowDate();
-  const end = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-    23,59,59,999
-  ));
-  const start = new Date(end.getTime() - (Math.max(1,Number(days))-1)*24*3600*1000);
-  return { startISO: start.toISOString().slice(0,10), endISO: end.toISOString().slice(0,10) };
-}
+
   function computeMonthWindow(y, m){
     const startISO = `${y}-${String(m+1).padStart(2,'0')}-01`;
     const endISO = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDayOfMonth(y,m)).padStart(2,'0')}`;
