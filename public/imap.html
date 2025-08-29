@@ -1734,16 +1734,15 @@ $("monthClear")?.addEventListener("click", ()=>{
   function hideOldFilters() {
     const hideCol = (el) => {
       try {
-        (el && (el.closest('.col') || el)).style.display = 'none';
+        const col = el && (el.closest?.('.col') || el);
+        if (col) col.style.display = 'none';
       } catch (_) {}
-    }; // ✅ added this line to properly close hideCol
+    }; // ← closes hideCol
 
-    hideCol(document.getElementById('range'));     // OLD Range <select>
-    hideCol(document.getElementById('monthStr'));  // OLD Month <input type="month">
-    hideCol(document.getElementById('monthClear'));// OLD Clear Month button
+    hideCol(document.getElementById('range'));      // OLD Range <select>
+    hideCol(document.getElementById('monthStr'));   // OLD Month <input type="month">
+    hideCol(document.getElementById('monthClear')); // OLD Clear Month button
   }
-
-  // Run immediately if DOM is ready; otherwise after it’s loaded
   if (document.readyState !== 'loading') hideOldFilters();
   else document.addEventListener('DOMContentLoaded', hideOldFilters);
 })();
