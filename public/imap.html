@@ -2098,7 +2098,7 @@ async function autoHydrateVisible(){
         .filter(id => !queued.has(id));
       if(!ids.length) return;
       ids.slice(0, 20).forEach(id => queued.add(id));
-      try{ await ensureBodiesLoadedFor(ids.slice(0,20)); }catch(e){}
+      try { await ensureBodiesLoadedFor(ids.slice(0,20), { force:true }); } catch(e) {}
     }, 120);
   }
 
