@@ -280,7 +280,7 @@ html.theme-dark input::placeholder{color:#6b7280}
   const banner = document.getElementById('modeBanner');
 
   // init year/month defaults
-  const now = new Date();
+  const now = nowDate();
   yearInput.value = now.getFullYear();
   monthSel.value = String(now.getMonth());
 
@@ -296,7 +296,7 @@ html.theme-dark input::placeholder{color:#6b7280}
     ));
     return { startISO: null, endISO: end.toISOString().slice(0,10) };
   }
-  const now = new Date();
+  const now = nowDate();
   const end = new Date(Date.UTC(
     now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
     23,59,59,999
