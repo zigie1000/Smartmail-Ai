@@ -1562,11 +1562,6 @@ if (monthMode) {
   }
 }  // ← closes the if/else that sets startTs / endTs
 
-// 🔽 Add filtering block here
-state.emails = state.emails.filter(e => {
-  const t = Number(e._ts ?? bestTimestampMs(e));
-  return Number.isFinite(t) ? (t >= startTs && t <= endTs) : true;
-});
 
 // optional sort: newest → oldest
 state.emails.sort((a, b) => (b._ts ?? 0) - (a._ts ?? 0));
