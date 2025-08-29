@@ -1472,6 +1472,16 @@ console.log("[IMAP] Raw server response:", data);
      
 const emails = Array.isArray(data.emails) ? data.emails : [];
      
+// Map + compute timestamp
+state.emails = emails.map((e, i) => {
+  const ts = bestTimestampMs(e);
+  return {
+    ...e,
+    id: e.id ?? e.uid ?? String(i + 1),
+    _ts: ts
+  };
+});     
+     
 console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.slice(0, 3));
     console.log(
   "[IMAP] Server returned", (emails || []).length, "emails. Sample:",
