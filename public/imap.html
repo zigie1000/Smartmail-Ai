@@ -1414,25 +1414,36 @@ async function fetchAndClassify(next=false, prev=false){
     }
 
     const payload = {
-      email: $("email").value||"",
-      password: $("password").value||"",
-      host: $("host").value||"",
-      port: Number($("port").value||993),
-      tls: ($("tls").value||"on")!=="off",
-      rangeDays: Number($("range").value||2),
-      limit: Number($("limit").value||20),
-      authType: $("authType").value||"password",
-      accessToken: $("accessToken")?.value||"",
-      licenseKey:
-        $("licenseKey")?.value ||
-        localStorage.getItem('smartemail.licenseKey') ||
-        localStorage.getItem('licenseKey') ||
-        "",
-      // ensure list view has lightweight text to show
-      includePreview: true,
-      includeSnippet: true,
-      includeBody: false
-    };
+  email: $("email")?.value || "",
+  password: $("password")?.value || "",
+  host: $("host")?.value || "",
+  port: Number($("port")?.value || 993),
+  tls: ($("tls")?.value || "on")=="on",
+  rangeDays: Number($("range")?.value || 2),
+  limit: Number($("limit")?.value || 20),
+  authType: $("authType")?.value || "password",
+  accessToken: $("accessToken")?.value || "",
+  licenseKey:
+    $("licenseKey")?.value ||
+    localStorage.getItem("smartemail.licenseKey") ||
+    localStorage.getItem("licenseKey") ||
+    "",
+  includePreview: true,
+  includeSnippet: true,
+  includeBody: false
+};
+
+// ⬇️ INSERT THIS RIGHT HERE
+const mStart = window._monthStartISO;
+const mEnd   = window._monthEndISO;
+if (mStart && mEnd) {
+  payload.monthStart = mStart;
+  payload.monthEnd   = mEnd;
+  payload.fullBodies = true;
+  delete payload.rangeDays;
+} else {
+  payload.rangeDays = Number(window._rangeDaysActive || $("range")?.value || 30);
+}
 
 console.log("[CLIENT] IMAP payload being sent:", payload);     
 console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
