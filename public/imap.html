@@ -329,14 +329,15 @@ window.nowDate = function () {
     }
   }
   function updateEnabling(){
-    const monthMode = mMonth.checked;
-    rangeDaysSel.disabled = monthMode;
-    monthSel.disabled = !monthMode;
-    yearInput.disabled = !monthMode;
-    applyBtn.disabled = !monthMode;
-    clearMonthInline.disabled = !monthMode || !(window._monthStartISO && window._monthEndISO);
+  const monthMode = mMonth.checked;
+  rangeDaysSel.disabled = monthMode;
+  monthSel.disabled = !monthMode;
+  yearInput.disabled = !monthMode;
+  applyBtn.disabled = !monthMode;
+  if (clearMonthBtn) {
+    clearMonthBtn.disabled = !monthMode || !(window._monthStartISO && window._monthEndISO);
   }
-
+}
   // Public state used by fetch patch
   window._monthStartISO = undefined;
   window._monthEndISO = undefined;
