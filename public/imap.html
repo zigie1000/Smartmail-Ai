@@ -1525,14 +1525,14 @@ console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.sli
 
 
 // --- Enforce client-side date window (Range or Month from Mode bar) ---
-const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
-const monthMode = !!(mStart && mEnd);
+const mStartFilter = window._monthStartISO;
+const mEndFilter   = window._monthEndISO;
+const monthMode = !!(mStartFilter && mEndFilter);
 
 let startTs = -Infinity;
 let endTs   =  Infinity;
 
-// Clamp end to end-of-today (UTC) using server "now" if available
+// Clamp end to end-of-today (UTC) …
 const _now = nowDate();
 const todayEndUTC = Date.UTC(
   _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
@@ -1541,38 +1541,25 @@ const todayEndUTC = Date.UTC(
 
 if (monthMode) {
   // Month mode: inclusive UTC window
-  const s = new Date(mStart + 'T00:00:00Z').getTime();
-  const e = new Date(mEnd   + 'T23:59:59Z').getTime();
+  const s = new Date(mStartFilter + 'T00:00:00Z').getTime();
+  const e = new Date(mEndFilter   + 'T23:59:59Z').getTime();
   startTs = Number.isFinite(s) ? s : -Infinity;
   endTs   = Math.min(Number.isFinite(e) ? e : Infinity, todayEndUTC);
 } else {
-  // Range mode: fallback to the Mode bar's current range selection
+  // Range mode …
   const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
   const days = Number.isFinite(daysSel) ? daysSel : 30;
   const end  = todayEndUTC;
+  if (days <= 0) { startTs = -Infinity; endTs = end; }
+  else { const start = end - (Math.max(1, days) - 1) * 86400000; startTs = start; endTs = end; }
+}
 
-  if (days <= 0) {
-    // "All" → only clamp the future
-    startTs = -Infinity;
-    endTs   = end;
-  } else {
-    const start = end - (Math.max(1, days) - 1) * 86400000;
-    startTs = start;
-    endTs   = end;
-  }
-}  // ← closes the if/else that sets startTs / endTs
-
-
-// optional sort: newest → oldest
-state.emails.sort((a, b) => (b._ts ?? 0) - (a._ts ?? 0));
-
-// Continue with existing code
-const beforeCount = state.emails.length;
-const originalEmails = state.emails.slice(); // for safe fallback
-
-// Log the active date window (helps if anything looks off)
+// (optional) in your log, show the renamed fields
 console.log("IMAP window", {
-  monthMode, mStart, mEnd, startTs, endTs,
+  monthMode,
+  mStart: mStartFilter,
+  mEnd:   mEndFilter,
+  startTs, endTs,
   startISO: Number.isFinite(startTs) ? new Date(startTs).toISOString() : "-∞",
   endISO:   Number.isFinite(endTs)   ? new Date(endTs).toISOString()   : "+∞"
 });
