@@ -1328,18 +1328,22 @@ async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
     const to = setTimeout(() => controller.abort(), timeout);
     try {
       const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      clearTimeout(to);
-    // Anchor "now" to server clock when available
-    const serverDateHdr = resp?.headers?.get?.('date');
-    if (serverDateHdr) {
-      window.__serverNowMs = Date.parse(serverDateHdr);
-    }
-      if (resp.ok) return await resp.json().catch(() => ({}));
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+  signal: controller.signal
+});
+clearTimeout(to);
+
+// 👉 Insert here
+const serverDateHdr = resp?.headers?.get?.('date');
+if (serverDateHdr) {
+  window.__serverNowMs = Date.parse(serverDateHdr);
+  window.__serverNowMsFetchedAt = Date.now();   // <-- track when fetched
+}
+// 👈 End insertion
+
+if (resp.ok) return await resp.json().catch(() => ({}));
 
       // Retry on cold-start / gateway errors
       if (attempt < retries && [502, 503, 504].includes(resp.status)) {
