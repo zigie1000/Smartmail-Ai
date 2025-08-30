@@ -69,6 +69,18 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
+// --- Helper to format Date into IMAP style ---
+function toIMAPDate(date) {
+  const months = ["Jan","Feb","Mar","Apr","May","Jun",
+                  "Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
+}
+
+// One-and-only search builder. Pick exactly ONE mode.
+function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
+  const crit = ['ALL'];
+
+
 // One-and-only search builder. Pick exactly ONE mode.
 // Modes (in priority order):
 // 1) Month (monthStart+monthEnd)  2) Absolute (dateStartISO+dateEndISO)
