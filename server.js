@@ -16,8 +16,36 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-// ✅ IMAP REST routes
-import imapRoutes from './imap-reader/imapRoutes.js';
+// --- IMAP REST routes (API) ---
+app.use('/api/imap', imapRoutes);
+
+// --- BLOCK backend files from leaking as static ---
+const BLOCKED = new Set([
+  'server.js', 'index.js',
+  'imapService.js', 'imapRoutes.js',
+  '.env'
+]);
+app.use((req, res, next) => {
+  const base = path.posix.basename(req.path);
+  if (BLOCKED.has(base) || base.endsWith('.env')) {
+    return res.status(404).end();
+  }
+  // prevent direct access to /imap-reader or /src folders
+  if (req.path.includes('/imap-reader/') || req.path.includes('/src/')) {
+    return res.status(404).end();
+  }
+  next();
+});
+
+// --- Serve only frontend (put imap.html, css, js here) ---
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: 'index.html',
+}));
+
+// --- SPA fallback ---
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 dotenv.config();
 
