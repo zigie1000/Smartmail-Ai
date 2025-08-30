@@ -66,63 +66,52 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
-// (kept for potential manual formatting/debug)
+// helper: human-readable IMAP date (debug only)
 function toIMAPDate(d) {
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
+  return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
-/**
- * Build IMAP SEARCH criteria.
- * ALWAYS pass native Date objects to ImapFlow so it renders DD-MMM-YYYY.
- */
-function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  const crit = ['ALL'];
+/** Normalize any incoming date-ish value to a real Date.
+ *  For 'YYYY-MM-DD', pin to midnight UTC to avoid TZ drift. */
+function asDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === 'string') {
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
+    return new Date(dateOnly ? `${v}T00:00:00Z` : v);
+  }
+  return new Date(v);
+}
 
-  // Normalize anything we receive into a *real* Date instance.
-  // For plain 'YYYY-MM-DD' strings, pin to midnight UTC to avoid TZ drift.
-  const asDate = (v) => {
-    if (!v) return null;
-    if (v instanceof Date) return v;
-    if (typeof v === 'string') {
-      // If it's already an ISO timestamp keep it; if it's a date-only, add T00:00:00Z
-      const looksDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
-      return new Date(looksDateOnly ? `${v}T00:00:00Z` : v);
-    }
-    return new Date(v);
-  };
+/** Build IMAP SEARCH criteria as a FLAT array (some servers reject nested). */
+function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
+  // 4) Raw Gmail query fallback
+  if (query) return [{ gmailRaw: query }];
 
   // 1) Month mode (inclusive start, exclusive end)
   if (monthStart && monthEnd) {
     const start = asDate(monthStart);
     const endExclusive = new Date(asDate(monthEnd).getTime() + 86400000);
-    crit.push(['SINCE', start]);
-    crit.push(['BEFORE', endExclusive]);
-    return crit;
+    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
   }
 
   // 2) Absolute ISO window (inclusive start, exclusive end)
   if (dateStartISO && dateEndISO) {
     const start = asDate(dateStartISO);
     const endExclusive = new Date(asDate(dateEndISO).getTime() + 86400000);
-    crit.push(['SINCE', start]);
-    crit.push(['BEFORE', endExclusive]);
-    return crit;
+    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
   }
 
   // 3) Relative range (last N days; end = now)
   if (rangeDays && Number(rangeDays) > 0) {
     const endExclusive = new Date();
     const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-    crit.push(['SINCE', start]);
-    crit.push(['BEFORE', endExclusive]);
-    return crit;
+    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
   }
 
-  // 4) Raw Gmail query fallback
-  if (query) return [{ gmailRaw: query }];
-
-  return crit;
+  // default
+  return ['ALL'];
 }
 
 async function parseFromSource(source) {
@@ -160,10 +149,12 @@ export async function fetchEmails(opts = {}) {
   try {
     const search = buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query });
 
-    // Debug without forcing Dates into JSON ISO strings:
+    // Debug without JSON stringifying Dates:
     console.log(
       'IMAP SEARCH crit (debug):',
-      search.map(x => (Array.isArray(x) && x[1] instanceof Date) ? [x[0], x[1].toUTCString()] : x)
+      Array.isArray(search)
+        ? search.map(x => x instanceof Date ? `${x.toUTCString()} (${toIMAPDate(x)})` : x)
+        : search
     );
 
     let uids = await client.search(search);
