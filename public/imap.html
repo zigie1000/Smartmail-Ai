@@ -1568,17 +1568,17 @@ state.emails = state.emails.filter(e => {
   return Number.isFinite(t) ? (t >= startTs && t <= endTs) : true;
 });
 
-// (optional) window info
+// (optional) log info
 console.log("IMAP window", {
   monthMode,
   mStart: mStartFilter,
-  mEnd:   mEndFilter,
+  mEnd: mEndFilter,
   startTs, endTs,
   startISO: Number.isFinite(startTs) ? new Date(startTs).toISOString() : "-∞",
-  endISO:   Number.isFinite(endTs)   ? new Date(endTs).toISOString()   : "+∞"
+  endISO: Number.isFinite(endTs) ? new Date(endTs).toISOString() : "+∞"
 });
 
-console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
+console.log(`Filtered emails: ${beforeCount} -> ${state.emails.length}`);
 console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
 
 // --- Re-apply saved overrides ---
