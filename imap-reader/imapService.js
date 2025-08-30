@@ -73,41 +73,33 @@ function toIMAPDate(date) {
   return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
 
-// Build IMAP SEARCH criteria
+// Build IMAP SEARCH criteria (use Date objects directly, not strings)
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  const crit = ['ALL'];
-
   // 1) Month mode
   if (monthStart && monthEnd) {
     const start = new Date(monthStart);
     const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-    return crit;
+    return { since: start, before: endExclusive };
   }
 
   // 2) Absolute ISO mode
   if (dateStartISO && dateEndISO) {
     const start = new Date(dateStartISO);
     const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-    return crit;
+    return { since: start, before: endExclusive };
   }
 
-  // 3) Relative range (last N days; end exclusive = +1 day)
+  // 3) Relative range (last N days)
   if (rangeDays && Number(rangeDays) > 0) {
-    const endExclusive = new Date(Date.now() + 86400000);
-    const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) * 86400000));
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-    return crit;
+    const endExclusive = new Date();
+    const start = new Date(endExclusive.getTime() - Math.max(1, Number(rangeDays)) * 86400000);
+    return { since: start, before: endExclusive };
   }
 
-  // 4) Fallback: query only
-  if (query) return [{ gmailRaw: query }];
+  // 4) Gmail raw query
+  if (query) return { gmailRaw: query };
 
-  return crit;
+  return ['ALL'];
 }
 
 async function parseFromSource(source) {
