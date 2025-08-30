@@ -76,44 +76,43 @@ function toIMAPDate(date) {
 }
 
 // One-and-only search builder. Pick exactly ONE mode.
-// Modes (in priority order):
-// 1) Month (monthStart+monthEnd)  2) Absolute (dateStartISO+dateEndISO)
-// 3) Relative range (rangeDays)   4) Query only (fallback)
+// Modes: 1) Month  2) Absolute ISO  3) Relative range  4) Query only
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
   const crit = ['ALL'];
 
-  // 1) Month mode (inclusive, end made exclusive by +1 day)
+  // 1) Month mode (inclusive; make end exclusive by +1 day)
   if (monthStart && monthEnd) {
     const start = new Date(monthStart);
     const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
     return crit;
   }
 
-  // 2) Absolute ISO mode
+  // 2) Absolute ISO mode (inclusive; end exclusive by +1 day)
   if (dateStartISO && dateEndISO) {
     const start = new Date(dateStartISO);
     const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
     return crit;
   }
 
-  // 3) Relative range (last N days; end = now, exclusive = +1 day)
-if (rangeDays && Number(rangeDays) > 0) {
-  const endExclusive = new Date(Date.now() + 86400000);
-  const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) * 86400000));
-  crit.push(['SINCE',  toIMAPDate(start)]);
-  crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-  return crit;
-}
+  // 3) Relative range (last N days; end = now, exclusive = now)
+  if (rangeDays && Number(rangeDays) > 0) {
+    const endExclusive = new Date(); // now
+    const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
+  }
 
   // 4) Fallback: query only (Gmail supports gmailRaw)
   if (query) return [{ gmailRaw: query }];
 
   // Default = ALL
   return crit;
+}
 }
 
 async function parseFromSource(source) {
