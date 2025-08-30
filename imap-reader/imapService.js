@@ -74,46 +74,41 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
 // 1) Month (monthStart+monthEnd)  2) Absolute (dateStartISO+dateEndISO)
 // 3) Relative range (rangeDays)   4) Query only (fallback)
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  const now = new Date();
-
-  // Safety: if server clock is ahead, clamp to real current year
-  const currentYear = (new Date()).getUTCFullYear();
-  if (now.getUTCFullYear() > currentYear) now.setUTCFullYear(currentYear);
-
-  // End of today in UTC
-  const todayEndUTC = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-    23, 59, 59, 999
-  ));
-
-  const withQuery = (obj) => (query ? { ...obj, or: query } : obj);
+  const crit = ['ALL'];
 
   // 1) Month mode
   if (monthStart && monthEnd) {
     const start = new Date(monthStart);
-    const end   = new Date(monthEnd);
-    const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
-    return withQuery({ since: start, before });
+    const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
   }
 
   // 2) Absolute ISO mode
   if (dateStartISO && dateEndISO) {
     const start = new Date(dateStartISO);
-    const end   = new Date(dateEndISO);
-    const before = new Date(Math.min(end.getTime() + 86400000, todayEndUTC.getTime() + 1));
-    return withQuery({ since: start, before });
+    const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
   }
 
   // 3) Relative range (last N days)
   if (rangeDays && Number(rangeDays) > 0) {
-    const end   = todayEndUTC;
-    const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-    const before = new Date(end.getTime() + 1); // exclusive boundary end-of-today
-    return withQuery({ since: start, before });
+    const since = new Date(Date.now() - Number(rangeDays) * 86400000);
+    crit.push(['SINCE', since]);
+    return crit;
   }
 
   // 4) Fallback: query only
-  return withQuery({});
+  if (query) {
+    // For Gmail, you can still use gmailRaw
+    return [{ gmailRaw: query }];
+  }
+
+  // Default = ALL
+  return crit;
 }
 
 async function parseFromSource(source) {
