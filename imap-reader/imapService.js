@@ -100,14 +100,14 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
     return crit;
   }
 
-  // 3) Relative range (last N days; end = now)
-  if (rangeDays && Number(rangeDays) > 0) {
-    const end = new Date();
-    const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-    crit.push(['SINCE',  toIMAPDate(start)]);
-    crit.push(['BEFORE', toIMAPDate(end)]);
-    return crit;
-  }
+  // 3) Relative range (last N days; end = now, exclusive = +1 day)
+if (rangeDays && Number(rangeDays) > 0) {
+  const endExclusive = new Date(Date.now() + 86400000);
+  const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) * 86400000));
+  crit.push(['SINCE',  toIMAPDate(start)]);
+  crit.push(['BEFORE', toIMAPDate(endExclusive)]);
+  return crit;
+}
 
   // 4) Fallback: query only (Gmail supports gmailRaw)
   if (query) return [{ gmailRaw: query }];
