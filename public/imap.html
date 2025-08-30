@@ -1549,18 +1549,26 @@ if (monthMode) {
 } else {
   // Range mode …
   const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
-  const days = Number.isFinite(daysSel) ? daysSel : 30;
-  const end  = todayEndUTC;
+  const days    = Number.isFinite(daysSel) ? daysSel : 30;
+  const end     = todayEndUTC;
   if (days <= 0) {
-  startTs = -Infinity;
-  endTs   = end;
-} else {
-  const start = end - (Math.max(1, days) - 1) * 86400000;
-  startTs = start;
-  endTs   = end;
+    startTs = -Infinity;
+    endTs   = end;
+  } else {
+    const start = end - (Math.max(1, days) - 1) * 86400000;
+    startTs = start;
+    endTs   = end;
+  }
 }
-   }
-// (optional) in your log, show the renamed fields
+
+// === Apply filter & set count for logs ===
+const beforeCount = state.emails.length;
+state.emails = state.emails.filter(e => {
+  const t = Number(e._ts ?? bestTimestampMs(e));
+  return Number.isFinite(t) ? (t >= startTs && t <= endTs) : true;
+});
+
+// (optional) window info
 console.log("IMAP window", {
   monthMode,
   mStart: mStartFilter,
