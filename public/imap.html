@@ -1702,7 +1702,7 @@ function on(id, ev, fn) {
 }
 
 // VIP & Quick Filters
-on("btnVip","click", ()=>{ state.view = state.emails.filter(e => !!e.isVip); state.page=1; state.nextCursor=null; state.cursorStack=[null]; $("prev") && ($("prev").disabled=true); $("next") && ($("next").disabled=true); $("pageInfo") && ($("pageInfo").textContent = `VIP • ${state.view.length} emails`); render(); });
+
 on("btnQVip","click", ()=>{
   state.view = state.emails.filter(e => !!e.isVip);
   state.page = 1;
