@@ -74,32 +74,41 @@ function toIMAPDate(date) {
 }
 
 // Build IMAP SEARCH criteria (use Date objects directly, not strings)
+// Build IMAP SEARCH criteria
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
+  const crit = ['ALL'];
+
   // 1) Month mode
   if (monthStart && monthEnd) {
     const start = new Date(monthStart);
     const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
-    return { since: start, before: endExclusive };
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
   }
 
   // 2) Absolute ISO mode
   if (dateStartISO && dateEndISO) {
     const start = new Date(dateStartISO);
     const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
-    return { since: start, before: endExclusive };
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
   }
 
-  // 3) Relative range (last N days)
+  // 3) Relative range (last N days; end = now)
   if (rangeDays && Number(rangeDays) > 0) {
     const endExclusive = new Date();
-    const start = new Date(endExclusive.getTime() - Math.max(1, Number(rangeDays)) * 86400000);
-    return { since: start, before: endExclusive };
+    const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]);
+    return crit;
   }
 
-  // 4) Gmail raw query
-  if (query) return { gmailRaw: query };
+  // 4) Fallback: Gmail raw query
+  if (query) return [{ gmailRaw: query }];
 
-  return ['ALL'];
+  return crit;
 }
 
 async function parseFromSource(source) {
