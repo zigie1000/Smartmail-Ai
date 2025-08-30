@@ -66,10 +66,12 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
-// --- Helper to format Date into IMAP style (D-Mmm-YYYY) ---
+// --- Helper to format Date into IMAP style (DD-MMM-YYYY) ---
 function toIMAPDate(date) {
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
+  const months = ["Jan","Feb","Mar","Apr","May","Jun",
+                  "Jul","Aug","Sep","Oct","Nov","Dec"];
+  const day = String(date.getDate()).padStart(2, '0'); // ensures 01, 02, ... 09
+  return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
 
 // Build IMAP SEARCH criteria
