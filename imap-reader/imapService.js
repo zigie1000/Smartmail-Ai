@@ -76,10 +76,6 @@ function toIMAPDate(date) {
   return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
 
-// One-and-only search builder. Pick exactly ONE mode.
-function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  const crit = ['ALL'];
-
 
 // One-and-only search builder. Pick exactly ONE mode.
 // Modes (in priority order):
