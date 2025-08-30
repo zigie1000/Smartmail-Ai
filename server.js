@@ -17,6 +17,10 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 // --- IMAP REST routes (API) ---
+// ⬇️ insert app init here
+const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use('/api/imap', imapRoutes);
 
 // --- BLOCK backend files from leaking as static ---
@@ -49,8 +53,6 @@ app.get('*', (_req, res) => {
 
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
 
 const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
 const USE_MS_AUTH     = (process.env.USE_MS_AUTH || 'true') === 'true';
