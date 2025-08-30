@@ -363,15 +363,15 @@ window.nowDate = function () {
     setBanner('month', w.startISO, w.endISO);
     updateEnabling();
   });
-  clearMonthInline.addEventListener('click', function(){
-    window._monthStartISO = undefined;
-    window._monthEndISO = undefined;
-    mRange.checked = true;
-    mMonth.checked = false;
-    updateEnabling();
-    const w = computeRangeWindow(window._rangeDaysActive);
-    setBanner('range', w.startISO, w.endISO, window._rangeDaysActive);
-  });
+  clearMonthBtn.addEventListener('click', function(){
+  window._monthStartISO = undefined;
+  window._monthEndISO = undefined;
+  mRange.checked = true;
+  mMonth.checked = false;
+  updateEnabling();
+  const w = computeRangeWindow(window._rangeDaysActive);
+  setBanner('range', w.startISO, w.endISO, window._rangeDaysActive);
+});
   updateEnabling();
 
   // Patch fetch for /api/imap/fetch to inject chosen mode
