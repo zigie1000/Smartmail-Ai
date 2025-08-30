@@ -69,34 +69,38 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
 // --- Helper to format Date into IMAP style (DD-MMM-YYYY) ---
 function toIMAPDate(date) {
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  // no padStart — IMAP accepts 1..31
   return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
 
-// Build IMAP SEARCH criteria (use Date objects directly, not strings)
-// Build IMAP SEARCH criteria
+/**
+ * Build IMAP SEARCH criteria.
+ * IMPORTANT: Always pass *Date objects* (not strings) to ImapFlow so it renders DD-MMM-YYYY.
+ */
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
   const crit = ['ALL'];
 
-  // 1) Month mode
+  // Ensure a real Date instance
+  const asDate = (d) => (d instanceof Date ? d : new Date(d));
+
+  // 1) Month mode (inclusive start, exclusive end)
   if (monthStart && monthEnd) {
-    const start = new Date(monthStart);
-    const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
+    const start = asDate(monthStart);
+    const endExclusive = new Date(asDate(monthEnd).getTime() + 86400000);
     crit.push(['SINCE', start]);
     crit.push(['BEFORE', endExclusive]);
     return crit;
   }
 
-  // 2) Absolute ISO mode
+  // 2) Absolute ISO window (inclusive start, exclusive end)
   if (dateStartISO && dateEndISO) {
-    const start = new Date(dateStartISO);
-    const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
+    const start = asDate(dateStartISO);
+    const endExclusive = new Date(asDate(dateEndISO).getTime() + 86400000);
     crit.push(['SINCE', start]);
     crit.push(['BEFORE', endExclusive]);
     return crit;
   }
 
-  // 3) Relative range (last N days; end = now)
+  // 3) Relative range (last N days, end = now)
   if (rangeDays && Number(rangeDays) > 0) {
     const endExclusive = new Date();
     const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
@@ -105,7 +109,7 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
     return crit;
   }
 
-  // 4) Fallback: Gmail raw query
+  // 4) Raw Gmail query fallback
   if (query) return [{ gmailRaw: query }];
 
   return crit;
@@ -166,10 +170,11 @@ export async function fetchEmails(opts = {}) {
           const body = await parseFromSource(msg.source);
           Object.assign(model, body);
           const basis = model.text || model.html || '';
-          model.snippet = String(basis).replace(/<[^>]+>/g, ' ')
-                                      .replace(/\s+/g, ' ')
-                                      .trim()
-                                      .slice(0, 600);
+          model.snippet = String(basis)
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 600);
         } catch {}
       } else {
         try {
@@ -185,6 +190,14 @@ export async function fetchEmails(opts = {}) {
         } catch {}
       }
 
+      // VIP flagging
+      const from = (model.fromEmail || '').toLowerCase();
+      const dom  = (model.fromDomain || '').toLowerCase();
+      model.isVip = vipSenders.some(v => {
+        v = String(v || '').toLowerCase().trim();
+        return v && (from === v || dom === v);
+      });
+
       items.push(model);
     }
 
@@ -197,7 +210,9 @@ export async function fetchEmails(opts = {}) {
   }
 }
 
-export async function getMessageById({ email, password, accessToken, host, port = 993, tls = true, authType = 'password', id }) {
+export async function getMessageById({
+  email, password, accessToken, host, port = 993, tls = true, authType = 'password', id
+}) {
   const client = await openClient({ email, password, accessToken, host, port, tls, authType });
   try {
     const uid = Number(id);
@@ -220,7 +235,9 @@ export async function getMessageById({ email, password, accessToken, host, port 
   }
 }
 
-export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
+export async function testLogin({
+  email, password, accessToken, host, port = 993, tls = true, authType = 'password'
+}) {
   const client = new ImapFlow({
     host, port, secure: !!tls,
     auth: (String(authType).toLowerCase() === 'xoauth2')
