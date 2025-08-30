@@ -66,21 +66,31 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
-// --- Helper to format Date into IMAP style (DD-MMM-YYYY) ---
-function toIMAPDate(date) {
+// (kept for potential manual formatting/debug)
+function toIMAPDate(d) {
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
+  return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
 /**
  * Build IMAP SEARCH criteria.
- * IMPORTANT: Always pass *Date objects* (not strings) to ImapFlow so it renders DD-MMM-YYYY.
+ * ALWAYS pass native Date objects to ImapFlow so it renders DD-MMM-YYYY.
  */
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
   const crit = ['ALL'];
 
-  // Ensure a real Date instance
-  const asDate = (d) => (d instanceof Date ? d : new Date(d));
+  // Normalize anything we receive into a *real* Date instance.
+  // For plain 'YYYY-MM-DD' strings, pin to midnight UTC to avoid TZ drift.
+  const asDate = (v) => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    if (typeof v === 'string') {
+      // If it's already an ISO timestamp keep it; if it's a date-only, add T00:00:00Z
+      const looksDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
+      return new Date(looksDateOnly ? `${v}T00:00:00Z` : v);
+    }
+    return new Date(v);
+  };
 
   // 1) Month mode (inclusive start, exclusive end)
   if (monthStart && monthEnd) {
@@ -100,7 +110,7 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
     return crit;
   }
 
-  // 3) Relative range (last N days, end = now)
+  // 3) Relative range (last N days; end = now)
   if (rangeDays && Number(rangeDays) > 0) {
     const endExclusive = new Date();
     const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
@@ -149,7 +159,12 @@ export async function fetchEmails(opts = {}) {
   const client = await openClient({ email, password, accessToken, host, port, tls, authType });
   try {
     const search = buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query });
-    console.log('IMAP SEARCH crit:', JSON.stringify(search));
+
+    // Debug without forcing Dates into JSON ISO strings:
+    console.log(
+      'IMAP SEARCH crit (debug):',
+      search.map(x => (Array.isArray(x) && x[1] instanceof Date) ? [x[0], x[1].toUTCString()] : x)
+    );
 
     let uids = await client.search(search);
     uids = (uids || []).sort((a, b) => b - a);
@@ -190,7 +205,7 @@ export async function fetchEmails(opts = {}) {
         } catch {}
       }
 
-      // VIP flagging
+      // VIP tagging (if provided)
       const from = (model.fromEmail || '').toLowerCase();
       const dom  = (model.fromDomain || '').toLowerCase();
       model.isVip = vipSenders.some(v => {
@@ -210,9 +225,7 @@ export async function fetchEmails(opts = {}) {
   }
 }
 
-export async function getMessageById({
-  email, password, accessToken, host, port = 993, tls = true, authType = 'password', id
-}) {
+export async function getMessageById({ email, password, accessToken, host, port = 993, tls = true, authType = 'password', id }) {
   const client = await openClient({ email, password, accessToken, host, port, tls, authType });
   try {
     const uid = Number(id);
@@ -235,9 +248,7 @@ export async function getMessageById({
   }
 }
 
-export async function testLogin({
-  email, password, accessToken, host, port = 993, tls = true, authType = 'password'
-}) {
+export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
   const client = new ImapFlow({
     host, port, secure: !!tls,
     auth: (String(authType).toLowerCase() === 'xoauth2')
