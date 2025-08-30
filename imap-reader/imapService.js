@@ -86,7 +86,7 @@ function asDate(v) {
 
 /** Build IMAP SEARCH criteria as a FLAT array (some servers reject nested). */
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  // 4) Raw Gmail query fallback
+  // 4) Raw Gmail query fallback (explicit)
   if (query) return [{ gmailRaw: query }];
 
   // 1) Month mode (inclusive start, exclusive end)
@@ -112,6 +112,28 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
 
   // default
   return ['ALL'];
+}
+
+/* ---------- Gmail fallback helpers ---------- */
+function toYMD(d) {
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd}`; // Gmail expects slashes
+}
+
+// Convert search array → Gmail RAW (supports SINCE/BEFORE Dates)
+function buildGmailRawFromSearch(search) {
+  if (!Array.isArray(search)) return null;
+  const iSince = search.indexOf('SINCE');
+  const iBefore = search.indexOf('BEFORE');
+  const since = (iSince !== -1 && search[iSince+1] instanceof Date) ? search[iSince+1] : null;
+  const before = (iBefore !== -1 && search[iBefore+1] instanceof Date) ? search[iBefore+1] : null;
+
+  if (since && before) return `newer:${toYMD(since)} older:${toYMD(before)}`;
+  if (since) return `newer:${toYMD(since)}`;
+  if (before) return `older:${toYMD(before)}`;
+  return null;
 }
 
 async function parseFromSource(source) {
@@ -157,7 +179,35 @@ export async function fetchEmails(opts = {}) {
         : search
     );
 
-    let uids = await client.search(search);
+    // ---------- Optional sanity guard ----------
+    if (Array.isArray(search)) {
+      const iSince = search.indexOf('SINCE');
+      const iBefore = search.indexOf('BEFORE');
+      if (iSince !== -1 && !(search[iSince+1] instanceof Date)) {
+        throw new Error('SEARCH guard: SINCE must be a Date');
+      }
+      if (iBefore !== -1 && !(search[iBefore+1] instanceof Date)) {
+        throw new Error('SEARCH guard: BEFORE must be a Date');
+      }
+    }
+    // ------------------------------------------
+
+    // Perform search with Gmail RAW fallback on BAD
+    let uids;
+    try {
+      uids = await client.search(search);
+    } catch (err) {
+      const msg = String(err?.response || err?.responseText || err?.message || '');
+      const isBAD = msg.toUpperCase().includes('BAD');
+      const raw = buildGmailRawFromSearch(search);
+      console.warn('IMAP SEARCH failed; attempting gmailRaw fallback.', { isBAD, raw, err: err?.message });
+      if (isBAD && raw) {
+        uids = await client.search([{ gmailRaw: raw }]);
+      } else {
+        throw err;
+      }
+    }
+
     uids = (uids || []).sort((a, b) => b - a);
 
     let filtered = cursor ? uids.filter(uid => uid < Number(cursor)) : uids;
