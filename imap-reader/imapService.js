@@ -113,7 +113,6 @@ function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays
   // Default = ALL
   return crit;
 }
-}
 
 async function parseFromSource(source) {
   const parsed = await simpleParser(source);
