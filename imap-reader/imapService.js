@@ -69,13 +69,11 @@ async function openClient({ email, password, accessToken, host, port = 993, tls 
   return client;
 }
 
-// --- Helper to format Date into IMAP style ---
+// --- Helper to format Date into IMAP style (D-Mmm-YYYY) ---
 function toIMAPDate(date) {
-  const months = ["Jan","Feb","Mar","Apr","May","Jun",
-                  "Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
-
 
 // One-and-only search builder. Pick exactly ONE mode.
 // Modes (in priority order):
@@ -84,36 +82,35 @@ function toIMAPDate(date) {
 function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
   const crit = ['ALL'];
 
-  // 1) Month mode
- if (monthStart && monthEnd) {
-  const start = new Date(monthStart);
-  const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
-  crit.push(['SINCE', toIMAPDate(start)]);
-  crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-  return crit;
-}
-
-if (dateStartISO && dateEndISO) {
-  const start = new Date(dateStartISO);
-  const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
-  crit.push(['SINCE', toIMAPDate(start)]);
-  crit.push(['BEFORE', toIMAPDate(endExclusive)]);
-  return crit;
-}
-
-if (rangeDays && Number(rangeDays) > 0) {
-  const end = new Date();
-  const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-  crit.push(['SINCE', toIMAPDate(start)]);
-  crit.push(['BEFORE', toIMAPDate(end)]);
-  return crit;
-}
-
-  // 4) Fallback: query only
-  if (query) {
-    // For Gmail, you can still use gmailRaw
-    return [{ gmailRaw: query }];
+  // 1) Month mode (inclusive, end made exclusive by +1 day)
+  if (monthStart && monthEnd) {
+    const start = new Date(monthStart);
+    const endExclusive = new Date(new Date(monthEnd).getTime() + 86400000);
+    crit.push(['SINCE',  toIMAPDate(start)]);
+    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
+    return crit;
   }
+
+  // 2) Absolute ISO mode
+  if (dateStartISO && dateEndISO) {
+    const start = new Date(dateStartISO);
+    const endExclusive = new Date(new Date(dateEndISO).getTime() + 86400000);
+    crit.push(['SINCE',  toIMAPDate(start)]);
+    crit.push(['BEFORE', toIMAPDate(endExclusive)]);
+    return crit;
+  }
+
+  // 3) Relative range (last N days; end = now)
+  if (rangeDays && Number(rangeDays) > 0) {
+    const end = new Date();
+    const start = new Date(end.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
+    crit.push(['SINCE',  toIMAPDate(start)]);
+    crit.push(['BEFORE', toIMAPDate(end)]);
+    return crit;
+  }
+
+  // 4) Fallback: query only (Gmail supports gmailRaw)
+  if (query) return [{ gmailRaw: query }];
 
   // Default = ALL
   return crit;
