@@ -81,6 +81,7 @@ function toModelSkeleton(msg) {
     fromDomain: ((from0.address || '').split('@')[1] || '').toLowerCase(),
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
+    internalDate: msg.internalDate || null,   // <── ADD THIS LINE
     snippet: (msg.snippet || '').toString().trim(),
     importance: 'unclassified',
     intent: '',
