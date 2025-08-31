@@ -1,8 +1,8 @@
-// imapService.js (ESM) — robust IMAP fetcher with month parsing, fallbacks & UID pagination
+// imapService.js — robust IMAP fetcher with month parsing, fallbacks & UID pagination (ESM)
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-/** ---------- helpers ---------- **/
+/* ------------------ helpers ------------------ */
 function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
@@ -81,8 +81,10 @@ function toModelSkeleton(msg) {
     fromDomain: ((from0.address || '').split('@')[1] || '').toLowerCase(),
     to: (to0.address || '').toString(),
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
-    internalDate: msg.internalDate || null,   // <── ADD THIS LINE
-    snippet: (msg.snippet || '').toString().trim(),
+    internalDate: msg.internalDate || null,        // keep raw ms for client-side windowing
+    snippet: (msg.snippet || '').toString().trim(),// will be upgraded if we fetch bodies/snippets
+    text: '',                                      // optional: filled when fullBodies=true
+    html: '',                                      // optional: filled when fullBodies=true
     importance: 'unclassified',
     intent: '',
     urgency: 0,
@@ -98,10 +100,10 @@ async function hydrateSnippet(client, uid, model) {
     const parsed = await simpleParser(stream.content);
 
     const text = (parsed.text || '').toString().trim();
-    const html = (parsed.html || '').toString().replace(/<[^>]+>/g, ' ').trim();
+    const html = (parsed.html || '').toString();
 
     let textish = text || html;
-    textish = textish.replace(/\s+/g, ' ').trim();
+    textish = textish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
@@ -132,27 +134,25 @@ function classify(model, { vipSenders = [] } = {}) {
 function normalizeUids(uids) {
   const arr = Array.isArray(uids) ? uids : Array.from(uids || []);
   const nums = arr.map(Number).filter(Number.isFinite);
-  nums.sort((a, b) => b - a);
+  nums.sort((a, b) => b - a); // newest first (higher uid usually newer)
   return nums;
 }
 
-/** ---------- public API ---------- */
+/* ------------------ public API ------------------ */
 export async function fetchEmails(opts) {
   const {
     email, password, accessToken,
     host, port = 993, tls = true, authType = 'password',
     rangeDays = 7, monthStart, monthEnd,
-    // NEW: accept a single `month` label (e.g., "July 2025") as an alias
-    month,
+    month, // alias; if provided without monthEnd, we parse it as "YYYY-MM"
     limit = 20, cursor = null,
-    fullBodies = false,   // <── ADD THIS LINE
+    fullBodies = false,               // when true, download full text/html
     vipSenders = []
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
 
-  // ---- MINIMAL MONTH NORMALIZATION ----
-  // If the caller sent only `month`, use it as monthStart; keep monthEnd as-is.
+  // Normalize “month” alias
   const _monthStart = monthStart || month || '';
   const _monthEnd   = monthEnd || '';
 
@@ -173,7 +173,7 @@ export async function fetchEmails(opts) {
       const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
       try {
         uidList = normalizeUids(await client.search({ gmailRaw: `in:inbox after:${a} before:${b}` }, { uid: true }));
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
     }
 
     /* 3) Hard fallback: last N UIDs in INBOX */
@@ -212,37 +212,37 @@ export async function fetchEmails(opts) {
     }
 
     /* map → hydrate (snippet or full) → classify */
-const items = [];
-for (const msg of raw) {
-  let model = toModelSkeleton(msg);
+    const items = [];
+    for (const msg of raw) {
+      let model = toModelSkeleton(msg);
 
-  if (fullBodies) {
-    // Month mode: fetch full message bodies once
-    try {
-      const dl = await client.download(msg.uid);
-      if (dl?.content) {
-        const parsed = await simpleParser(dl.content);
-        const text = (parsed.text || '').toString();
-        const html = (parsed.html || '').toString();
-        const textish = (text || html)
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (textish) model.snippet = textish.slice(0, 600);
-        if (text) model.text = text;
-        if (html) model.html = html;
+      if (fullBodies) {
+        // month mode or explicit: fetch full text/html once
+        try {
+          const dl = await client.download(msg.uid);
+          if (dl?.content) {
+            const parsed = await simpleParser(dl.content);
+            const text = (parsed.text || '').toString();
+            const html = (parsed.html || '').toString();
+            const textish = (text || html)
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (textish) model.snippet = textish.slice(0, 600);
+            if (text) model.text = text;
+            if (html) model.html = html;
+          }
+        } catch { /* ignore */ }
+      } else {
+        // range mode: lighter, still try to create a snippet cheaply
+        model = await hydrateSnippet(client, msg.uid, model);
       }
-    } catch { /* ignore */ }
-  } else {
-    // Range mode: lighter, snippet only
-    model = await hydrateSnippet(client, msg.uid, model);
-  }
 
-  model = classify(model, { vipSenders });
-  items.push(model);
-}
+      model = classify(model, { vipSenders });
+      items.push(model);
+    }
 
-    const hasMore = startIdx + slice.length < uidList.length;
+    const hasMore   = startIdx + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
     await client.logout();
