@@ -17,7 +17,8 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 // --- IMAP REST routes (API) ---
-// ⬇️ insert app init here
+import imapRoutes from './imap-reader/imapRoutes.js';   // ⬅️ add this import
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
