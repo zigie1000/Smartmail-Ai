@@ -1065,31 +1065,6 @@ function exportCSV(){
   const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
-// ---- Full message retrieval helpers ----
-async function fetchFullEmail(id){
-  if (!id) throw new Error("No id");
-  const payload = {
-    email: $("email")?.value || "",
-    password: $("password")?.value || "",
-    host: $("host")?.value || "",
-    port: Number($("port")?.value || 993),
-    tls: ($("tls")?.value || "on") !== "off",
-    authType: $("authType")?.value || "password",
-    accessToken: $("accessToken")?.value || "",
-    ids: [String(id)],
-    limit: 1,
-    includeBody: true
-  };
-  const resp = await fetch("/api/imap/fetch", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  if (!resp.ok) throw new Error("Fetch full failed " + resp.status);
-  const data = await resp.json().catch(()=>({}));
-  return (Array.isArray(data.emails) && data.emails[0]) || {};
-}
-
 // Returns a full message (from cache or server)
 async function ensureBodiesLoadedFor(ids, opts = {}) {
   const force = !!opts.force;
@@ -1113,22 +1088,28 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
    console.log('[hydrate] bodyBatch returned', (items||[]).length, (items||[]).slice(0,2));
   for (const it of items) {
   const e = map.get(String(it.id));
-     // ▼ INSERT just after: const e = map.get(String(it.id)); if (!e) continue;
-if (it) {
-  if (typeof it.text === 'string')   e.text   = it.text.trim();
-  if (typeof it.html === 'string')   e.html   = it.html;
-  if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
-}
-// ▲ END INSERT
-  if (!e) continue;
+  if (!e) continue;                    // 1) guard FIRST
 
-  // 🔽 INSERT THIS BLOCK
+  // 2) copy fetched fields into the in-memory email (do this ONCE)
   if (it) {
-    if (typeof it.text === 'string') e.text = it.text.trim();
-    if (typeof it.html === 'string') e.html = it.html;
+    if (typeof it.text === 'string')   e.text    = it.text.trim();
+    if (typeof it.html === 'string')   e.html    = it.html;
     if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
   }
-  // 🔼 END INSERT
+
+  // 3) upgrade the card’s placeholder, only if not fully rendered
+  const pv = document.getElementById(`pv-${it.id}`);
+  if (pv && pv.dataset.full !== '1') {
+    const cur = (pv.textContent || '').toLowerCase();
+    if (!cur.trim() || cur.includes('no preview')) {
+      const raw =
+        (e.text && e.text.trim()) ||
+        stripAndTrim(e.html, 180) ||
+        ((e.snippet || '').slice(0, 180));
+      if (raw) pv.textContent = raw;
+    }
+  }
+}
 
 // If a preview node exists and hasn't been fully rendered yet,
 // upgrade its placeholder text so the user sees something instantly.
