@@ -1,308 +1,243 @@
-// imapService.js — ImapFlow-based IMAP access with optional full-body hydration.
-
+// imapService.js (ESM) — robust IMAP fetcher with month parsing, fallbacks & UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-function domainOf(email = '') {
-  const m = String(email).toLowerCase().match(/@([^> ]+)/);
-  return m ? m[1] : '';
+/** ---------- helpers ---------- **/
+function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
+
+function makeAuth({ authType = 'password', email, password, accessToken }) {
+  const kind = String(authType || 'password').toLowerCase();
+  if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
+  return { user: email, pass: password || '' };
 }
 
-function toModelSkeleton(msg) {
-  const env = msg.envelope || {};
-  const fromAddr = (env.from && env.from[0]) ? env.from[0] : {};
-  const toAddr   = (env.to && env.to[0]) ? env.to[0] : {};
-  const fromEmail = (fromAddr.address || '').toLowerCase();
-  const fromDomain = domainOf(fromEmail);
-
-  return {
-    id: String(msg.uid || msg.id || msg.seq || ''),
-    uid: msg.uid,
-    subject: env.subject || '',
-    from: fromAddr.name ? `${fromAddr.name} <${fromEmail}>` : fromEmail,
-    fromEmail,
-    fromDomain,
-    to: toAddr.address || '',
-
-    date: (msg.internalDate ? new Date(msg.internalDate).toISOString() : '') || '',
-    internalDate: (() => {
-      if (msg.internalDate) {
-        const raw = Number(msg.internalDate);
-        return raw < 1e11 ? raw * 1000 : raw;
-      }
-      return null;
-    })(),
-    receivedAt: (() => {
-      if (msg.internalDate) {
-        const raw = Number(msg.internalDate);
-        return raw < 1e11 ? raw * 1000 : raw;
-      }
-      return null;
-    })(),
-
-    snippet: '',
-    text: '',
-    html: '',
-    headers: {},
-    hasIcs: false,
-    attachTypes: [],
-    unread: !msg.flags?.has('\\Seen'),
-    flagged: !!msg.flags?.has('\\Flagged'),
-    contentType: ''
-  };
-}
-
-async function openClient({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
+async function connectAndOpen({ host, port = 993, tls = true, authType, email, password, accessToken }) {
   const client = new ImapFlow({
     host,
-    port,
-    secure: !!tls,
-    auth: (String(authType).toLowerCase() === 'xoauth2')
-      ? { user: email, accessToken, method: 'XOAUTH2' }
-      : { user: email, pass: password }
+    port: Number(port) || 993,
+    secure: normBool(tls),
+    auth: makeAuth({ authType, email, password, accessToken }),
+    logger: false
   });
   await client.connect();
-  await client.mailboxOpen('INBOX');
+  await client.mailboxOpen('INBOX', { readOnly: true });
   return client;
 }
 
-// helper: human-readable IMAP date (debug only)
-function toIMAPDate(d) {
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
-}
+/** Parse month inputs into [start, endExclusive] */
+function parseMonthRange(monthStart, monthEnd) {
+  const clean = (s) => (typeof s === 'string' ? s.trim() : '');
+  const ms = clean(monthStart);
+  const me = clean(monthEnd);
 
-/** Normalize any incoming date-ish value to a real Date.
- *  For 'YYYY-MM-DD', pin to midnight UTC to avoid TZ drift. */
-function asDate(v) {
-  if (!v) return null;
-  if (v instanceof Date) return v;
-  if (typeof v === 'string') {
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(v);
-    return new Date(dateOnly ? `${v}T00:00:00Z` : v);
-  }
-  return new Date(v);
-}
-
-/** Build IMAP SEARCH criteria as a FLAT array (some servers reject nested). */
-function buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query }) {
-  // 4) Raw Gmail query fallback (explicit)
-  if (query) return [{ gmailRaw: query }];
-
-  // 1) Month mode (inclusive start, exclusive end)
-  if (monthStart && monthEnd) {
-    const start = asDate(monthStart);
-    const endExclusive = new Date(asDate(monthEnd).getTime() + 86400000);
-    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
+  // both provided (ISO/parsable)
+  if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
+    const start = new Date(ms);
+    const meD = new Date(me);
+    const endExclusive = new Date(meD.getFullYear(), meD.getMonth(), meD.getDate() + 1);
+    return { start, endExclusive };
   }
 
-  // 2) Absolute ISO window (inclusive start, exclusive end)
-  if (dateStartISO && dateEndISO) {
-    const start = asDate(dateStartISO);
-    const endExclusive = new Date(asDate(dateEndISO).getTime() + 86400000);
-    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
+  // single month label in ms (e.g., "July 2025" or "2025-07")
+  if (ms && !me && !Number.isNaN(Date.parse(ms))) {
+    const d = new Date(ms);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+    const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
+    return { start, endExclusive };
   }
 
-  // 3) Relative range (last N days; end = now)
-  if (rangeDays && Number(rangeDays) > 0) {
-    const endExclusive = new Date();
-    const start = new Date(endExclusive.getTime() - (Math.max(1, Number(rangeDays)) - 1) * 86400000);
-    return ['ALL', 'SINCE', start, 'BEFORE', endExclusive];
+  return { start: null, endExclusive: null };
+}
+
+function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
+  const crit = ['ALL'];
+  const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
+
+  if (start && endExclusive) {
+    crit.push(['SINCE', start]);
+    crit.push(['BEFORE', endExclusive]); // exclusive upper bound
+    return crit;
   }
 
-  // default
-  return ['ALL'];
-}
-
-/* ---------- Gmail fallback helpers ---------- */
-function toYMD(d) {
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd}`; // Gmail expects slashes
-}
-
-// Convert search array → Gmail RAW (supports SINCE/BEFORE Dates)
-function buildGmailRawFromSearch(search) {
-  if (!Array.isArray(search)) return null;
-  const iSince = search.indexOf('SINCE');
-  const iBefore = search.indexOf('BEFORE');
-  const since = (iSince !== -1 && search[iSince+1] instanceof Date) ? search[iSince+1] : null;
-  const before = (iBefore !== -1 && search[iBefore+1] instanceof Date) ? search[iBefore+1] : null;
-
-  if (since && before) return `newer:${toYMD(since)} older:${toYMD(before)}`;
-  if (since) return `newer:${toYMD(since)}`;
-  if (before) return `older:${toYMD(before)}`;
-  return null;
-}
-
-async function parseFromSource(source) {
-  const parsed = await simpleParser(source);
-  const text = parsed.text || '';
-  const html = parsed.html || '';
-  const headers = {};
-  for (const [k, v] of parsed.headers) headers[String(k).toLowerCase()] = v;
-
-  const attachTypes = [];
-  let hasIcs = false;
-  for (const a of parsed.attachments || []) {
-    const ct = (a.contentType || '').toLowerCase();
-    attachTypes.push(ct);
-    if (ct.includes('text/calendar') || (a.filename || '').toLowerCase().endsWith('.ics')) hasIcs = true;
+  const days = Number(rangeDays);
+  if (Number.isFinite(days) && days > 0) {
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+    crit.push(['SINCE', since]);
   }
-  const contentType = html ? 'text/html' : 'text/plain';
-
-  return { text, html, headers, attachTypes, hasIcs, contentType };
+  return crit;
 }
 
-export async function fetchEmails(opts = {}) {
-  const {
-    email, password, accessToken, host, port = 993, tls = true, authType = 'password',
-    monthStart, monthEnd, dateStartISO, dateEndISO,
-    rangeDays,
-    limit = 20,
-    cursor = null,
-    query = '',
-    vipSenders = [],
-    fullBodies = false
-  } = opts;
+function toModelSkeleton(msg) {
+  const from0 = msg.envelope?.from?.[0] ?? {};
+  const to0   = msg.envelope?.to?.[0] ?? {};
+  const subject = (msg.envelope?.subject ?? '').toString();
 
-  const client = await openClient({ email, password, accessToken, host, port, tls, authType });
+  return {
+    id: String(msg.uid ?? msg.seq ?? ''),
+    uid: msg.uid,
+    subject,
+    from: (from0.name || from0.address || '').toString(),
+    fromEmail: (from0.address || '').toString(),
+    fromDomain: ((from0.address || '').split('@')[1] || '').toLowerCase(),
+    to: (to0.address || '').toString(),
+    date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
+    snippet: (msg.snippet || '').toString().trim(),
+    importance: 'unclassified',
+    intent: '',
+    urgency: 0,
+    action_required: false,
+    isVip: false
+  };
+}
+
+async function hydrateSnippet(client, uid, model) {
   try {
-    const search = buildSearch({ monthStart, monthEnd, dateStartISO, dateEndISO, rangeDays, query });
+    const stream = await client.download(uid);
+    if (!stream) return model;
+    const parsed = await simpleParser(stream.content);
+    const textish = (parsed.text || parsed.html || '')
+      .toString()
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (textish) model.snippet = textish.slice(0, 600);
+  } catch { /* ignore */ }
+  return model;
+}
 
-    // Debug without JSON stringifying Dates:
-    console.log(
-      'IMAP SEARCH crit (debug):',
-      Array.isArray(search)
-        ? search.map(x => x instanceof Date ? `${x.toUTCString()} (${toIMAPDate(x)})` : x)
-        : search
-    );
+/** Tiny heuristic classifier (no LLM) */
+function classify(model, { vipSenders = [] } = {}) {
+  const s = `${model.subject} ${model.snippet}`.toLowerCase();
+  const intent =
+    /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
+    /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
+    /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
+    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' : '';
+  let urgency = 0;
+  if (/\burgent|asap|immediately|right away|today\b/.test(s)) urgency = 3;
+  else if (/\bsoon|priority|important\b/.test(s))             urgency = 2;
+  else if (/\breminder|follow up|ping\b/.test(s))             urgency = 1;
+  let importance = 'unimportant';
+  if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
+  const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
+  const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
+  return { ...model, intent, urgency, importance, action_required, isVip };
+}
 
-    // ---------- Optional sanity guard ----------
-    if (Array.isArray(search)) {
-      const iSince = search.indexOf('SINCE');
-      const iBefore = search.indexOf('BEFORE');
-      if (iSince !== -1 && !(search[iSince+1] instanceof Date)) {
-        throw new Error('SEARCH guard: SINCE must be a Date');
-      }
-      if (iBefore !== -1 && !(search[iBefore+1] instanceof Date)) {
-        throw new Error('SEARCH guard: BEFORE must be a Date');
-      }
+function normalizeUids(uids) {
+  const arr = Array.isArray(uids) ? uids : Array.from(uids || []);
+  const nums = arr.map(Number).filter(Number.isFinite);
+  nums.sort((a, b) => b - a);
+  return nums;
+}
+
+/** ---------- public API ---------- */
+export async function fetchEmails(opts) {
+  const {
+    email, password, accessToken,
+    host, port = 993, tls = true, authType = 'password',
+    rangeDays = 7, monthStart, monthEnd,
+    // NEW: accept a single `month` label (e.g., "July 2025") as an alias
+    month,
+    limit = 20, cursor = null,
+    vipSenders = []
+  } = opts || {};
+
+  if (!email || !host) throw new Error('email and host are required');
+
+  // ---- MINIMAL MONTH NORMALIZATION ----
+  // If the caller sent only `month`, use it as monthStart; keep monthEnd as-is.
+  const _monthStart = monthStart || month || '';
+  const _monthEnd   = monthEnd || '';
+
+  let client;
+  try {
+    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
+
+    /* 1) primary IMAP search (UIDs) */
+    const criteria = buildDateCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd });
+    let uidList = normalizeUids(await client.search(criteria, { uid: true }));
+
+    /* 2) Gmail RAW fallback */
+    if ((!uidList || uidList.length === 0) && /gmail\.com$/i.test(host)) {
+      const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
+      const pad = (n) => String(n).padStart(2, '0');
+      const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
+      const a = start ? fmt(start) : fmt(new Date(Date.now() - (Number(rangeDays) || 30) * 864e5));
+      const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
+      try {
+        uidList = normalizeUids(await client.search({ gmailRaw: `in:inbox after:${a} before:${b}` }, { uid: true }));
+      } catch {/* ignore */}
     }
-    // ------------------------------------------
 
-    // Perform search with Gmail RAW fallback on BAD
-    let uids;
-    try {
-      uids = await client.search(search);
-    } catch (err) {
-      const msg = String(err?.response || err?.responseText || err?.message || '');
-      const isBAD = msg.toUpperCase().includes('BAD');
-      const raw = buildGmailRawFromSearch(search);
-      console.warn('IMAP SEARCH failed; attempting gmailRaw fallback.', { isBAD, raw, err: err?.message });
-      if (isBAD && raw) {
-        uids = await client.search([{ gmailRaw: raw }]);
-      } else {
-        throw err;
-      }
+    /* 3) Hard fallback: last N UIDs in INBOX */
+    if (!uidList || uidList.length === 0) {
+      try {
+        const st = await client.status('INBOX', { uidnext: true });
+        const lastUid = Math.max(1, (st.uidnext || 1) - 1);
+        const want = Math.max(1, Number(limit) || 20);
+        const startUid = Math.max(1, lastUid - (want * 5) + 1);
+        const collected = [];
+        for await (const m of client.fetch({ uid: `${startUid}:${lastUid}` }, { uid: true })) {
+          collected.push(m.uid);
+        }
+        uidList = normalizeUids(collected);
+      } catch { uidList = []; }
     }
 
-    uids = (uids || []).sort((a, b) => b - a);
+    /* pagination */
+    let startIdx = 0;
+    if (cursor != null) {
+      const idx = uidList.indexOf(Number(cursor));
+      startIdx = idx >= 0 ? idx + 1 : 0;
+    }
+    const pageSize = Math.max(1, Number(limit) || 20);
+    const slice = uidList.slice(startIdx, startIdx + pageSize);
 
-    let filtered = cursor ? uids.filter(uid => uid < Number(cursor)) : uids;
-    const page = filtered.slice(0, Math.max(1, Number(limit) || 20));
+    if (!slice.length) {
+      await client.logout();
+      return { items: [], nextCursor: null, hasMore: false };
+    }
 
-    const fetchOpts = fullBodies
-      ? { envelope: true, internalDate: true, source: true, uid: true, flags: true }
-      : { envelope: true, internalDate: true, uid: true, flags: true };
+    /* fetch page metadata by UID list */
+    const raw = [];
+    for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
+      raw.push(msg);
+    }
 
+    /* map → hydrate → classify */
     const items = [];
-    for await (const msg of client.fetch({ uid: page }, fetchOpts)) {
-      const model = toModelSkeleton(msg);
-
-      if (fullBodies && msg.source) {
-        try {
-          const body = await parseFromSource(msg.source);
-          Object.assign(model, body);
-          const basis = model.text || model.html || '';
-          model.snippet = String(basis)
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 600);
-        } catch {}
-      } else {
-        try {
-          const { content } = await client.download(msg.uid);
-          if (content) {
-            const body = await parseFromSource(content);
-            model.snippet = (body.text || body.html || '')
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim()
-              .slice(0, 180);
-          }
-        } catch {}
-      }
-
-      // VIP tagging (if provided)
-      const from = (model.fromEmail || '').toLowerCase();
-      const dom  = (model.fromDomain || '').toLowerCase();
-      model.isVip = vipSenders.some(v => {
-        v = String(v || '').toLowerCase().trim();
-        return v && (from === v || dom === v);
-      });
-
+    for (const msg of raw) {
+      let model = toModelSkeleton(msg);
+      model = await hydrateSnippet(client, msg.uid, model);
+      model = classify(model, { vipSenders });
       items.push(model);
     }
 
-    const nextCursor = page.length ? String(page[page.length - 1]) : null;
-    const hasMore = filtered.length > page.length;
+    const hasMore = startIdx + slice.length < uidList.length;
+    const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
 
+    await client.logout();
     return { items, nextCursor, hasMore };
-  } finally {
-    try { await client.logout(); } catch {}
-  }
-}
-
-export async function getMessageById({ email, password, accessToken, host, port = 993, tls = true, authType = 'password', id }) {
-  const client = await openClient({ email, password, accessToken, host, port, tls, authType });
-  try {
-    const uid = Number(id);
-    const fetchOpts = { envelope: true, internalDate: true, source: true, uid: true, flags: true };
-    let out = null;
-    for await (const msg of client.fetch({ uid }, fetchOpts)) {
-      const model = toModelSkeleton(msg);
-      if (msg.source) {
-        try {
-          const body = await parseFromSource(msg.source);
-          Object.assign(model, body);
-        } catch {}
-      }
-      out = model;
-      break;
-    }
-    return out;
-  } finally {
-    try { await client.logout(); } catch {}
+  } catch (err) {
+    try { if (client) await client.logout(); } catch {}
+    const e = new Error(err?.message || String(err));
+    e.code = err?.code;
+    throw e;
   }
 }
 
 export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  const client = new ImapFlow({
-    host, port, secure: !!tls,
-    auth: (String(authType).toLowerCase() === 'xoauth2')
-      ? { user: email, accessToken, method: 'XOAUTH2' }
-      : { user: email, pass: password }
-  });
+  if (!email || !host) throw new Error('email and host are required');
+  let client;
   try {
-    await client.connect();
-    await client.mailboxOpen('INBOX');
+    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
+    await client.logout();
     return true;
   } catch {
+    try { if (client) await client.logout(); } catch {}
     return false;
-  } finally {
-    try { await client.logout(); } catch {}
   }
 }
+
+export default { fetchEmails, testLogin };
