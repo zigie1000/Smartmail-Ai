@@ -2039,7 +2039,36 @@ async function autoHydrateVisible(){
 /* ==== End auto-hydrate ==== */
 </script>
 
+<script>
+(function(){
+  let hydrateTimer = null;
+  const queued = new Set();
 
+  function scheduleHydrate(){
+    if (hydrateTimer) return;
+    hydrateTimer = setTimeout(async () => {
+      hydrateTimer = null;
+      const ids = Array.from(document.querySelectorAll('[id^="pv-"]'))
+        .map(el => el.id.replace('pv-',''))
+        .filter(id => !queued.has(id));
+      if (!ids.length) return;
+      ids.slice(0, 20).forEach(id => queued.add(id)); // batch first page
+      try { await ensureBodiesLoadedFor(ids.slice(0, 20)); } catch {}
+    }, 120);
+  }
+
+  // Observe any newly added preview nodes
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.addedNodes && m.addedNodes.length) scheduleHydrate();
+    }
+  });
+  mo.observe(document.documentElement, { childList:true, subtree:true });
+
+  // Kick once on load for already-rendered previews
+  window.addEventListener('load', scheduleHydrate);
+})();
+</script>
 
 </body>
 </html>
