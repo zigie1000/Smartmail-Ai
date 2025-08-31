@@ -1569,7 +1569,15 @@ console.log("IMAP window", {
   startISO: Number.isFinite(startTs) ? new Date(startTs).toISOString() : "-∞",
   endISO:   Number.isFinite(endTs)   ? new Date(endTs).toISOString()   : "+∞"
 });
-
+// --- Apply client-side filter by date window ---
+const beforeCount = state.emails.length;
+state.emails = state.emails.filter(e => {
+  const t = Number(e._ts);
+  if (!Number.isFinite(t)) return true; // keep emails with no timestamp
+  if (Number.isFinite(startTs) && t < startTs) return false;
+  if (Number.isFinite(endTs)   && t > endTs)   return false;
+  return true;
+});
 console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
 console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
 
