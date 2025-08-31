@@ -13,11 +13,16 @@ import { google } from 'googleapis';
 import Stripe from 'stripe';
 import stripeWebHook from './stripeWebhook.js'; // ESM default export
 import path from 'path';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 // --- IMAP REST routes (API) ---
-import imapRoutes from './imap-reader/imapRoutes.js';   // ⬅️ add this import
+import imapRoutes from './imap-reader/imapRoutes.js';
+
+// ESM fix for __dirname / __filename
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
