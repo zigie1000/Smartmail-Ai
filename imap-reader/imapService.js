@@ -160,7 +160,7 @@ export async function fetchEmails(opts) {
     let uidList = normalizeUids(await client.search(criteria, { uid: true }));
 
     /* 2) Gmail RAW fallback */
-    if ((!uidList || uidList.length === 0) && /gmail\.com$/i.test(host)) {
+    if ((!uidList || uidList.length === 0) && /(?:^|\.)gmail\.com$/i.test(host)) {
       const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
       const pad = (n) => String(n).padStart(2, '0');
       const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
