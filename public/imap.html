@@ -1111,12 +1111,12 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
     const e = map.get(id);
     if (!e) continue;
 
-    // 4a) copy fetched fields into the in-memory email (once)
+    // 4a) copy fetched fields into the in-memory email (do this ONCE)
     if (typeof it.text === 'string')   e.text   = it.text.trim();
     if (typeof it.html === 'string')   e.html   = it.html;
     if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
 
-    // 4b) upgrade on-screen placeholder if the full view isn’t rendered yet
+    // 4b) upgrade the card’s placeholder, only if not fully rendered yet
     const pv = document.getElementById(`pv-${id}`);
     if (pv && pv.dataset.full !== '1') {
       const cur = (pv.textContent || '').toLowerCase().trim();
@@ -1132,7 +1132,6 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
 
   // 5) keep window.emailList in sync if you use it elsewhere
   if (Array.isArray(window.emailList) && window.emailList !== list) {
-    // If someone replaced the list reference, re-point the map contents back
     window.emailList = list;
   }
 
