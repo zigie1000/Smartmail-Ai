@@ -1341,28 +1341,35 @@ async function checkTier() {
   }
 }
 
+<script>
 async function postJSON(url, body, { timeout = 120000, retries = 2 } = {}) {
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController();
     const to = setTimeout(() => controller.abort(), timeout);
     try {
       const resp = await fetch(url, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(body),
-  signal: controller.signal
-});
-clearTimeout(to);
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      clearTimeout(to);
 
-// 👉 Insert here
-const serverDateHdr = resp?.headers?.get?.('date');
-if (serverDateHdr) {
-  window.__serverNowMs = Date.parse(serverDateHdr);
-  window.__serverNowMsFetchedAt = Date.now();   // <-- track when fetched
-}
-// 👈 End insertion
+      /* server clock sync (safe on older Safari) */
+      try {
+        const serverDateHdr =
+          resp && resp.headers && typeof resp.headers.get === "function"
+            ? resp.headers.get("date")
+            : null;
+        if (serverDateHdr) {
+          window.__serverNowMs = Date.parse(serverDateHdr);
+          window.__serverNowMsFetchedAt = Date.now();
+        }
+      } catch (_) {}
 
-if (resp.ok) return await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        try { return await resp.json(); } catch { return {}; }
+      }
 
       // Retry on cold-start / gateway errors
       if (attempt < retries && [502, 503, 504].includes(resp.status)) {
@@ -1376,7 +1383,7 @@ if (resp.ok) return await resp.json().catch(() => ({}));
     } catch (err) {
       clearTimeout(to);
       // Retry on AbortError / transient network errors
-      if (attempt < retries && (err.name === "AbortError" || err instanceof TypeError)) {
+      if (attempt < retries && (err && (err.name === "AbortError" || err instanceof TypeError))) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         continue;
       }
