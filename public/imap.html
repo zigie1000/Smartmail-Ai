@@ -2014,59 +2014,57 @@ if (!_restored) {
     }, 200);
   });
 })();
-
-
-
-/* ==== Auto-hydrate visible previews (force) ==== */
-async function autoHydrateVisible(){
-  try{
-    const cards = Array.from(document.querySelectorAll('[id^="pv-"]'));
-    if(!cards.length) return;
-    const ids = cards.map(el => el.id.replace('pv-','')).slice(0, 20); // hydrate first page only
-    await ensureBodiesLoadedFor(ids);
-  }catch(e){ console.warn('autoHydrateVisible failed', e); }
-}
-
-// Wrap renderEmails to auto-hydrate after DOM is built
-(function(){
-  const origRender = window.renderEmails;
-  window.renderEmails = function(list){
-    const r = origRender ? origRender.apply(this, arguments) : undefined;
-    setTimeout(autoHydrateVisible, 50);
-    return r;
-  };
-})();
-/* ==== End auto-hydrate ==== */
 </script>
 
 <script>
+/* === Unified, idempotent preview hydrator === */
 (function(){
-  let hydrateTimer = null;
-  const queued = new Set();
+  const SEEN = new Set();
+  let timer = 0;
 
-  function scheduleHydrate(){
-    if (hydrateTimer) return;
-    hydrateTimer = setTimeout(async () => {
-      hydrateTimer = null;
-      const ids = Array.from(document.querySelectorAll('[id^="pv-"]'))
-        .map(el => el.id.replace('pv-',''))
-        .filter(id => !queued.has(id));
-      if (!ids.length) return;
-      ids.slice(0, 20).forEach(id => queued.add(id)); // batch first page
-      try { await ensureBodiesLoadedFor(ids.slice(0, 20)); } catch {}
-    }, 120);
+  function collectIds(limit=20){
+    const out = [];
+    const nodes = document.querySelectorAll('[id^="pv-"]');
+    for (const el of nodes){
+      const id = el.id.slice(3);
+      if (!id || SEEN.has(id)) continue;
+      if (el.dataset && el.dataset.full === '1'){ SEEN.add(id); continue; }
+      out.push(id);
+      SEEN.add(id);
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
-  // Observe any newly added preview nodes
-  const mo = new MutationObserver((muts) => {
-    for (const m of muts) {
-      if (m.addedNodes && m.addedNodes.length) scheduleHydrate();
+  async function hydrateNow(){
+    timer = 0;
+    const ids = collectIds(20);
+    if (!ids.length) return;
+    try { await ensureBodiesLoadedFor(ids, { force:true }); } catch(_) {}
+  }
+
+  function schedule(){
+    if (timer) return;
+    timer = setTimeout(hydrateNow, 120);
+  }
+
+  window.addEventListener('load', schedule);
+
+  const mo = new MutationObserver((muts)=>{
+    for (const m of muts){
+      if (m.addedNodes && m.addedNodes.length){ schedule(); break; }
     }
   });
   mo.observe(document.documentElement, { childList:true, subtree:true });
 
-  // Kick once on load for already-rendered previews
-  window.addEventListener('load', scheduleHydrate);
+  if (typeof window.renderEmails === 'function'){
+    const orig = window.renderEmails;
+    window.renderEmails = function(){
+      const r = orig.apply(this, arguments);
+      schedule();
+      return r;
+    };
+  }
 })();
 </script>
 
