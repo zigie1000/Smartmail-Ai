@@ -19,7 +19,7 @@ import crypto from 'crypto';
 // --- IMAP REST routes (API) ---
 import imapRoutes from './imap-reader/imapRoutes.js';
 
-// ESM fix for __dirname / __filename (define ONCE, at the top)
+// ESM fix for __dirname / __filename (define ONCE)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
@@ -215,6 +215,7 @@ app.get('/api/status', (_req, res) => {
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
+  // Prefer license key if provided
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
@@ -230,6 +231,7 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
+  // Latest by email
   const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, status, created_at')
@@ -413,7 +415,60 @@ app.get('/config', (_req, res) => {
   res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
 });
 
-// ---------- LICENSE VALIDATION ----------
+// --- SQL-backed email/key tier check (front-end badge) ---
+app.post('/api/license/check', async (req, res) => {
+  try {
+    const emailRaw = (req.body?.email || '').trim().toLowerCase();
+    const licenseKeyRaw = (req.body?.licenseKey || '').trim();
+
+    if (!emailRaw && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Email or licenseKey required' });
+    }
+
+    let row = null;
+
+    // 1) Prefer lookup by license key if provided
+    if (licenseKeyRaw) {
+      const byKey = await supabase
+        .from('licenses')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      row = byKey.data || null;
+    }
+
+    // 2) Fallback to latest by email
+    if (!row && emailRaw) {
+      const byEmail = await supabase
+        .from('licenses')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
+        .eq('email', emailRaw)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row = byEmail.data || null;
+    }
+
+    if (!row) return res.json({ found: false, active: false, tier: 'free' });
+
+    // 3) Resolve final tier purely from smartemail_* (status only as fallback)
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+
+    // Free is always active for UI; paid must be unexpired or status=active/paid
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? expiresAt > new Date() : (row.status === 'active' || row.status === 'paid'));
+
+    return res.json({ found: true, active, tier });
+  } catch (e) {
+    console.error('/api/license/check error:', e?.message || e);
+    // Fail-open to free so UI doesn’t break
+    return res.json({ found: false, active: false, tier: 'free' });
+  }
+});
+
+// ---------- LICENSE VALIDATION (email-first; key fallback) ----------
 app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
@@ -422,6 +477,7 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
+    // Email first (latest)
     if (email) {
       const byEmail = await supabase
         .from('licenses')
@@ -433,6 +489,7 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
+    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -442,6 +499,7 @@ app.get('/validate-license', async (req, res) => {
       row = byKey.data || null;
     }
 
+    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -479,7 +537,7 @@ app.get('/imap', (_req, res) => {
 
 app.get('/healthz', (_req, res) => res.type('text').send('ok'));
 
-// ✅ SPA fallback — must be last
+// --- SPA fallback (keep LAST so it doesn’t swallow API routes) ---
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
