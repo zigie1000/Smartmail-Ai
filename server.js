@@ -11,7 +11,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebhook.js'; // ESM default export
+import stripeWebHook from './stripeWebhook.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -19,14 +19,27 @@ import crypto from 'crypto';
 // --- IMAP REST routes (API) ---
 import imapRoutes from './imap-reader/imapRoutes.js';
 
-// ESM fix for __dirname / __filename
+// ESM fix for __dirname / __filename (define ONCE, at the top)
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use('/api/imap', imapRoutes);
+// ---------- Core middleware ----------
+app.set('trust proxy', 1);
+app.use(cors());
+
+// ⚠️ Stripe webhook BEFORE json/urlencoded so req.body is raw (Buffer)
+const WEBHOOK_PATH = process.env.STRIPE_WEBHOOK_PATH || '/stripe/webhook';
+app.post(WEBHOOK_PATH, express.raw({ type: 'application/json' }), stripeWebHook);
+
+// Payload size enough for generator + small images
+const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 
 // --- BLOCK backend files from leaking as static ---
 const BLOCKED = new Set([
@@ -36,58 +49,31 @@ const BLOCKED = new Set([
 ]);
 app.use((req, res, next) => {
   const base = path.posix.basename(req.path);
-  if (BLOCKED.has(base) || base.endsWith('.env')) {
-    return res.status(404).end();
-  }
-  // prevent direct access to /imap-reader or /src folders
-  if (req.path.includes('/imap-reader/') || req.path.includes('/src/')) {
-    return res.status(404).end();
-  }
+  if (BLOCKED.has(base) || base.endsWith('.env')) return res.status(404).end();
+  if (req.path.includes('/imap-reader/') || req.path.includes('/src/')) return res.status(404).end();
   next();
 });
 
-// --- Serve only frontend (put imap.html, css, js here) ---
-app.use(express.static(path.join(__dirname, 'public'), {
-  index: 'index.html',
-}));
+// ✅ IMAP API routes (register ONCE)
+app.use('/api/imap', imapRoutes);
 
-// --- SPA fallback ---
+// ✅ Serve only frontend from /public
+app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html' }));
+
+// SPA fallback
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-dotenv.config();
-
-
-const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
-const USE_MS_AUTH     = (process.env.USE_MS_AUTH || 'true') === 'true';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-
-// ---------- Core middleware ----------
-app.set('trust proxy', 1);
-app.use(cors());
-
-// ⚠️ Mount Stripe webhook BEFORE json/urlencoded so req.body is raw (Buffer)
-const WEBHOOK_PATH = process.env.STRIPE_WEBHOOK_PATH || '/stripe/webhook';
-app.post(WEBHOOK_PATH, express.raw({ type: 'application/json' }), stripeWebHook);
-
-// Payload size enough for generator + small images
-const BODY_LIMIT = process.env.BODY_LIMIT || '5mb';
-app.use(express.json({ limit: BODY_LIMIT }));
-app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
-
-// Static files
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders(res) { res.setHeader('Cache-Control', 'no-cache'); }
-}));
 
 // ---------- SUPABASE ----------
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
+
+// ---------- AUTH FLAGS ----------
+const USE_GOOGLE_AUTH = (process.env.USE_GOOGLE_AUTH || 'true') === 'true';
+const USE_MS_AUTH     = (process.env.USE_MS_AUTH || 'true') === 'true';
 
 // ---------- GOOGLE OAUTH (optional) ----------
 let googleClient;
@@ -132,8 +118,8 @@ const {
   AZURE_SCOPES
 } = process.env;
 
-const TENANT     = (AZURE_TENANT_ID && AZURE_TENANT_ID.trim()) || 'common';
-const MS_SCOPES  = (AZURE_SCOPES && AZURE_SCOPES.trim())
+const TENANT    = (AZURE_TENANT_ID && AZURE_TENANT_ID.trim()) || 'common';
+const MS_SCOPES = (AZURE_SCOPES && AZURE_SCOPES.trim())
   || 'openid profile email offline_access https://graph.microsoft.com/Mail.Read';
 
 const MS_AUTH  = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`;
@@ -221,12 +207,12 @@ app.get('/auth/microsoft/callback', async (req, res) => {
 });
 
 // ---------- HOME (SmartEmail UI) ----------
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ---------- STATUS ----------
-app.get('/api/status', (req, res) => {
+app.get('/api/status', (_req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
@@ -234,14 +220,12 @@ app.get('/api/status', (req, res) => {
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // Prefer license key if provided
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
       .select('smartemail_tier, smartemail_expires, status')
       .eq('license_key', licenseKey)
       .maybeSingle();
-
     if (byKey.data) {
       return {
         tier: byKey.data.smartemail_tier || 'free',
@@ -251,7 +235,6 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
-  // Latest by email
   const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, status, created_at')
@@ -274,17 +257,12 @@ async function checkLicense(email, licenseKey) {
   };
 }
 
-// ---------- GENERATE (always available; returns tier for badge) ----------
+// ---------- GENERATE ----------
 app.post('/generate', async (req, res) => {
   try {
     const {
-      email, email_type, emailType,
-      tone, language,
-      target_audience, audience,
-      email_content, content,
-      sender_details, agent,
-      action,
-      formality, length, audience_role
+      email, email_type, emailType, tone, language, target_audience, audience,
+      email_content, content, sender_details, agent, action, formality, length, audience_role
     } = req.body || {};
 
     const finalEmail     = email;
@@ -353,7 +331,7 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
   }
 });
 
-// ---------- ENHANCE (tier-gated) ----------
+// ---------- ENHANCE ----------
 app.post('/enhance', async (req, res) => {
   try {
     const { email, enhance_request, enhance_content } = req.body || {};
@@ -412,7 +390,6 @@ app.post('/api/register-free-user', async (req, res) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    // 1) If the user already has ANY license row, DO NOT overwrite it.
     const { data: existing, error: selErr } = await supabase
       .from('licenses')
       .select('email, smartemail_tier, smartemail_expires, status, created_at')
@@ -422,21 +399,8 @@ app.post('/api/register-free-user', async (req, res) => {
       .maybeSingle();
 
     if (selErr) return res.status(500).json({ error: 'DB error', detail: selErr.message });
+    if (existing) return res.json({ status: 'exists' });
 
-    if (existing) {
-      const scopedTier   = (existing.smartemail_tier || '').toLowerCase();
-      const expires      = existing.smartemail_expires || null;
-      const isPaidActive = scopedTier && scopedTier !== 'free'
-        ? (expires ? new Date(expires) > new Date() : (existing.status === 'active' || existing.status === 'paid'))
-        : false;
-
-      if (isPaidActive || (scopedTier && scopedTier !== 'free')) {
-        return res.json({ status: 'exists' });
-      }
-      return res.json({ status: 'exists' });
-    }
-
-    // 2) Only now create a brand-new free stub.
     const { data, error: insErr } = await supabase
       .from('licenses')
       .insert({ email, smartemail_tier: 'free', smartemail_expires: null })
@@ -450,11 +414,11 @@ app.post('/api/register-free-user', async (req, res) => {
   }
 });
 
-app.get('/config', (req, res) => {
+app.get('/config', (_req, res) => {
   res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
 });
 
-// ---------- LICENSE VALIDATION (email-first; key fallback) ----------
+// ---------- LICENSE VALIDATION ----------
 app.get('/validate-license', async (req, res) => {
   try {
     const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
@@ -463,7 +427,6 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
-    // Email first (latest)
     if (email) {
       const byEmail = await supabase
         .from('licenses')
@@ -475,7 +438,6 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
-    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -485,7 +447,6 @@ app.get('/validate-license', async (req, res) => {
       row = byKey.data || null;
     }
 
-    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -516,66 +477,12 @@ app.get('/validate-license', async (req, res) => {
   }
 });
 
-// ---------- IMAP UI + API ----------
-app.get('/imap', (req, res) => {
+// ---------- IMAP UI ----------
+app.get('/imap', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'imap.html'));
 });
-app.use('/api/imap', imapRoutes);
 
-// --- SQL-backed email/key tier check (front-end badge) ---
-app.post('/api/license/check', async (req, res) => {
-  try {
-    const emailRaw = (req.body?.email || '').trim().toLowerCase();
-    const licenseKeyRaw = (req.body?.licenseKey || '').trim();
-
-    if (!emailRaw && !licenseKeyRaw) {
-      return res.status(400).json({ error: 'Email or licenseKey required' });
-    }
-
-    let row = null;
-
-    // 1) Prefer lookup by license key if provided
-    if (licenseKeyRaw) {
-      const byKey = await supabase
-        .from('licenses')
-        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
-        .eq('license_key', licenseKeyRaw)
-        .maybeSingle();
-      row = byKey.data || null;
-    }
-
-    // 2) Fallback to latest by email
-    if (!row && emailRaw) {
-      const byEmail = await supabase
-        .from('licenses')
-        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
-        .eq('email', emailRaw)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      row = byEmail.data || null;
-    }
-
-    if (!row) return res.json({ found: false, active: false, tier: 'free' });
-
-    // 3) Resolve final tier purely from smartemail_* (status only as fallback)
-    const tier = String(row.smartemail_tier || 'free').toLowerCase();
-    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
-
-    // Free is always "active" for UI; paid must be unexpired or status=active/paid
-    const active = tier === 'free'
-      ? true
-      : !!(expiresAt ? expiresAt > new Date() : (row.status === 'active' || row.status === 'paid'));
-
-    return res.json({ found: true, active, tier });
-  } catch (e) {
-    console.error('/api/license/check error:', e?.message || e);
-    // Fail-open to free so UI doesn’t break
-    return res.json({ found: false, active: false, tier: 'free' });
-  }
-});
-
-app.get('/healthz', (req, res) => res.type('text').send('ok'));
+app.get('/healthz', (_req, res) => res.type('text').send('ok'));
 
 // ---------- START ----------
 app.listen(PORT, () => {
