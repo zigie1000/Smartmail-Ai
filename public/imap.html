@@ -2015,18 +2015,7 @@ if (!_restored) {
   });
 })();
 
-/* --- ensure export hydrates bodies first --- */
-(function(){
-  const orig = window.sendSelectedToGenerator;
-  window.sendSelectedToGenerator = async function(){
-    try{
-      const ids = (typeof getSelectedIds==='function') ? getSelectedIds() : [];
-      if(Array.isArray(ids) && ids.length){ await ensureBodiesLoadedFor(ids); }
-    }catch(e){ console.warn('pre-export hydrate failed', e); }
-    return orig ? orig.apply(this, arguments) : undefined;
-  };
-})();
-/* --- end export wrapper --- */
+
 
 /* ==== Auto-hydrate visible previews (force) ==== */
 async function autoHydrateVisible(){
