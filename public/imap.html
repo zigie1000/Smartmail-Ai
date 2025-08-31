@@ -363,7 +363,7 @@ window.nowDate = function () {
     setBanner('month', w.startISO, w.endISO);
     updateEnabling();
   });
-  clearMonthInline.addEventListener('click', function(){
+  clearMonthBtn.addEventListener('click', function(){
     window._monthStartISO = undefined;
     window._monthEndISO = undefined;
     mRange.checked = true;
