@@ -1114,18 +1114,20 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
     const e = map.get(String(it.id));
     if (!e) continue;
 
-   // If a preview node exists and hasn't been fully rendered yet,
-// upgrade its placeholder text so the user sees *something* instantly.
+// If a preview node exists and hasn't been fully rendered yet,
+// upgrade its placeholder text so the user sees something instantly.
 const pv = document.getElementById(`pv-${it.id}`);
 if (pv && pv.dataset.full !== '1') {
   const cur = (pv.textContent || '').toLowerCase();
-  // Overwrite only if empty or still showing the placeholder
+  // Only overwrite if it's empty or still showing the placeholder
   if (!cur.trim() || cur.includes('no preview')) {
     const raw =
-      (e.text || '').trim() ||
+      (e.text && e.text.trim()) ||
       stripAndTrim(e.html, 180) ||
-      (e.snippet || '').slice(0, 180);
-    if (raw) pv.textContent = raw;
+      ((e.snippet || '').slice(0, 180));
+    if (raw) {
+      pv.textContent = raw;
+    }
   }
 }
   }
