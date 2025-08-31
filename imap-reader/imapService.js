@@ -96,12 +96,16 @@ async function hydrateSnippet(client, uid, model) {
     const stream = await client.download(uid);
     if (!stream) return model;
     const parsed = await simpleParser(stream.content);
-    const textish = (parsed.text || parsed.html || '')
-      .toString()
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+
+    const text = (parsed.text || '').toString().trim();
+    const html = (parsed.html || '').toString().replace(/<[^>]+>/g, ' ').trim();
+
+    let textish = text || html;
+    textish = textish.replace(/\s+/g, ' ').trim();
+
     if (textish) model.snippet = textish.slice(0, 600);
+    if (text) model.text = text;
+    if (html) model.html = html;
   } catch { /* ignore */ }
   return model;
 }
