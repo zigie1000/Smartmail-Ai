@@ -1111,8 +1111,16 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
 
   const items = await bodyBatch(need);
   for (const it of items) {
-    const e = map.get(String(it.id));
-    if (!e) continue;
+  const e = map.get(String(it.id));
+  if (!e) continue;
+
+  // 🔽 INSERT THIS BLOCK
+  if (it) {
+    if (typeof it.text === 'string') e.text = it.text.trim();
+    if (typeof it.html === 'string') e.html = it.html;
+    if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+  }
+  // 🔼 END INSERT
 
 // If a preview node exists and hasn't been fully rendered yet,
 // upgrade its placeholder text so the user sees something instantly.
