@@ -140,6 +140,7 @@ export async function fetchEmails(opts) {
     // NEW: accept a single `month` label (e.g., "July 2025") as an alias
     month,
     limit = 20, cursor = null,
+    fullBodies = false,   // <── ADD THIS LINE
     vipSenders = []
   } = opts || {};
 
