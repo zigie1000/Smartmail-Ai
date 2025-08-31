@@ -1,9 +1,9 @@
-// imapRoutes.js — IMAP fetch/classify with full-body hydration, month/range,
-// VIP & weights, user overrides, plus a batch body endpoint for export.
+// imapRoutes.js — IMAP fetch/classify with tier check, month/range, cursor paging,
+// VIP & weights, PLUS user overrides (learning) that refine future classifications.
 
 import express from 'express';
 import crypto from 'crypto';
-import { fetchEmails, testLogin, getMessageById } from './imapService.js';
+import { fetchEmails, testLogin } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
@@ -25,16 +25,6 @@ function rowsToSet(rows, key) {
     .filter(Boolean));
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-
-/* ---------- Helpers for range windows ---------- */
-function startEndFromRangeDays(rangeDays) {
-  const now = new Date();
-  // End = today 23:59:59Z, Start = end - (days-1)
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-  const start = new Date(end.getTime() - Math.max(0, (Number(rangeDays) || 0) - 1) * 24 * 3600 * 1000);
-  const toISO = d => d.toISOString().slice(0, 10);
-  return { dateStartISO: toISO(start), dateEndISO: toISO(end) };
-}
 
 /* ---------------- Tier helpers ---------------- */
 async function getTier({ licenseKey = '', email = '' }) {
@@ -119,6 +109,10 @@ async function fetchListsFromSql(userId = 'default') {
 }
 
 /* ---------------- User overrides (learning your relabels) ---------------- */
+// Table: user_label_overrides (suggested schema)
+// user_id TEXT, kind TEXT ('email'|'domain'), identity TEXT, preferred_category TEXT NULL,
+// force_important BOOLEAN NULL, force_unimportant BOOLEAN NULL, vip BOOLEAN NULL, updated_at TIMESTAMP
+
 async function fetchOverridesFromSql(userId = 'default') {
   if (!supa) return { byEmail: new Map(), byDomain: new Map() };
   try {
@@ -166,7 +160,7 @@ function normalizeForClassifier(items) {
   }));
 }
 
-/* ---------------- Free-tier caps (kept, but bodies still fetched) ---------------- */
+/* ---------------- Free-tier caps ---------------- */
 const lastFetchAt = new Map(); // key=userId
 function applyFreeCapsIfNeeded(tier, rangeDays, limit) {
   const isFree = !tier || tier === 'free';
@@ -178,36 +172,6 @@ function applyFreeCapsIfNeeded(tier, rangeDays, limit) {
     rangeDays: Math.min(Number(rangeDays ?? 7), caps.rangeMax),
     limit: Math.min(Number(limit ?? 20), caps.limitMax)
   };
-}
-
-/* ---------------- Helpers: snippets & audit ---------------- */
-function htmlToText(html = '') {
-  try {
-    let s = String(html || '');
-    s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-         .replace(/<[^>]+>/g, ' ')
-         .replace(/\s+/g, ' ')
-         .trim();
-    return s;
-  } catch { return ''; }
-}
-function makeSnippet(msg, max = 180) {
-  const basis = (msg.snippet && String(msg.snippet).trim())
-    || (msg.text && String(msg.text).trim())
-    || htmlToText(msg.html || msg.bodyHtml || msg.body || '');
-  if (!basis) return '';
-  const s = basis.slice(0, max);
-  return s.length < basis.length ? s + '…' : s;
-}
-function auditStats(items) {
-  const a = { total: items.length, haveSnippet: 0, haveText: 0, haveHtml: 0 };
-  items.forEach(m => {
-    if (m.snippet) a.haveSnippet++;
-    if (m.text) a.haveText++;
-    if (m.html) a.haveHtml++;
-  });
-  return a;
 }
 
 /* ---------------- Routes ---------------- */
@@ -234,8 +198,7 @@ router.post('/fetch', async (req, res) => {
       cursor = null,
       rangeDays: qRangeDays,
       limit: qLimit,
-      query = '',           // optional
-      debugAudit = false
+      query = ''            // (optional) search string; month/range still applied
     } = req.body || {};
 
     if (!email || !host) {
@@ -272,16 +235,8 @@ router.post('/fetch', async (req, res) => {
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
 
-    let rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
+    const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
-
-    // Absolute window for range (crosses months)
-    let dateStartISO, dateEndISO;
-    if (!useMonth && typeof rangeDays === 'number' && rangeDays > 0) {
-      const win = startEndFromRangeDays(rangeDays);
-      dateStartISO = win.dateStartISO;
-      dateEndISO = win.dateEndISO;
-    }
 
     // Personalization & lists
     const lists = paid
@@ -290,27 +245,20 @@ router.post('/fetch', async (req, res) => {
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // --- Fetch from IMAP (always ask for bodies) ---
+    // Fetch from IMAP (month/range/query supported by service)
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
       monthEnd:   useMonth ? meStr : undefined,
       rangeDays,
-      dateStartISO,
-      dateEndISO,
       limit,
       cursor,
       query,
-      vipSenders,
-      fullBodies: true               // << ALWAYS hydrate bodies for previews/export
+      vipSenders
     });
 
-    // Build server-side snippets for UI preview
-    const withSnippets = (items || []).map(m => ({ ...m, bodySnippet: makeSnippet(m) }));
-    const audit = auditStats(withSnippets);
-
     // Stage 2 classifier
-    const norm = normalizeForClassifier(withSnippets);
+    const norm = normalizeForClassifier(items);
     let cls = [];
     try {
       const out = await classifyEmails(norm, { userId, lists });
@@ -324,7 +272,6 @@ router.post('/fetch', async (req, res) => {
     let merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
-      bodySnippet: withSnippets[i]?.bodySnippet || '',
       isVip:
         lists.vip.has((it.fromEmail || '').toLowerCase()) ||
         lists.vip.has((it.fromDomain || '').toLowerCase())
@@ -337,8 +284,9 @@ router.post('/fetch', async (req, res) => {
       const domainKey = (m.fromDomain || '').toLowerCase();
       const o = overrides.byEmail.get(emailKey) || overrides.byDomain.get(domainKey) || null;
       if (!o) return m;
+
       const out = { ...m };
-      if (o.category) out.category = out.intent = o.category;
+      if (o.category) out.category = out.intent = o.category; // keep back-compat 'intent'
       if (o.forceImportant) out.importance = 'important';
       if (o.forceUnimportant) out.importance = 'unimportant';
       if (o.vip === true) out.isVip = true;
@@ -349,21 +297,7 @@ router.post('/fetch', async (req, res) => {
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for learning and overrides.'
       : null;
 
-    const fetchMode = useMonth ? 'month' : (typeof rangeDays === 'number' && rangeDays > 0 ? 'range' : 'unbounded');
-    const windowStart = useMonth ? msStr : (dateStartISO || null);
-    const windowEnd   = useMonth ? meStr : (dateEndISO || null);
-
-    const response = {
-      emails: merged,
-      nextCursor: nextCursor || null,
-      hasMore: !!hasMore,
-      tier,
-      notice,
-      fetchInfo: { mode: fetchMode, start: windowStart, end: windowEnd },
-      audit: debugAudit ? audit : undefined
-    };
-
-    res.json(response);
+    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
     const code = String(e?.code || '').toUpperCase();
@@ -389,37 +323,96 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/* ---------------- Batch body hydration for export ---------------- */
-router.post('/bodyBatch', async (req, res) => {
+/* ---------------- Learning endpoint (override + weights) ----------------
+POST /api/imap/feedback
+Body:
+{
+  email: "<owner mailbox email>",          // required to resolve userId/tier
+  licenseKey: "...",                       // optional
+  // Target scope (choose one — email preferred, else domain):
+  fromEmail: "sender@acme.com",
+  fromDomain: "acme.com",
+
+  // What you corrected:
+  importance: "important" | "unimportant" | "unclassified",   // optional
+  category: "meeting"|"billing"|"security"|"newsletter"|"sales"|"social"|"legal"|"system"|"other", // optional
+  vip: true|false                                              // optional
+}
+-------------------------------------------------------------------------- */
+router.post('/feedback', async (req, res) => {
   try {
     const {
-      email = '', password = '', accessToken = '',
-      host = '', port = 993, tls = true, authType = 'password',
-      ids = []
+      label,                    // legacy: 'important' / 'unimportant' (still supported)
+      importance,               // new optional explicit importance
+      category,                 // new optional explicit category
+      vip,                      // new optional VIP flag (true/false)
+      fromEmail = '',
+      fromDomain = '',
+      email: ownerEmail = '',
+      licenseKey = ''
     } = req.body || {};
 
-    const list = Array.isArray(ids) ? ids.slice(0, 100) : [];
-    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
-    if (!list.length) return res.json({ items: [] });
+    const safeOwner = isLikelyEmail(ownerEmail) ? ownerEmail : '';
+    const tier = await getTier({ licenseKey, email: safeOwner });
+    const paid = await isPaid(tier);
+    if (!paid) {
+      return res.status(402).json({ ok:false, error: 'Upgrade to enable learning/overrides.' });
+    }
+    if (!fromEmail && !fromDomain) {
+      return res.status(400).json({ ok:false, error: 'fromEmail or fromDomain required' });
+    }
 
-    const out = [];
-    for (const id of list) {
-      try {
-        const m = await getMessageById({ email, password, accessToken, host, port, tls, authType, id });
-        out.push({
-          id,
-          text: (m?.text || '').trim(),
-          html: m?.html || '',
-          snippet: (m?.text || m?.html || '').toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ').slice(0,180)
-        });
-      } catch (e) {
-        out.push({ id, text: '', html: '', error: String(e?.message || e) });
+    const userId = userIdFromEmail(safeOwner || 'anon');
+
+    // ---- 1) Learn importance weights (same as before, but accept both legacy & new fields)
+    const imp = String(importance || label || '').toLowerCase();
+    if (imp === 'important' || imp === 'unimportant') {
+      const pos = imp === 'important' ? 1 : 0;
+      const neg = imp === 'important' ? 0 : 1;
+
+      if (supa) {
+        try {
+          await supa.rpc('increment_feedback_h', {
+            p_user_id: userId,
+            p_kind: fromEmail ? 'email' : 'domain',
+            p_identity: fromEmail || fromDomain,
+            p_pos: pos, p_neg: neg
+          });
+        } catch {
+          const payload = { user_id:userId, kind:(fromEmail?'email':'domain'), identity:(fromEmail||fromDomain).toLowerCase(), pos:0, neg:0 };
+          await supa.from('mail_importance_feedback').upsert(payload, { onConflict: 'user_id,kind,identity' });
+          await supa.from('mail_importance_feedback')
+            .update({ pos: pos, neg: neg, updated_at: new Date().toISOString() })
+            .eq('user_id', userId).eq('kind', payload.kind).eq('identity', payload.identity);
+        }
       }
     }
-    res.json({ items: out });
+
+    // ---- 2) Persist explicit overrides (category/importance/vip) so /fetch applies them
+    if (supa && (category || typeof vip === 'boolean' || imp)) {
+      const kind = fromEmail ? 'email' : 'domain';
+      const identity = (fromEmail || fromDomain).toLowerCase();
+
+      const row = {
+        user_id: userId,
+        kind,
+        identity,
+        preferred_category: category || null,
+        force_important: imp === 'important' ? true : null,
+        force_unimportant: imp === 'unimportant' ? true : null,
+        vip: (typeof vip === 'boolean') ? vip : null,
+        updated_at: new Date().toISOString()
+      };
+
+      // Upsert (create-or-update)
+      await supa.from('user_label_overrides')
+        .upsert(row, { onConflict: 'user_id,kind,identity' });
+    }
+
+    res.json({ ok:true });
   } catch (e) {
-    console.error('IMAP /bodyBatch error:', e?.message || e);
-    res.status(500).json({ error: 'bodyBatch failed' });
+    console.error('IMAP /feedback error:', e?.message || e);
+    res.status(500).json({ ok:false, error:'failed to save feedback' });
   }
 });
 
