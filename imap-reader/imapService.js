@@ -206,14 +206,36 @@ export async function fetchEmails(opts) {
       raw.push(msg);
     }
 
-    /* map → hydrate → classify */
-    const items = [];
-    for (const msg of raw) {
-      let model = toModelSkeleton(msg);
-      model = await hydrateSnippet(client, msg.uid, model);
-      model = classify(model, { vipSenders });
-      items.push(model);
-    }
+    /* map → hydrate (snippet or full) → classify */
+const items = [];
+for (const msg of raw) {
+  let model = toModelSkeleton(msg);
+
+  if (fullBodies) {
+    // Month mode: fetch full message bodies once
+    try {
+      const dl = await client.download(msg.uid);
+      if (dl?.content) {
+        const parsed = await simpleParser(dl.content);
+        const text = (parsed.text || '').toString();
+        const html = (parsed.html || '').toString();
+        const textish = (text || html)
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (textish) model.snippet = textish.slice(0, 600);
+        if (text) model.text = text;
+        if (html) model.html = html;
+      }
+    } catch { /* ignore */ }
+  } else {
+    // Range mode: lighter, snippet only
+    model = await hydrateSnippet(client, msg.uid, model);
+  }
+
+  model = classify(model, { vipSenders });
+  items.push(model);
+}
 
     const hasMore = startIdx + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
