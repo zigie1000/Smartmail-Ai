@@ -1122,7 +1122,7 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
     // upgrade its placeholder text so the user sees *something* instantly.
     const pv = document.getElementById(`pv-${it.id}`);
     if (pv && pv.dataset.full !== "1" && !pv.textContent.trim()) {
-      const raw = e.text || stripAndTrim(e.html, 180);
+      const raw = e.text || stripAndTrim(e.html, 180) || (e.snippet || '').slice(0, 180);
       if (raw) pv.textContent = raw;
     }
   }
