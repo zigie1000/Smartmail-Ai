@@ -1113,6 +1113,13 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
    console.log('[hydrate] bodyBatch returned', (items||[]).length, (items||[]).slice(0,2));
   for (const it of items) {
   const e = map.get(String(it.id));
+     // ▼ INSERT just after: const e = map.get(String(it.id)); if (!e) continue;
+if (it) {
+  if (typeof it.text === 'string')   e.text   = it.text.trim();
+  if (typeof it.html === 'string')   e.html   = it.html;
+  if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+}
+// ▲ END INSERT
   if (!e) continue;
 
   // 🔽 INSERT THIS BLOCK
