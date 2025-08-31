@@ -1066,73 +1066,51 @@ function exportCSV(){
 }
 
 // Returns fetched items; updates state/emailList + visible preview text snips.
-async function ensureBodiesLoadedFor(ids, opts = {}) {
-  const force = !!opts.force;
-
-  // 0) normalize & dedupe input ids
-  const want = Array.from(new Set(
-    (ids || [])
-      .map(x => String(x).trim())
-      .filter(Boolean)
-  ));
+async function ensureBodiesLoadedFor(ids) {
+  // normalize input
+  const want = Array.from(new Set((ids || []).map(x => String(x).trim()).filter(Boolean)));
   if (!want.length) return [];
 
-  // 1) build a map of current emails
+  // build a map of current emails
   const list = (window.emailList || state.emails || []);
   const map  = new Map(list.map(e => [String(e.id), e]));
 
-  // 2) decide which ids truly need fetching (unless force)
-  const need = force
-    ? want
-    : want.filter(id => {
-        const e = map.get(id);
-        if (!e) return true;
-        const hasText = !!(e.text && String(e.text).trim());
-        const hasHtml = !!(e.html && String(e.html).trim());
-        return !(hasText || hasHtml);
-      });
-
-  if (!need.length && !force) return [];
-
-  // 3) fetch the bodies in a single batch
+  // fetch bodies in a single batch
   let items = [];
   try {
-    items = await bodyBatch(need);
+    const r = await fetch('/api/imap/bodyBatch', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids: want })
+    });
+    if (!r.ok) throw new Error('bodyBatch failed');
+    const j = await r.json();
+    items = j.items || [];
   } catch (err) {
     console.warn('[hydrate] bodyBatch failed', err);
     return [];
   }
 
-  // 4) merge results + opportunistically upgrade visible previews
+  // merge results + opportunistically upgrade visible previews
   for (const it of (items || [])) {
     const id = String(it?.id ?? '');
     if (!id) continue;
-
     const e = map.get(id);
     if (!e) continue;
 
-    // 4a) copy fetched fields into the in-memory email (do this ONCE)
     if (typeof it.text === 'string')   e.text   = it.text.trim();
     if (typeof it.html === 'string')   e.html   = it.html;
     if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
 
-    // 4b) upgrade the card’s placeholder, only if not fully rendered yet
+    // upgrade on-screen preview
     const pv = document.getElementById(`pv-${id}`);
-    if (pv && pv.dataset.full !== '1') {
-      const cur = (pv.textContent || '').toLowerCase().trim();
-      if (!cur || cur.includes('no preview')) {
-        const raw =
-          (e.text && e.text.trim()) ||
-          stripAndTrim(e.html, 180) ||
-          ((e.snippet || '').slice(0, 180));
-        if (raw) pv.textContent = raw;
-      }
+    if (pv) {
+      let raw =
+        (e.text && e.text.trim()) ||
+        stripAndTrim(e.html, 180) ||
+        (e.snippet || '');
+      if (raw) pv.textContent = raw;
     }
-  }
-
-  // 5) keep window.emailList in sync if you use it elsewhere
-  if (Array.isArray(window.emailList) && window.emailList !== list) {
-    window.emailList = list;
   }
 
   return items || [];
