@@ -1110,6 +1110,7 @@ async function ensureBodiesLoadedFor(ids, opts = {}) {
   if (!need.length && !force) return;
 
   const items = await bodyBatch(need);
+   console.log('[hydrate] bodyBatch returned', (items||[]).length, (items||[]).slice(0,2));
   for (const it of items) {
   const e = map.get(String(it.id));
   if (!e) continue;
