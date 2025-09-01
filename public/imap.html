@@ -1094,17 +1094,10 @@ async function ensureBodiesLoadedFor(ids) {
   const list = (window.emailList || state.emails || []);
   const map  = new Map(list.map(e => [String(e.id), e]));
 
- // fetch bodies in a single batch
-let items = [];
-try {
-  const r = await fetch('/api/imap/bodyBatch', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ids: want, force: true })   // ⬅ ensure full bodies
-  });
-    if (!r.ok) throw new Error('bodyBatch failed');
-    const j = await r.json();
-    items = j.items || [];
+  // ✅ fetch bodies using the helper that sends creds + scope (range/month)
+  let items = [];
+  try {
+    items = await bodyBatch(want);
   } catch (err) {
     console.warn('[hydrate] bodyBatch failed', err);
     return [];
@@ -1117,9 +1110,9 @@ try {
     const e = map.get(id);
     if (!e) continue;
 
-     if (typeof it.text   === 'string') e.text   = it.text.trim();
-     if (typeof it.html   === 'string') e.html   = it.html;
-     if (typeof it.snippet=== 'string' && !e.snippet) e.snippet = it.snippet;
+    if (typeof it.text    === 'string') e.text    = it.text.trim();
+    if (typeof it.html    === 'string') e.html    = it.html;
+    if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
 
     // upgrade on-screen preview
     const pv = document.getElementById(`pv-${id}`);
