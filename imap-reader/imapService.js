@@ -120,7 +120,7 @@ async function hydrateFullMessage(client, uid, model) {
     const readable = await getDownloadReadable(client, uid);
     if (!readable) return model;
 
-    const parsed = await simpleParser(readable);
+    const parsed = await simpleParser(stream.content);
 
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString();
