@@ -371,7 +371,7 @@ router.post('/bodyBatch', async (req, res) => {
       try {
         const dl = await client.download(uid);
         if (!dl) continue;
-        const parsed = await simpleParser(dl);
+        const parsed = await simpleParser(dl.content);
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
         const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
