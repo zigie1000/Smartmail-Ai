@@ -3,7 +3,7 @@
 
 import express from 'express';
 import crypto from 'crypto';
-import { fetchEmails, testLogin } from './imapService.js';
+import { fetchEmails, testLogin, fetchBodiesByUid } from './imapService.js';
 import { classifyEmails } from './emailClassifier.js';
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
@@ -109,10 +109,6 @@ async function fetchListsFromSql(userId = 'default') {
 }
 
 /* ---------------- User overrides (learning your relabels) ---------------- */
-// Table: user_label_overrides (suggested schema)
-// user_id TEXT, kind TEXT ('email'|'domain'), identity TEXT, preferred_category TEXT NULL,
-// force_important BOOLEAN NULL, force_unimportant BOOLEAN NULL, vip BOOLEAN NULL, updated_at TIMESTAMP
-
 async function fetchOverridesFromSql(userId = 'default') {
   if (!supa) return { byEmail: new Map(), byDomain: new Map() };
   try {
@@ -198,7 +194,7 @@ router.post('/fetch', async (req, res) => {
       cursor = null,
       rangeDays: qRangeDays,
       limit: qLimit,
-      query = ''            // (optional) search string; month/range still applied
+      query = ''
     } = req.body || {};
 
     if (!email || !host) {
@@ -245,7 +241,7 @@ router.post('/fetch', async (req, res) => {
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP (month/range/query supported by service)
+    // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
@@ -255,10 +251,9 @@ router.post('/fetch', async (req, res) => {
       cursor,
       query,
       vipSenders,
-      wantPreviews: true   // hydrate tiny body slice in BOTH Month & Range
- }); 
+      wantPreviews: true
+    });
 
-    // Stage 2 classifier
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
@@ -269,7 +264,6 @@ router.post('/fetch', async (req, res) => {
       cls = [];
     }
 
-    // Merge base + classifier
     let merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
@@ -278,7 +272,6 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
 
-    // APPLY USER OVERRIDES (learning) — email wins over domain
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
     merged = merged.map(m => {
       const emailKey = (m.fromEmail || '').toLowerCase();
@@ -287,7 +280,7 @@ router.post('/fetch', async (req, res) => {
       if (!o) return m;
 
       const out = { ...m };
-      if (o.category) out.category = out.intent = o.category; // keep back-compat 'intent'
+      if (o.category) out.category = out.intent = o.category;
       if (o.forceImportant) out.importance = 'important';
       if (o.forceUnimportant) out.importance = 'unimportant';
       if (o.vip === true) out.isVip = true;
@@ -324,29 +317,38 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/* ---------------- Learning endpoint (override + weights) ----------------
-POST /api/imap/feedback
-Body:
-{
-  email: "<owner mailbox email>",          // required to resolve userId/tier
-  licenseKey: "...",                       // optional
-  // Target scope (choose one — email preferred, else domain):
-  fromEmail: "sender@acme.com",
-  fromDomain: "acme.com",
+// --- NEW: full body hydration route ---
+router.post('/bodyBatch', async (req, res) => {
+  try {
+    const {
+      email = '', password = '', accessToken = '',
+      host = '', port = 993, tls = true, authType = 'password',
+      ids = []
+    } = req.body || {};
 
-  // What you corrected:
-  importance: "important" | "unimportant" | "unclassified",   // optional
-  category: "meeting"|"billing"|"security"|"newsletter"|"sales"|"social"|"legal"|"system"|"other", // optional
-  vip: true|false                                              // optional
-}
--------------------------------------------------------------------------- */
+    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+    if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
+
+    const items = await fetchBodiesByUid(
+      { email, password, accessToken, host, port, tls, authType },
+      ids
+    );
+
+    res.json({ items });
+  } catch (e) {
+    console.error('IMAP /bodyBatch error:', e?.message || e);
+    res.status(500).json({ error: 'failed to hydrate bodies' });
+  }
+});
+
+/* ---------------- Learning endpoint (override + weights) ---------------- */
 router.post('/feedback', async (req, res) => {
   try {
     const {
-      label,                    // legacy: 'important' / 'unimportant' (still supported)
-      importance,               // new optional explicit importance
-      category,                 // new optional explicit category
-      vip,                      // new optional VIP flag (true/false)
+      label,
+      importance,
+      category,
+      vip,
       fromEmail = '',
       fromDomain = '',
       email: ownerEmail = '',
@@ -365,7 +367,6 @@ router.post('/feedback', async (req, res) => {
 
     const userId = userIdFromEmail(safeOwner || 'anon');
 
-    // ---- 1) Learn importance weights (same as before, but accept both legacy & new fields)
     const imp = String(importance || label || '').toLowerCase();
     if (imp === 'important' || imp === 'unimportant') {
       const pos = imp === 'important' ? 1 : 0;
@@ -389,7 +390,6 @@ router.post('/feedback', async (req, res) => {
       }
     }
 
-    // ---- 2) Persist explicit overrides (category/importance/vip) so /fetch applies them
     if (supa && (category || typeof vip === 'boolean' || imp)) {
       const kind = fromEmail ? 'email' : 'domain';
       const identity = (fromEmail || fromDomain).toLowerCase();
@@ -405,7 +405,6 @@ router.post('/feedback', async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
-      // Upsert (create-or-update)
       await supa.from('user_label_overrides')
         .upsert(row, { onConflict: 'user_id,kind,identity' });
     }
