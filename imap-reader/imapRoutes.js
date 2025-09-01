@@ -325,9 +325,13 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/* ---------------- Full-body batch hydrator ----------------
+/* ---------------- NEW: Full-body batch hydrator ----------------
    POST /api/imap/bodyBatch
-   Body: { email, password|accessToken, host, port, tls, authType, ids:[UID,...] }
+   Body:
+   {
+     email, password | accessToken, host, port, tls, authType,
+     ids: [ "<UID>", ... ]   // IMAP UIDs to hydrate
+   }
    Returns: { items: [ { id, text, html, snippet }, ... ] }
 ----------------------------------------------------------------- */
 router.post('/bodyBatch', async (req, res) => {
@@ -337,9 +341,14 @@ router.post('/bodyBatch', async (req, res) => {
     ids = []
   } = req.body || {};
 
-  if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
-  if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
+  if (!email || !host) {
+    return res.status(400).json({ error: 'email and host are required' });
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.json({ items: [] });
+  }
 
+  // tiny helpers local to this route
   const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
   const makeAuth = () => {
     const kind = String(authType || 'password').toLowerCase();
@@ -356,23 +365,35 @@ router.post('/bodyBatch', async (req, res) => {
       auth: makeAuth(),
       logger: false
     });
+
     await client.connect();
     await client.mailboxOpen('INBOX', { readOnly: true });
 
     const out = [];
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
+
     for (const uid of uniq) {
       try {
+        // Download the raw message
         const dl = await client.download(uid);
         if (!dl) continue;
 
-        // NOTE: imapflow@1 returns {content:Readable}, older returns Readable directly.
-        const stream = dl?.content ?? dl;
+        // ImapFlow versions differ:
+        // - { content: Readable } or { message: Readable } or Readable itself
+        const stream =
+          (dl && dl.content) ? dl.content :
+          (dl && dl.message) ? dl.message :
+          dl;
+
+        // ⬅️ IMPORTANT: parse the stream itself (NOT the wrapper)
         const parsed = await simpleParser(stream);
 
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
-        const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+        // Build a safe, text-only snippet
+        let textish = (text || html);
+        textish = String(textish).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
         out.push({
           id: String(uid),
@@ -380,15 +401,17 @@ router.post('/bodyBatch', async (req, res) => {
           html,
           snippet: textish ? textish.slice(0, 600) : ''
         });
-      } catch (_) { /* skip one uid on error */ }
+      } catch {
+        // skip this uid on error, continue with the rest
+      }
     }
 
     try { await client.logout(); } catch (_) {}
-    res.json({ items: out });
+    return res.json({ items: out });
   } catch (e) {
     try { if (client) await client.logout(); } catch (_) {}
     console.error('IMAP /bodyBatch error:', e?.message || e);
-    res.status(500).json({ error: 'Failed to fetch bodies' });
+    return res.status(500).json({ error: 'Failed to fetch bodies' });
   }
 });
 
