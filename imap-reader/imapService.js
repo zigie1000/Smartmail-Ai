@@ -1,4 +1,4 @@
-// imapService.js — robust IMAP fetcher with month parsing, fallbacks & UID pagination
+// imapService.js — robust IMAP fetcher with scoped (Month/Range) search, optional text query, full-body hydration & UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
@@ -49,20 +49,31 @@ function parseMonthRange(monthStart, monthEnd) {
   return { start: null, endExclusive: null };
 }
 
-function buildDateCriteria({ rangeDays, monthStart, monthEnd }) {
+/** Build IMAP SEARCH criteria combining Month/Range + optional text query */
+function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
   const crit = ['ALL'];
   const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
 
   if (start && endExclusive) {
     crit.push(['SINCE', start]);
     crit.push(['BEFORE', endExclusive]); // exclusive upper bound
-    return crit;
+  } else {
+    const days = Number(rangeDays);
+    if (Number.isFinite(days) && days > 0) {
+      const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+      crit.push(['SINCE', since]);
+    }
   }
 
-  const days = Number(rangeDays);
-  if (Number.isFinite(days) && days > 0) {
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
-    crit.push(['SINCE', since]);
+  const q = (query || '').trim();
+  if (q) {
+    // Match subject OR body OR from; nest with ORs to stay portable.
+    // OR( SUBJECT q , OR( BODY q , HEADER FROM q ) )
+    crit.push([
+      'OR',
+      ['HEADER', 'SUBJECT', q],
+      ['OR', ['BODY', q], ['HEADER', 'FROM', q]]
+    ]);
   }
   return crit;
 }
@@ -87,19 +98,23 @@ function toModelSkeleton(msg) {
     intent: '',
     urgency: 0,
     action_required: false,
-    isVip: false
+    isVip: false,
+    text: '',
+    html: ''
   };
 }
 
-/** Hydrate snippet + text + html for a UID */
-async function hydrateSnippet(client, uid, model) {
+/** Hydrate FULL snippet + text + html for a UID (no byte cap) */
+async function hydrateFullMessage(client, uid, model) {
   try {
     const stream = await client.download(uid);
     if (!stream) return model;
-    const parsed = await simpleParser(stream.content);
+
+    // Parse the full message stream (mailparser accepts a stream directly)
+    const parsed = await simpleParser(stream);
 
     const text = (parsed.text || '').toString().trim();
-    const html = (parsed.html || '').toString();
+    const html = (parsed.html || '').toString().trim();
 
     let textish = text || html;
     textish = textish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -107,7 +122,9 @@ async function hydrateSnippet(client, uid, model) {
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
     if (html) model.html = html;
-  } catch { /* ignore */ }
+  } catch {
+    // ignore; leave model as-is if parsing fails
+  }
   return model;
 }
 
@@ -144,36 +161,41 @@ export async function fetchEmails(opts) {
     host, port = 993, tls = true, authType = 'password',
     rangeDays = 7, monthStart, monthEnd, month,
     limit = 20, cursor = null,
-    fullBodies = false,        // month-mode -> true
-    vipSenders = []
+    fullBodies = false,        // Month will set this true; Range still hydrates full below
+    vipSenders = [],
+    query = ''                 // NEW: optional text search
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
 
   const _monthStart = monthStart || month || '';
   const _monthEnd   = monthEnd || '';
+  const q = (query || '').trim();
 
   let client;
   try {
     client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
 
-    // 1) primary IMAP search
-    const criteria = buildDateCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd });
+    // 1) primary IMAP search (scoped by Month/Range + optional text)
+    const criteria = buildScopedCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd, query: q });
     let uidList = normalizeUids(await client.search(criteria, { uid: true }));
 
-    // 2) Gmail RAW fallback
+    // 2) Gmail RAW fallback — still scoped by Month/Range and includes text query
     if ((!uidList || uidList.length === 0) && /(?:^|\.)gmail\.com$/i.test(host)) {
       const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
       const pad = (n) => String(n).padStart(2, '0');
       const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
       const a = start ? fmt(start) : fmt(new Date(Date.now() - (Number(rangeDays) || 30) * 864e5));
       const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
+      const term = q ? ` (subject:"${q}" OR from:${q} OR "${q}")` : '';
       try {
-        uidList = normalizeUids(await client.search({ gmailRaw: `in:inbox after:${a} before:${b}` }, { uid: true }));
+        uidList = normalizeUids(
+          await client.search({ gmailRaw: `in:inbox after:${a} before:${b}${term}` }, { uid: true })
+        );
       } catch { /* ignore */ }
     }
 
-    // 3) Hard fallback: last N UIDs
+    // 3) Hard fallback: last N UIDs (still end-bound by the last uid, but note this path ignores text)
     if (!uidList || uidList.length === 0) {
       try {
         const st = await client.status('INBOX', { uidnext: true });
@@ -188,7 +210,7 @@ export async function fetchEmails(opts) {
       } catch { uidList = []; }
     }
 
-    // pagination
+    // pagination over the *scoped* uid list
     let startIdx = 0;
     if (cursor != null) {
       const idx = uidList.indexOf(Number(cursor));
@@ -202,33 +224,21 @@ export async function fetchEmails(opts) {
       return { items: [], nextCursor: null, hasMore: false };
     }
 
-    // fetch metadata
+    // fetch metadata for just the slice
     const raw = [];
     for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
       raw.push(msg);
     }
 
-    // map → hydrate → classify
+    // map → hydrate FULL → classify
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
 
-      if (fullBodies) {
-        try {
-          const dl = await client.download(msg.uid);
-          if (dl?.content) {
-            const parsed = await simpleParser(dl.content);
-            const text = (parsed.text || '').toString();
-            const html = (parsed.html || '').toString();
-            const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-            if (textish) model.snippet = textish.slice(0, 600);
-            if (text) model.text = text;
-            if (html) model.html = html;
-          }
-        } catch { /* ignore */ }
-      } else {
-        model = await hydrateSnippet(client, msg.uid, model);
-      }
+      // Hydrate FULL bodies in BOTH modes so the generator always has complete content
+      try {
+        model = await hydrateFullMessage(client, msg.uid, model);
+      } catch { /* ignore and keep envelope-only if any issue */ }
 
       model = classify(model, { vipSenders });
       items.push(model);
