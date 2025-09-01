@@ -1,5 +1,6 @@
 // imapRoutes.js — IMAP fetch/classify with tier check, month/range, cursor paging,
 // VIP & weights, PLUS user overrides (learning) that refine future classifications.
+
 import express from 'express';
 import crypto from 'crypto';
 import { ImapFlow } from 'imapflow';
@@ -180,11 +181,9 @@ router.post('/tier', async (req, res) => {
   try {
     const { email = '', licenseKey = '' } = req.body || {};
     const tier = await getTier({ licenseKey, email });
-    thePaid: {
-      const paid = await isPaid(tier);
-      const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
-      res.json({ tier, isPaid: paid, notice });
-    }
+    const paid = await isPaid(tier);
+    const notice = paid ? null : 'Free plan: up to 20 emails from the last 7 days.';
+    res.json({ tier, isPaid: paid, notice });
   } catch (e) {
     console.error('IMAP /tier error:', e?.message || e);
     res.status(500).json({ error: 'Could not determine tier' });
@@ -326,13 +325,9 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/* ---------------- NEW: Full-body batch hydrator ----------------
+/* ---------------- Full-body batch hydrator ----------------
    POST /api/imap/bodyBatch
-   Body:
-   {
-     email, password | accessToken, host, port, tls, authType,
-     ids: [ "<UID>", ... ]   // IMAP UIDs to hydrate
-   }
+   Body: { email, password|accessToken, host, port, tls, authType, ids:[UID,...] }
    Returns: { items: [ { id, text, html, snippet }, ... ] }
 ----------------------------------------------------------------- */
 router.post('/bodyBatch', async (req, res) => {
@@ -345,7 +340,6 @@ router.post('/bodyBatch', async (req, res) => {
   if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
   if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
 
-  // tiny helpers local to this route
   const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
   const makeAuth = () => {
     const kind = String(authType || 'password').toLowerCase();
@@ -371,10 +365,15 @@ router.post('/bodyBatch', async (req, res) => {
       try {
         const dl = await client.download(uid);
         if (!dl) continue;
-        const parsed = await simpleParser(dl.content);
+
+        // NOTE: imapflow@1 returns {content:Readable}, older returns Readable directly.
+        const stream = dl?.content ?? dl;
+        const parsed = await simpleParser(stream);
+
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
         const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
         out.push({
           id: String(uid),
           text,
@@ -434,7 +433,7 @@ router.post('/feedback', async (req, res) => {
 
     const userId = userIdFromEmail(safeOwner || 'anon');
 
-    // ---- 1) Learn importance weights (same as before, but accept both legacy & new fields)
+    // ---- 1) Learn importance weights (accept legacy or new field)
     const imp = String(importance || label || '').toLowerCase();
     if (imp === 'important' || imp === 'unimportant') {
       const pos = imp === 'important' ? 1 : 0;
@@ -452,7 +451,7 @@ router.post('/feedback', async (req, res) => {
           const payload = { user_id:userId, kind:(fromEmail?'email':'domain'), identity:(fromEmail||fromDomain).toLowerCase(), pos:0, neg:0 };
           await supa.from('mail_importance_feedback').upsert(payload, { onConflict: 'user_id,kind,identity' });
           await supa.from('mail_importance_feedback')
-            .update({ pos: pos, neg: neg, updated_at: new Date().toISOString() })
+            .update({ pos, neg, updated_at: new Date().toISOString() })
             .eq('user_id', userId).eq('kind', payload.kind).eq('identity', payload.identity);
         }
       }
@@ -474,7 +473,6 @@ router.post('/feedback', async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
-      // Upsert (create-or-update)
       await supa.from('user_label_overrides')
         .upsert(row, { onConflict: 'user_id,kind,identity' });
     }
