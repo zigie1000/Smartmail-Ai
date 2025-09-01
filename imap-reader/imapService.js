@@ -1,5 +1,6 @@
-// imapService.js — robust IMAP fetcher with scoped (Month/Range) search, optional text query,
-// full-body hydration & UID pagination
+// imapService.js — robust IMAP fetcher with scoped (Month/Range) search,
+// optional text query, full-body hydration & UID pagination
+
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
@@ -23,6 +24,16 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
   await client.connect();
   await client.mailboxOpen('INBOX', { readOnly: true });
   return client;
+}
+
+/** Normalize ImapFlow download() return across versions to a readable stream */
+async function getDownloadReadable(client, uid) {
+  const res = await client.download(uid);
+  if (!res) return null;
+  if (typeof res.pipe === 'function') return res;                       // stream directly
+  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
+  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
+  return null;
 }
 
 /** Parse month inputs into [start, endExclusive] */
@@ -68,7 +79,7 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 
   const q = (query || '').trim();
   if (q) {
-    // Portable OR nesting: SUBJECT or BODY or FROM
+    // Match subject OR body OR from; nest with ORs for broad portability
     crit.push([
       'OR',
       ['HEADER', 'SUBJECT', q],
@@ -104,29 +115,19 @@ function toModelSkeleton(msg) {
   };
 }
 
-/** Normalize ImapFlow download result across versions */
-async function getDownloadReadable(client, uid) {
-  const res = await client.download(uid);
-  if (!res) return null;
-  if (typeof res.pipe === 'function') return res;                        // stream directly
-  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
-  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
-  return null;
-}
-
 /** Hydrate FULL snippet + text + html for a UID (no byte cap) */
 async function hydrateFullMessage(client, uid, model) {
   try {
-    const readable = await getDownloadReadable(client, uid);
-    if (!readable) return model;
+    const stream = await getDownloadReadable(client, uid);
+    if (!stream) return model;
 
-    const parsed = await simpleParser(stream.content);
+    const parsed = await simpleParser(stream);
 
     const text = (parsed.text || '').toString().trim();
-    const html = (parsed.html || '').toString();
+    const html = (parsed.html || '').toString().trim();
 
     let textish = text || html;
-    textish = String(textish).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    textish = textish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
@@ -170,7 +171,6 @@ export async function fetchEmails(opts) {
     host, port = 993, tls = true, authType = 'password',
     rangeDays = 7, monthStart, monthEnd, month,
     limit = 20, cursor = null,
-    fullBodies = true,        // hydrate full bodies so Generator always has content
     vipSenders = [],
     query = ''                 // optional text search
   } = opts || {};
@@ -189,7 +189,7 @@ export async function fetchEmails(opts) {
     const criteria = buildScopedCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd, query: q });
     let uidList = normalizeUids(await client.search(criteria, { uid: true }));
 
-    // 2) Gmail RAW fallback — scoped window + text query
+    // 2) Gmail RAW fallback — still scoped by Month/Range and includes text query
     if ((!uidList || uidList.length === 0) && /(?:^|\.)gmail\.com$/i.test(host)) {
       const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
       const pad = (n) => String(n).padStart(2, '0');
@@ -204,7 +204,7 @@ export async function fetchEmails(opts) {
       } catch { /* ignore */ }
     }
 
-    // 3) Hard fallback: last N UIDs
+    // 3) Hard fallback: last N UIDs (ignores text query but guarantees something)
     if (!uidList || uidList.length === 0) {
       try {
         const st = await client.status('INBOX', { uidnext: true });
@@ -243,9 +243,11 @@ export async function fetchEmails(opts) {
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
-      if (fullBodies) {
-        try { model = await hydrateFullMessage(client, msg.uid, model); } catch {}
-      }
+
+      try {
+        model = await hydrateFullMessage(client, msg.uid, model);
+      } catch { /* ignore and keep envelope-only if any issue */ }
+
       model = classify(model, { vipSenders });
       items.push(model);
     }
@@ -255,38 +257,6 @@ export async function fetchEmails(opts) {
 
     await client.logout();
     return { items, nextCursor, hasMore };
-  } catch (err) {
-    try { if (client) await client.logout(); } catch {}
-    const e = new Error(err?.message || String(err));
-    e.code = err?.code;
-    throw e;
-  }
-}
-
-/** Batch hydrate full bodies for specific UIDs — used by /api/imap/bodyBatch */
-export async function fetchBodiesByUid(opts, uids) {
-  const {
-    email, password, accessToken,
-    host, port = 993, tls = true, authType = 'password'
-  } = opts || {};
-  if (!email || !host) throw new Error('email and host are required');
-
-  const want = (Array.isArray(uids) ? uids : []).map(n => Number(n)).filter(Number.isFinite);
-  if (!want.length) return [];
-
-  let client;
-  try {
-    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
-
-    const items = [];
-    for await (const msg of client.fetch({ uid: want }, { envelope: true, internalDate: true })) {
-      let model = toModelSkeleton(msg);
-      model = await hydrateFullMessage(client, msg.uid, model);
-      items.push(model);
-    }
-
-    await client.logout();
-    return items;
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
     const e = new Error(err?.message || String(err));
@@ -308,4 +278,4 @@ export async function testLogin({ email, password, accessToken, host, port = 993
   }
 }
 
-export default { fetchEmails, fetchBodiesByUid, testLogin };
+export default { fetchEmails, testLogin };
