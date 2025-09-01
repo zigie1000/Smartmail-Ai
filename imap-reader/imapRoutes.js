@@ -254,8 +254,9 @@ router.post('/fetch', async (req, res) => {
       limit,
       cursor,
       query,
-      vipSenders
-    });
+      vipSenders,
+      wantPreviews: true   // hydrate tiny body slice in BOTH Month & Range
+ }); 
 
     // Stage 2 classifier
     const norm = normalizeForClassifier(items);
