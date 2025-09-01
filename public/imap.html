@@ -894,9 +894,7 @@ let rawSnippet =
    || e.text
    || '';
 
-// Always sanitize what we show in the preview
-if (rawSnippet) {
-  // turn any HTML into plain text (drops <style>, <script>, tags)
+if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
   rawSnippet = htmlToText(rawSnippet);
 }
 const snippetSafe = escapeHtml(rawSnippet || "(no preview available)");
