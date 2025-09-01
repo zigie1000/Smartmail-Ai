@@ -1,4 +1,5 @@
-// imapService.js — robust IMAP fetcher with scoped (Month/Range) search, optional text query, full-body hydration & UID pagination
+// imapService.js — robust IMAP fetcher with scoped (Month/Range) search, optional text query,
+// full-body hydration & UID pagination
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
@@ -67,8 +68,7 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 
   const q = (query || '').trim();
   if (q) {
-    // Match subject OR body OR from; nest with ORs to stay portable.
-    // OR( SUBJECT q , OR( BODY q , HEADER FROM q ) )
+    // Portable OR nesting: SUBJECT or BODY or FROM
     crit.push([
       'OR',
       ['HEADER', 'SUBJECT', q],
@@ -104,20 +104,29 @@ function toModelSkeleton(msg) {
   };
 }
 
+/** Normalize ImapFlow download result across versions */
+async function getDownloadReadable(client, uid) {
+  const res = await client.download(uid);
+  if (!res) return null;
+  if (typeof res.pipe === 'function') return res;                        // stream directly
+  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
+  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
+  return null;
+}
+
 /** Hydrate FULL snippet + text + html for a UID (no byte cap) */
 async function hydrateFullMessage(client, uid, model) {
   try {
-    const stream = await client.download(uid);
-    if (!stream) return model;
+    const readable = await getDownloadReadable(client, uid);
+    if (!readable) return model;
 
-    // Parse the full message stream (mailparser accepts a stream directly)
-    const parsed = await simpleParser(stream);
+    const parsed = await simpleParser(readable);
 
     const text = (parsed.text || '').toString().trim();
-    const html = (parsed.html || '').toString().trim();
+    const html = (parsed.html || '').toString();
 
     let textish = text || html;
-    textish = textish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    textish = String(textish).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
@@ -161,9 +170,9 @@ export async function fetchEmails(opts) {
     host, port = 993, tls = true, authType = 'password',
     rangeDays = 7, monthStart, monthEnd, month,
     limit = 20, cursor = null,
-    fullBodies = false,        // Month will set this true; Range still hydrates full below
+    fullBodies = true,        // hydrate full bodies so Generator always has content
     vipSenders = [],
-    query = ''                 // NEW: optional text search
+    query = ''                 // optional text search
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
@@ -180,7 +189,7 @@ export async function fetchEmails(opts) {
     const criteria = buildScopedCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd, query: q });
     let uidList = normalizeUids(await client.search(criteria, { uid: true }));
 
-    // 2) Gmail RAW fallback — still scoped by Month/Range and includes text query
+    // 2) Gmail RAW fallback — scoped window + text query
     if ((!uidList || uidList.length === 0) && /(?:^|\.)gmail\.com$/i.test(host)) {
       const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
       const pad = (n) => String(n).padStart(2, '0');
@@ -195,7 +204,7 @@ export async function fetchEmails(opts) {
       } catch { /* ignore */ }
     }
 
-    // 3) Hard fallback: last N UIDs (still end-bound by the last uid, but note this path ignores text)
+    // 3) Hard fallback: last N UIDs
     if (!uidList || uidList.length === 0) {
       try {
         const st = await client.status('INBOX', { uidnext: true });
@@ -234,12 +243,9 @@ export async function fetchEmails(opts) {
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
-
-      // Hydrate FULL bodies in BOTH modes so the generator always has complete content
-      try {
-        model = await hydrateFullMessage(client, msg.uid, model);
-      } catch { /* ignore and keep envelope-only if any issue */ }
-
+      if (fullBodies) {
+        try { model = await hydrateFullMessage(client, msg.uid, model); } catch {}
+      }
       model = classify(model, { vipSenders });
       items.push(model);
     }
@@ -249,6 +255,38 @@ export async function fetchEmails(opts) {
 
     await client.logout();
     return { items, nextCursor, hasMore };
+  } catch (err) {
+    try { if (client) await client.logout(); } catch {}
+    const e = new Error(err?.message || String(err));
+    e.code = err?.code;
+    throw e;
+  }
+}
+
+/** Batch hydrate full bodies for specific UIDs — used by /api/imap/bodyBatch */
+export async function fetchBodiesByUid(opts, uids) {
+  const {
+    email, password, accessToken,
+    host, port = 993, tls = true, authType = 'password'
+  } = opts || {};
+  if (!email || !host) throw new Error('email and host are required');
+
+  const want = (Array.isArray(uids) ? uids : []).map(n => Number(n)).filter(Number.isFinite);
+  if (!want.length) return [];
+
+  let client;
+  try {
+    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
+
+    const items = [];
+    for await (const msg of client.fetch({ uid: want }, { envelope: true, internalDate: true })) {
+      let model = toModelSkeleton(msg);
+      model = await hydrateFullMessage(client, msg.uid, model);
+      items.push(model);
+    }
+
+    await client.logout();
+    return items;
   } catch (err) {
     try { if (client) await client.logout(); } catch {}
     const e = new Error(err?.message || String(err));
@@ -270,4 +308,4 @@ export async function testLogin({ email, password, accessToken, host, port = 993
   }
 }
 
-export default { fetchEmails, testLogin };
+export default { fetchEmails, fetchBodiesByUid, testLogin };
