@@ -895,8 +895,11 @@ let rawSnippet =
    || '';
 
 if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
-  rawSnippet = htmlToText(rawSnippet);
+  const stripped = htmlToText(rawSnippet).trim();
+  // If stripping killed it, keep the original instead
+  rawSnippet = stripped || rawSnippet;
 }
+
 const snippetSafe = escapeHtml(rawSnippet || "(no preview available)");
 
  return `
