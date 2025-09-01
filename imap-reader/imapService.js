@@ -28,7 +28,8 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
 
 /** Normalize ImapFlow download() return across versions to a readable stream */
 async function getDownloadReadable(client, uid) {
-  const res = await client.download(uid);
+  // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
+  const res = await client.download(uid, { uid: true }); // ← fixed
   if (!res) return null;
   if (typeof res.pipe === 'function') return res;                       // stream directly
   if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
@@ -42,22 +43,18 @@ function parseMonthRange(monthStart, monthEnd) {
   const ms = clean(monthStart);
   const me = clean(monthEnd);
 
-  // both provided (ISO/parsable)
   if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
     const start = new Date(ms);
     const meD = new Date(me);
     const endExclusive = new Date(meD.getFullYear(), meD.getMonth(), meD.getDate() + 1);
     return { start, endExclusive };
   }
-
-  // single month label in ms (e.g., "July 2025" or "2025-07")
   if (ms && !me && !Number.isNaN(Date.parse(ms))) {
     const d = new Date(ms);
     const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
     const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
     return { start, endExclusive };
   }
-
   return { start: null, endExclusive: null };
 }
 
@@ -79,7 +76,6 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 
   const q = (query || '').trim();
   if (q) {
-    // Match subject OR body OR from; nest with ORs for broad portability
     crit.push([
       'OR',
       ['HEADER', 'SUBJECT', q],
@@ -204,7 +200,7 @@ export async function fetchEmails(opts) {
       } catch { /* ignore */ }
     }
 
-    // 3) Hard fallback: last N UIDs (ignores text query but guarantees something)
+    // 3) Hard fallback
     if (!uidList || uidList.length === 0) {
       try {
         const st = await client.status('INBOX', { uidnext: true });
@@ -243,11 +239,9 @@ export async function fetchEmails(opts) {
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
-
       try {
         model = await hydrateFullMessage(client, msg.uid, model);
-      } catch { /* ignore and keep envelope-only if any issue */ }
-
+      } catch {}
       model = classify(model, { vipSenders });
       items.push(model);
     }
