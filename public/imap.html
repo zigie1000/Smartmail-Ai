@@ -1115,9 +1115,9 @@ try {
     const e = map.get(id);
     if (!e) continue;
 
-    if (typeof it.text === 'string')   e.text   = it.text.trim();
-    if (typeof it.html === 'string')   e.html   = it.html;
-    if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+     if (typeof it.text   === 'string') e.text   = it.text.trim();
+     if (typeof it.html   === 'string') e.html   = it.html;
+     if (typeof it.snippet=== 'string' && !e.snippet) e.snippet = it.snippet;
 
     // upgrade on-screen preview
     const pv = document.getElementById(`pv-${id}`);
