@@ -112,7 +112,7 @@ async function fetchListsFromSql(userId = 'default') {
 }
 
 /* ---------------- User overrides (learning your relabels) ---------------- */
-// Table: user_label_overrides (suggested schema)
+// Table: user_label_overrides
 // user_id TEXT, kind TEXT ('email'|'domain'), identity TEXT, preferred_category TEXT NULL,
 // force_important BOOLEAN NULL, force_unimportant BOOLEAN NULL, vip BOOLEAN NULL, updated_at TIMESTAMP
 async function fetchOverridesFromSql(userId = 'default') {
@@ -259,7 +259,7 @@ router.post('/fetch', async (req, res) => {
       vipSenders
     });
 
-    // Stage 2 classifier
+    // Stage 2 classifier (LLM/ML, optional)
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
@@ -341,12 +341,8 @@ router.post('/bodyBatch', async (req, res) => {
     ids = []
   } = req.body || {};
 
-  if (!email || !host) {
-    return res.status(400).json({ error: 'email and host are required' });
-  }
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return res.json({ items: [] });
-  }
+  if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+  if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
 
   // tiny helpers local to this route
   const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
@@ -365,53 +361,43 @@ router.post('/bodyBatch', async (req, res) => {
       auth: makeAuth(),
       logger: false
     });
-
     await client.connect();
     await client.mailboxOpen('INBOX', { readOnly: true });
 
     const out = [];
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
-
     for (const uid of uniq) {
       try {
-        // Download the raw message
         const dl = await client.download(uid);
         if (!dl) continue;
 
-        // ImapFlow versions differ:
-        // - { content: Readable } or { message: Readable } or Readable itself
-        const stream =
-          (dl && dl.content) ? dl.content :
-          (dl && dl.message) ? dl.message :
-          dl;
+        // normalize to a readable stream
+        const readable =
+          (dl && typeof dl.pipe === 'function') ? dl :
+          (dl && dl.content && typeof dl.content.pipe === 'function') ? dl.content :
+          (dl && dl.message && typeof dl.message.pipe === 'function') ? dl.message :
+          null;
+        if (!readable) continue;
 
-        // ⬅️ IMPORTANT: parse the stream itself (NOT the wrapper)
-        const parsed = await simpleParser(stream);
-
+        const parsed = await simpleParser(readable);
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
-
-        // Build a safe, text-only snippet
-        let textish = (text || html);
-        textish = String(textish).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-
+        const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         out.push({
           id: String(uid),
           text,
           html,
           snippet: textish ? textish.slice(0, 600) : ''
         });
-      } catch {
-        // skip this uid on error, continue with the rest
-      }
+      } catch (_) { /* skip one uid on error */ }
     }
 
     try { await client.logout(); } catch (_) {}
-    return res.json({ items: out });
+    res.json({ items: out });
   } catch (e) {
     try { if (client) await client.logout(); } catch (_) {}
     console.error('IMAP /bodyBatch error:', e?.message || e);
-    return res.status(500).json({ error: 'Failed to fetch bodies' });
+    res.status(500).json({ error: 'Failed to fetch bodies' });
   }
 });
 
@@ -456,7 +442,7 @@ router.post('/feedback', async (req, res) => {
 
     const userId = userIdFromEmail(safeOwner || 'anon');
 
-    // ---- 1) Learn importance weights (accept legacy or new field)
+    // ---- 1) Learn importance weights (legacy & new fields)
     const imp = String(importance || label || '').toLowerCase();
     if (imp === 'important' || imp === 'unimportant') {
       const pos = imp === 'important' ? 1 : 0;
@@ -474,7 +460,7 @@ router.post('/feedback', async (req, res) => {
           const payload = { user_id:userId, kind:(fromEmail?'email':'domain'), identity:(fromEmail||fromDomain).toLowerCase(), pos:0, neg:0 };
           await supa.from('mail_importance_feedback').upsert(payload, { onConflict: 'user_id,kind,identity' });
           await supa.from('mail_importance_feedback')
-            .update({ pos, neg, updated_at: new Date().toISOString() })
+            .update({ pos: pos, neg: neg, updated_at: new Date().toISOString() })
             .eq('user_id', userId).eq('kind', payload.kind).eq('identity', payload.identity);
         }
       }
@@ -496,6 +482,7 @@ router.post('/feedback', async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
+      // Upsert (create-or-update)
       await supa.from('user_label_overrides')
         .upsert(row, { onConflict: 'user_id,kind,identity' });
     }
