@@ -223,7 +223,7 @@ router.post('/fetch', async (req, res) => {
 
     // Date selection
     const msStr = String(monthStart || '').trim();
-    const meStr = String(monthEnd   || '').trim();
+    the meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
 
@@ -278,6 +278,10 @@ router.post('/fetch', async (req, res) => {
       }
       return m;
     });
+
+    // TEMP: log count to prove this is fixed; remove after verifying
+    const emptySnips = merged.filter(e => !e.snippet || !e.snippet.trim()).length;
+    console.log('[IMAP] sending', merged.length, 'emails; empty snippet:', emptySnips);
 
     // Apply overrides
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
