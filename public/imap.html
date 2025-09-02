@@ -666,7 +666,7 @@ async function bodyBatch(ids){
                 : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
 
   // ⬅️ add this line so the server returns HTML/text
-  fullBodies: true
+ // fullBodies: true
 };
 
     const r = await fetch('/api/imap/bodyBatch', {
