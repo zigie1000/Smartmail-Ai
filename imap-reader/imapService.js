@@ -122,12 +122,34 @@ async function hydrateFullMessage(client, uid, model) {
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString().trim();
 
-    let textish = text || html;
-    textish = textish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+let textish = text;
 
-    if (textish) model.snippet = textish.slice(0, 600);
-    if (text) model.text = text;
-    if (html) model.html = html;
+// Fallback when providers send image/link-only HTML with no plain text
+if (!textish && html) {
+  // strip <head>, <script>, <style>
+  let safe = html
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+
+  // surface useful attributes that carry meaning
+  safe = safe
+    .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
+    .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
+    .replace(/aria-label="([^"]*)"/gi, ' $1 ');
+
+  // drop tags → normalize whitespace
+  textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// final guard so snippet isn't blank
+if (!textish && (text || html)) {
+  textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+if (textish) model.snippet = textish.slice(0, 600);
+if (text) model.text = text;
+if (html) model.html = html;
   } catch {
     // ignore; leave model as-is if parsing fails
   }
