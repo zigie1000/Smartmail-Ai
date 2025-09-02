@@ -31,7 +31,7 @@ async function getDownloadReadable(client, uid) {
   // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
   const res = await client.download(uid, { uid: true });
   if (!res) return null;
-  if (typeof res.pipe === 'function') return res; // stream directly
+  if (typeof res.pipe === 'function') return res;                         // stream directly
   if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
   if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
   return null;
