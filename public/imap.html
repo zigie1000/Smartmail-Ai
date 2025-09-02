@@ -1114,7 +1114,7 @@ async function ensureBodiesLoadedFor(ids) {
     .map(id => {
       const rec = byId.get(id);
       // tolerate common uid field names
-      const uid = rec && (rec.uid || rec.imapUid || rec.uid_validity && rec.uid);
+      const uid = rec && (rec.uid || rec.imapUid || (rec.uid_validity && rec.uid));
       return String(uid || id);
     })
     .map(s => s.trim())
@@ -1130,54 +1130,55 @@ async function ensureBodiesLoadedFor(ids) {
   }
 
   // merge results + upgrade visible previews (tolerant id matching)
-for (const it of (items || [])) {
-  // normalize identifier coming back from server
-  const itemId = String(
-    it.id || it.uid || it.imapUid || it.gmailId || it.messageId || it.msgId
-  ).trim();
-  if (!itemId) continue;
+  for (const it of (items || [])) {
+    // normalize identifier coming back from server
+    const itemId = String(
+      it.id || it.uid || it.imapUid || it.gmailId || it.messageId || it.msgId
+    ).trim();
+    if (!itemId) continue;
 
-  // find the UI record whose known ids include this itemId
-  const match = list.find(x => {
-    const cand = [
-      x.id, x.uid, x.imapUid, x.gmailId, x.messageId, x.msgId
-    ].map(v => String(v || '').trim());
-    return cand.includes(itemId);
-  });
-  if (!match) continue;
+    // find the UI record whose known ids include this itemId
+    const match = list.find(x => {
+      const cand = [x.id, x.uid, x.imapUid, x.gmailId, x.messageId, x.msgId]
+        .map(v => String(v || '').trim());
+      return cand.includes(itemId);
+    });
+    if (!match) continue;
 
-  const matchId = String(match.id);
-  const e = byId.get(matchId);
-  if (!e) continue;
+    const matchId = String(match.id);
+    const e = byId.get(matchId);
+    if (!e) continue;
 
-  // accept multiple possible body field names from the server
-const txt  = it.text || it.bodyText || it.textPlain || it.plain;
-const html = it.html || it.bodyHtml || it.textHtml;
-const snip = it.snippet || it.preview || it.bodySnippet || it.summary;
+    // accept multiple possible body field names from the server
+    const txt  = it.text || it.bodyText || it.textPlain || it.plain;
+    const html = it.html || it.bodyHtml || it.textHtml;
+    const snip = it.snippet || it.preview || it.bodySnippet || it.summary;
 
-if (typeof txt  === 'string') e.text = txt.trim();
-if (typeof html === 'string') e.html = html;
-if (typeof snip === 'string' && !e.snippet) e.snippet = snip;
+    if (typeof txt  === 'string') e.text = txt.trim();
+    if (typeof html === 'string') e.html = html;
+    if (typeof snip === 'string' && !e.snippet) e.snippet = snip;
 
-// refresh the visible preview
-const pv = document.getElementById(`pv-${matchId}`);
-if (pv) {
-  let raw =
-    (e.text && e.text.trim()) ||
-    stripAndTrim(e.html, 180) ||
-    (e.snippet || '');
+    // refresh the visible preview
+    const pv = document.getElementById(`pv-${matchId}`);
+    if (pv) {
+      let raw =
+        (e.text && e.text.trim()) ||
+        stripAndTrim(e.html, 180) ||
+        (e.snippet || '');
 
-  if (raw) {
-    pv.textContent = raw;
+      if (raw) {
+        pv.textContent = raw;
 
-    // also refresh the collapsed summary text
-    const det = document.querySelector(`details.preview[data-id="${matchId}"] > summary`);
-    if (det) {
-      const short = stripAndTrim(raw, 120);
-      det.textContent = `Preview — ${short || "(no preview available)"}`;
+        // also refresh the collapsed summary text
+        const det = document.querySelector(`details.preview[data-id="${matchId}"] > summary`);
+        if (det) {
+          const short = stripAndTrim(raw, 120);
+          det.textContent = `Preview — ${short || "(no preview available)"}`;
+        }
+      }
     }
   }
-}
+
   return items || [];
 }
 
