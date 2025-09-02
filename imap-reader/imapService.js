@@ -26,29 +26,6 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
   return client;
 }
 
-/** Read any Node stream to a Buffer (robust across envs) */
-function streamToBuffer(readable) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    readable.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    readable.once('error', reject);
-    readable.once('end', () => resolve(Buffer.concat(chunks)));
-    // safety for some older streams
-    if (typeof readable.resume === 'function') readable.resume();
-  });
-}
-
-/** Normalize ImapFlow download() return across versions to a readable stream */
-async function getDownloadReadable(client, uid) {
-  // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
-  const res = await client.download(uid, { uid: true }); // ← fixed
-  if (!res) return null;
-  if (typeof res.pipe === 'function') return res;                       // stream directly
-  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
-  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
-  return null;
-}
-
 /** Parse month inputs into [start, endExclusive] */
 function parseMonthRange(monthStart, monthEnd) {
   const clean = (s) => (typeof s === 'string' ? s.trim() : '');
@@ -123,28 +100,38 @@ function toModelSkeleton(msg) {
   };
 }
 
-/** Hydrate FULL snippet + text + html for a UID (no byte cap) */
+/** Hydrate FULL snippet + text + html for a UID (no byte cap, deterministic) */
 async function hydrateFullMessage(client, uid, model) {
   try {
-    const readable = await getDownloadReadable(client, uid);
+    const res = await client.download(uid, { uid: true }); // IMPORTANT: UIDs, not seqnos
+    const readable =
+      (res && typeof res.pipe === 'function') ? res :
+      (res && res.content && typeof res.content.pipe === 'function') ? res.content :
+      (res && res.message && typeof res.message.pipe === 'function') ? res.message :
+      null;
     if (!readable) return model;
 
-    // buffer it (fixes flaky stream parsing in some envs)
-    const buf = await streamToBuffer(readable);
-    const parsed = await simpleParser(buf);
+    // Buffer the stream fully to avoid partial/empty parses on some stacks
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      readable.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      readable.once('error', reject);
+      readable.once('end', resolve);
+      if (typeof readable.resume === 'function') readable.resume();
+    });
+    const buf = Buffer.concat(chunks);
 
+    const parsed = await simpleParser(buf);
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString().trim();
 
-    // Prefer real text; fallback to HTML and extract useful bits if needed
+    // Always produce a snippet if we have either text or html
     let textish = text;
-
     if (!textish && html) {
       let safe = html
         .replace(/<head[\s\S]*?<\/head>/gi, ' ')
         .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
-      safe = safe
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
         .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
         .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
         .replace(/aria-label="([^"]*)"/gi, ' $1 ');
@@ -157,8 +144,12 @@ async function hydrateFullMessage(client, uid, model) {
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
     if (html) model.html = html;
-  } catch {
-    // ignore; leave model as-is if parsing fails
+
+    console.log(
+      `[imapService] UID ${uid} → snippet:${model.snippet ? model.snippet.length : 0} text:${text ? text.length : 0} html:${html ? html.length : 0}`
+    );
+  } catch (e) {
+    console.warn('hydrateFullMessage error:', e?.message || e);
   }
   return model;
 }
