@@ -663,7 +663,7 @@ async function bodyBatch(ids){
     monthEnd:   window._monthEndISO   || "",
     rangeDays:  (window._monthStartISO && window._monthEndISO)
                   ? undefined
-                  : (window._rangeDaysActive || document.getElementById('range')?.value || 30)
+                  : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
   };
 
     const r = await fetch('/api/imap/bodyBatch', {
