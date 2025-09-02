@@ -915,22 +915,26 @@ function cardHtml(e) {
 
   const id = escapeHtml(e.id || '');
 
-// Build a safe snippet for the list preview
+// unify more snippet-style sources
 let rawSnippet =
       e.snippet
    || e.preview
    || e.bodySnippet
    || e.summary
+   || e.previewText
+   || e.body
    || e.text
-   || '';
+   || "";
 
+// if HTML-ish, strip to text
 if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
   const stripped = htmlToText(rawSnippet).trim();
-  // If stripping killed it, keep the original instead
   rawSnippet = stripped || rawSnippet;
 }
 
-const snippetSafe = escapeHtml(rawSnippet || "(no preview available)");
+// short version for collapsed UI, long for expanded mount
+const snippetShort = stripAndTrim(rawSnippet, 120);
+const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
 
  return `
   <div class="email">
