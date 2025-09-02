@@ -26,6 +26,17 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
   return client;
 }
 
+/** Normalize ImapFlow download() return across versions to a readable stream */
+async function getDownloadReadable(client, uid) {
+  // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
+  const res = await client.download(uid, { uid: true }); // ← UID mode (critical)
+  if (!res) return null;
+  if (typeof res.pipe === 'function') return res; // stream directly
+  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
+  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
+  return null;
+}
+
 /** Parse month inputs into [start, endExclusive] */
 function parseMonthRange(monthStart, monthEnd) {
   const clean = (s) => (typeof s === 'string' ? s.trim() : '');
@@ -100,43 +111,40 @@ function toModelSkeleton(msg) {
   };
 }
 
-/** Hydrate FULL snippet + text + html for a UID (no byte cap, deterministic) */
+/** Hydrate FULL snippet + text + html for a UID (no byte cap) */
 async function hydrateFullMessage(client, uid, model) {
   try {
-    const res = await client.download(uid, { uid: true }); // IMPORTANT: UIDs, not seqnos
-    const readable =
-      (res && typeof res.pipe === 'function') ? res :
-      (res && res.content && typeof res.content.pipe === 'function') ? res.content :
-      (res && res.message && typeof res.message.pipe === 'function') ? res.message :
-      null;
-    if (!readable) return model;
+    const stream = await getDownloadReadable(client, uid);
+    if (!stream) return model;
 
-    // Buffer the stream fully to avoid partial/empty parses on some stacks
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      readable.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-      readable.once('error', reject);
-      readable.once('end', resolve);
-      if (typeof readable.resume === 'function') readable.resume();
-    });
-    const buf = Buffer.concat(chunks);
+    // tolerant for different imapflow return shapes
+    const parsed = await simpleParser(stream.content || stream.message || stream);
 
-    const parsed = await simpleParser(buf);
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString().trim();
 
-    // Always produce a snippet if we have either text or html
+    // Prefer true plain text; robust fallback to HTML-only emails
     let textish = text;
+
+    // Fallback when providers send image/link-only HTML with no plain text
     if (!textish && html) {
+      // strip <head>, <script>, <style>
       let safe = html
         .replace(/<head[\s\S]*?<\/head>/gi, ' ')
         .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+
+      // surface useful attributes that carry meaning
+      safe = safe
         .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
         .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
         .replace(/aria-label="([^"]*)"/gi, ' $1 ');
+
+      // drop tags → normalize whitespace
       textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }
+
+    // final guard so snippet isn't blank
     if (!textish && (text || html)) {
       textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }
@@ -144,12 +152,8 @@ async function hydrateFullMessage(client, uid, model) {
     if (textish) model.snippet = textish.slice(0, 600);
     if (text) model.text = text;
     if (html) model.html = html;
-
-    console.log(
-      `[imapService] UID ${uid} → snippet:${model.snippet ? model.snippet.length : 0} text:${text ? text.length : 0} html:${html ? html.length : 0}`
-    );
-  } catch (e) {
-    console.warn('hydrateFullMessage error:', e?.message || e);
+  } catch {
+    // ignore; leave model as-is if parsing fails
   }
   return model;
 }
