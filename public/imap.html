@@ -1093,16 +1093,6 @@ function exportCSV(){
   const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
-// Returns fetched items; updates state/emailList + visible preview text snips.
-async function ensureBodiesLoadedFor(ids) {
-  // normalize input
-  const want = Array.from(new Set((ids || []).map(x => String(x).trim()).filter(Boolean)));
-  if (!want.length) return [];
-
-  // build a map of current emails
-  const list = (window.emailList || state.emails || []);
-  const map  = new Map(list.map(e => [String(e.id), e]));
-
  // Returns fetched items; updates state/emailList + visible preview text snips.
 async function ensureBodiesLoadedFor(ids) {
   // normalize input (these are the DISPLAY ids in the UI)
