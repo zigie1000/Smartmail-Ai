@@ -667,18 +667,21 @@ async function bodyBatch(ids){
   };
 
     const r = await fetch('/api/imap/bodyBatch', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) {
-    let msg = `bodyBatch failed (${r.status})`;
-    try { const j = await r.json(); if (j && j.error) msg += `: ${j.error}`; } catch(_){}
-    setMessage('err', msg);
-    throw new Error(msg);
-  }
-  const j = await r.json();
-  return j.items || [];
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload)
+});
+if (!r.ok) {
+  let msg = `bodyBatch failed (${r.status})`;
+  try {
+    const j = await r.json();
+    if (j && j.error) msg += `: ${j.error}`;
+  } catch (_) {}
+  setMessage('err', msg);
+  throw new Error(msg);
+}
+const j = await r.json();
+return j.items || [];
 
 // hydrate a single card on-demand
 async function hydrateOnePreview(id){
