@@ -221,7 +221,7 @@ router.post('/fetch', async (req, res) => {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // Date selection (Month overrides Range)
+    // Date selection
     const msStr = String(monthStart || '').trim();
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
@@ -260,7 +260,7 @@ router.post('/fetch', async (req, res) => {
       cls = [];
     }
 
-    // Merge base + classifier + VIP + overrides
+    // Merge base + classifier + VIP
     let merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
@@ -269,6 +269,7 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
 
+    // Apply overrides
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
     merged = merged.map(m => {
       const emailKey = (m.fromEmail || '').toLowerCase();
@@ -298,6 +299,22 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
+router.post('/test', async (req, res) => {
+  try {
+    const {
+      email = '', password = '', accessToken = '',
+      host = '', port = 993, tls = true, authType = 'password'
+    } = req.body || {};
+    if (!email || !host) return res.status(400).json({ ok:false, error: 'email and host are required' });
+
+    const ok = await testLogin({ email, password, accessToken, host, port, tls, authType });
+    res.json({ ok: !!ok });
+  } catch (e) {
+    console.error('IMAP /test error:', e?.message || e);
+    res.status(500).json({ ok: false, error: 'IMAP login failed' });
+  }
+});
+
 /* --- Full-body batch hydrator ------------------------------------------- */
 router.post('/bodyBatch', async (req, res) => {
   const {
@@ -309,15 +326,31 @@ router.post('/bodyBatch', async (req, res) => {
   if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
   if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
 
+  const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
+  const makeAuth = () => {
+    const kind = String(authType || 'password').toLowerCase();
+    if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
+    return { user: email, pass: password || '' };
+  };
+
+  // same stream→buffer helper as in imapService
+  function streamToBuffer(readable) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      readable.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      readable.once('error', reject);
+      readable.once('end', () => resolve(Buffer.concat(chunks)));
+      if (typeof readable.resume === 'function') readable.resume();
+    });
+  }
+
   let client;
   try {
     client = new ImapFlow({
       host,
       port: Number(port) || 993,
-      secure: (tls === true || String(tls).toLowerCase() === 'on' || String(tls).toLowerCase() === 'true'),
-      auth: (String(authType || 'password').toLowerCase() === 'xoauth2')
-        ? { user: email, accessToken: accessToken || '' }
-        : { user: email, pass: password || '' },
+      secure: normBool(tls),
+      auth: makeAuth(),
       logger: false
     });
     await client.connect();
@@ -328,7 +361,7 @@ router.post('/bodyBatch', async (req, res) => {
     for (const uid of uniq) {
       try {
         // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
-        const dl = await client.download(uid, { uid: true });
+        const dl = await client.download(uid, { uid: true }); // ← fixed
         if (!dl) continue;
 
         const readable =
@@ -338,17 +371,18 @@ router.post('/bodyBatch', async (req, res) => {
           null;
         if (!readable) continue;
 
-        const parsed = await simpleParser(readable);
+        const buf = await streamToBuffer(readable);
+        const parsed = await simpleParser(buf);
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
 
-        // derive a robust snippet
-        let textish = text || '';
+        let textish = text;
         if (!textish && html) {
           let safe = html
             .replace(/<head[\s\S]*?<\/head>/gi, ' ')
             .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-            .replace(/<style[\s\S]*?<\/style>/gi,  ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+          safe = safe
             .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
             .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
             .replace(/aria-label="([^"]*)"/gi, ' $1 ');
@@ -373,22 +407,6 @@ router.post('/bodyBatch', async (req, res) => {
     try { if (client) await client.logout(); } catch (_) {}
     console.error('IMAP /bodyBatch error:', e?.message || e);
     res.status(500).json({ error: 'Failed to fetch bodies' });
-  }
-});
-
-router.post('/test', async (req, res) => {
-  try {
-    const {
-      email = '', password = '', accessToken = '',
-      host = '', port = 993, tls = true, authType = 'password'
-    } = req.body || {};
-    if (!email || !host) return res.status(400).json({ ok:false, error: 'email and host are required' });
-
-    const ok = await testLogin({ email, password, accessToken, host, port, tls, authType });
-    res.json({ ok: !!ok });
-  } catch (e) {
-    console.error('IMAP /test error:', e?.message || e);
-    res.status(500).json({ ok: false, error: 'IMAP login failed' });
   }
 });
 
