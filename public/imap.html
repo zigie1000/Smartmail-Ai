@@ -1166,15 +1166,17 @@ if (pv) {
     (e.text && e.text.trim()) ||
     stripAndTrim(e.html, 180) ||
     (e.snippet || '');
-  if (raw) pv.textContent = raw;
-}
-// also refresh the collapsed summary text
-const det = document.querySelector(`details.preview[data-id="${matchId}"] > summary`);
-if (det) {
-  const short = stripAndTrim(raw, 120);
-  det.textContent = `Preview — ${short || "(no preview available)"}`;
-}   
-}
+
+  if (raw) {
+    pv.textContent = raw;
+
+    // also refresh the collapsed summary text
+    const det = document.querySelector(`details.preview[data-id="${matchId}"] > summary`);
+    if (det) {
+      const short = stripAndTrim(raw, 120);
+      det.textContent = `Preview — ${short || "(no preview available)"}`;
+    }
+  }
 }
 
   return items || [];
