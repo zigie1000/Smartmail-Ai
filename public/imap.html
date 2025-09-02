@@ -2040,8 +2040,7 @@ if (!_restored) {
 })();
 </script>
 
-<script>
-/* === Unified, idempotent preview hydrator === */
+<script>/* === Unified, idempotent preview hydrator === */
 (function(){
   const SEEN = new Set();
   let timer = 0;
@@ -2051,10 +2050,10 @@ if (!_restored) {
     const nodes = document.querySelectorAll('[id^="pv-"]');
     for (const el of nodes){
       const id = el.id.slice(3);
-      if (!id || SEEN.has(id)) continue;
-      if (el.dataset && el.dataset.full === '1'){ SEEN.add(id); continue; }
+      if (!id) continue;
+      if (el.dataset && el.dataset.full === '1') { SEEN.add(id); continue; }
+      if (SEEN.has(id)) continue;               // only skip if we already hydrated it
       out.push(id);
-      SEEN.add(id);
       if (out.length >= limit) break;
     }
     return out;
@@ -2064,7 +2063,11 @@ if (!_restored) {
     timer = 0;
     const ids = collectIds(20);
     if (!ids.length) return;
-    try { await ensureBodiesLoadedFor(ids, { force:true }); } catch(_) {}
+    try {
+      await ensureBodiesLoadedFor(ids, { force:true });
+      // mark as seen only AFTER success
+      ids.forEach(id => SEEN.add(id));
+    } catch(_) {}
   }
 
   function schedule(){
