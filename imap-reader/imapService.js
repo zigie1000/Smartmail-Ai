@@ -1,10 +1,10 @@
-// imapService.js — robust IMAP fetcher with scoped (Month/Range) search,
-// optional text query, full-body hydration & UID pagination
+// imapService.js — IMAP fetcher with scoped (Month/Range) search,
+// optional text query, conditional full-body hydration & UID pagination.
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
-/** ---------- helpers ---------- **/
+/* ----------------------------- helpers ----------------------------- */
 function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
 function makeAuth({ authType = 'password', email, password, accessToken }) {
@@ -29,11 +29,11 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
 /** Normalize ImapFlow download() return across versions to a readable stream */
 async function getDownloadReadable(client, uid) {
   // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
-  const res = await client.download(uid, { uid: true }); // ← UID mode (critical)
+  const res = await client.download(uid, { uid: true });
   if (!res) return null;
-  if (typeof res.pipe === 'function') return res; // stream directly
-  if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
-  if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
+  if (typeof res.pipe === 'function') return res;                     // stream
+  if (res.content && typeof res.content.pipe === 'function') return res.content; // {content}
+  if (res.message && typeof res.message.pipe === 'function') return res.message; // {message}
   return null;
 }
 
@@ -76,6 +76,7 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 
   const q = (query || '').trim();
   if (q) {
+    // subject/body/from OR-chain to keep it simple but useful
     crit.push([
       'OR',
       ['HEADER', 'SUBJECT', q],
@@ -102,7 +103,7 @@ function toModelSkeleton(msg) {
     date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
     internalDate: msg.internalDate || null,
     snippet: (msg.snippet || '').toString().trim(),
-    importance: 'unclassified',
+    importance: 'unimportant',
     intent: '',
     urgency: 0,
     action_required: false,
@@ -185,7 +186,7 @@ function normalizeUids(uids) {
   return nums;
 }
 
-/** ---------- public API ---------- */
+/* ------------------------------ API ------------------------------- */
 export async function fetchEmails(opts) {
   const {
     email, password, accessToken,
@@ -194,7 +195,7 @@ export async function fetchEmails(opts) {
     limit = 20, cursor = null,
     vipSenders = [],
     query = '',                // optional text search
-    fullBodies = false
+    fullBodies = false         // ← key addition
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
@@ -226,7 +227,7 @@ export async function fetchEmails(opts) {
       } catch { /* ignore */ }
     }
 
-    // 3) Hard fallback
+    // 3) Hard fallback — last N*5 UIDs if all else fails
     if (!uidList || uidList.length === 0) {
       try {
         const st = await client.status('INBOX', { uidnext: true });
@@ -241,7 +242,7 @@ export async function fetchEmails(opts) {
       } catch { uidList = []; }
     }
 
-    // pagination over the *scoped* uid list
+    // 4) pagination over the *scoped* uid list
     let startIdx = 0;
     if (cursor != null) {
       const idx = uidList.indexOf(Number(cursor));
@@ -255,13 +256,13 @@ export async function fetchEmails(opts) {
       return { items: [], nextCursor: null, hasMore: false };
     }
 
-    // fetch metadata for just the slice
+    // 5) fetch metadata for just the slice
     const raw = [];
     for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
       raw.push(msg);
     }
 
-    // map → hydrate (optional) → classify
+    // 6) map → hydrate (optional) → classify
     const items = [];
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
