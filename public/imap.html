@@ -1192,7 +1192,7 @@ async function ensureBodiesLoadedFor(ids) {
 /* === NEW: render full preview into the preview mount === */
 function renderFullPreview(email){
   const pv = document.getElementById(`pv-${email.id}`);
-  if (!pv) return;
+  if (!pv) { console.warn('Preview mount missing for id', email.id); return; }
 
   // clear any previous snippet
   pv.innerHTML = '';
