@@ -142,8 +142,8 @@ function normalizeForClassifier(items) {
     to: e.to || '',
     subject: e.subject || '',
     snippet: e.snippet || e.text || '',
-    text: e.text || '',
-    html: e.html || '',
+    text: e.text || '',           // ← keep full text
+    html: e.html || '',           // ← keep full html
     date: e.date || '',
     headers: e.headers || {},
     hasIcs: !!e.hasIcs,
@@ -246,7 +246,9 @@ router.post('/fetch', async (req, res) => {
       limit,
       cursor,
       query,
-      vipSenders
+      vipSenders,
+      // Aug 29 behavior: force full bodies in Month; pass-through client flag for Range
+      fullBodies: useMonth ? true : !!req.body.fullBodies
     });
 
     // Stage 2 classifier
@@ -349,7 +351,10 @@ router.post('/bodyBatch', async (req, res) => {
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
     for (const uid of uniq) {
       try {
-        const dl = await client.download(uid, { uid: true });
+        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
+        const dl = await client.download(uid, { uid: true }); // ← UID mode
+        if (!dl) continue;
+
         const readable =
           (dl && typeof dl.pipe === 'function') ? dl :
           (dl && dl.content && typeof dl.content.pipe === 'function') ? dl.content :
@@ -357,38 +362,10 @@ router.post('/bodyBatch', async (req, res) => {
           null;
         if (!readable) continue;
 
-        // Buffer first to avoid empty/partial parses
-        const chunks = [];
-        await new Promise((resolve, reject) => {
-          readable.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-          readable.once('error', reject);
-          readable.once('end', resolve);
-          if (typeof readable.resume === 'function') readable.resume();
-        });
-        const buf = Buffer.concat(chunks);
-
-        const parsed = await simpleParser(buf);
+        const parsed = await simpleParser(readable);
         const text = (parsed.text || '').toString().trim();
         const html = (parsed.html || '').toString().trim();
-
-        // Guaranteed snippet
-        let textish = text;
-        if (!textish && html) {
-          let safe = html
-            .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-            .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
-            .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
-            .replace(/aria-label="([^"]*)"/gi, ' $1 ');
-          textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        }
-        if (!textish && (text || html)) {
-          textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        }
-
-        console.log(`[bodyBatch] UID ${uid} → snippet:${textish ? textish.length : 0} text:${text ? text.length : 0} html:${html ? html.length : 0}`);
-
+        const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         out.push({
           id: String(uid),
           text,
