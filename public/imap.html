@@ -2093,15 +2093,41 @@ if (!_restored) {
   }
 
   async function hydrateNow() {
-    timer = 0;
-    const ids = collectIds(20);
-    if (!ids.length) return;
-    try {
-      await ensureBodiesLoadedFor(ids, { force: true });
-      // mark as seen only AFTER successful hydration
-      ids.forEach(id => SEEN.add(id));
-    } catch (_) {}
+  timer = 0;
+  const ids = collectIds(20);
+  if (!ids.length) return;
+
+  try {
+    // pull full bodies for the cards currently on screen
+    await ensureBodiesLoadedFor(ids, { force: true });
+
+    // render the now-available bodies into each card
+    for (const id of ids) {
+      const email = (window.emailList || state.emails || [])
+        .find(x => String(x.id) === String(id));
+      if (!email) continue;
+
+      // inject full HTML/text into the preview mount
+      renderFullPreview(email);
+
+      // mark card as hydrated so we don't redo it
+      const pv = document.getElementById(`pv-${id}`);
+      if (pv) pv.dataset.full = '1';
+
+      // refresh the collapsed summary text
+      const raw = (email.text && email.text.trim())
+               || stripAndTrim(email.html, 180)
+               || (email.snippet || '');
+      const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
+      if (det) det.textContent = `Preview — ${stripAndTrim(raw, 120) || "(no preview available)"}`;
+    }
+
+    // only after successful render, mark ids as seen
+    ids.forEach(id => SEEN.add(id));
+  } catch (_) {
+    // ignore; keep cards as-is if something fails
   }
+}
 
   function schedule() {
     if (timer) return;
