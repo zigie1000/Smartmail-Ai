@@ -648,45 +648,55 @@ function stripAndTrim(html, maxLen=180){
 /* --- end helpers --- */
 // ==== Full-content hydration helpers ====
 async function bodyBatch(ids){
+  const provider = (document.getElementById('provider')?.value || '').toLowerCase();
+  let host = (document.getElementById('host')?.value || '').trim();
+  let port = Number(document.getElementById('port')?.value || 993);
+  let tls  = (document.getElementById('tls')?.value || 'on') === 'on';
+
+  // Defaults if the host field is blank (common when provider dropdown is used)
+  if (!host) {
+    if (provider === 'gmail')         host = 'imap.gmail.com';
+    else if (provider === 'outlook')  host = 'outlook.office365.com';
+    else if (provider === 'yahoo')    host = 'imap.mail.yahoo.com';
+    else if (provider === 'icloud')   host = 'imap.mail.me.com';
+    else                              host = 'imap.gmail.com'; // sensible default
+  }
+  if (!port) port = 993;
+  // tls stays true by default for port 993
+
   const payload = {
-  ids,
-  email:       document.getElementById('email')?.value || "",
-  password:    document.getElementById('password')?.value || "",
-  host:        document.getElementById('host')?.value || "",
-  port:  Number(document.getElementById('port')?.value || 993),
-  tls:   (document.getElementById('tls')?.value || 'on') === 'on',
-  authType:    document.getElementById('authType')?.value || 'password',
-  accessToken: document.getElementById('accessToken')?.value || "",
+    ids,
+    email:       document.getElementById('email')?.value || "",
+    password:    document.getElementById('password')?.value || "",
+    host,
+    port,
+    tls,
+    authType:    document.getElementById('authType')?.value || 'password',
+    accessToken: document.getElementById('accessToken')?.value || "",
+    monthStart: window._monthStartISO || "",
+    monthEnd:   window._monthEndISO   || "",
+    rangeDays:  (window._monthStartISO && window._monthEndISO)
+                  ? undefined
+                  : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
+    fullBodies: true
+  };
 
-  // NEW: pass through scope for range/month search
-  monthStart: window._monthStartISO || "",
-  monthEnd:   window._monthEndISO   || "",
-  rangeDays:  (window._monthStartISO && window._monthEndISO)
-                ? undefined
-                : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
+  const r = await fetch('/api/imap/bodyBatch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-  // ⬅️ add this line so the server returns HTML/text
- // fullBodies: true
-};
+  if (!r.ok) {
+    let msg = `bodyBatch failed (${r.status})`;
+    try { const j = await r.json(); if (j && j.error) msg += `: ${j.error}`; } catch {}
+    console.warn('[bodyBatch] payload used:', payload); // ← show host/port/provider
+    setMessage('err', msg);
+    throw new Error(msg);
+  }
 
-    const r = await fetch('/api/imap/bodyBatch', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(payload)
-});
-
-if (!r.ok) {
-  let msg = `bodyBatch failed (${r.status})`;
-  try {
-    const j = await r.json();
-    if (j && j.error) msg += `: ${j.error}`;
-  } catch (_) {}
-  setMessage('err', msg);
-  throw new Error(msg);
-}
-
-const j = await r.json();
-return j.items || [];
+  const j = await r.json();
+  return j.items || [];
 }
 // hydrate a single card on-demand
 async function hydrateOnePreview(id){
