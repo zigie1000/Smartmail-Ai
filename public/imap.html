@@ -649,22 +649,25 @@ function stripAndTrim(html, maxLen=180){
 // ==== Full-content hydration helpers ====
 async function bodyBatch(ids){
   const payload = {
-    ids,
-    email:       document.getElementById('email')?.value || "",
-    password:    document.getElementById('password')?.value || "",
-    host:        document.getElementById('host')?.value || "",
-    port:  Number(document.getElementById('port')?.value || 993),
-    tls:   (document.getElementById('tls')?.value || 'on') === 'on',
-    authType:    document.getElementById('authType')?.value || 'password',
-    accessToken: document.getElementById('accessToken')?.value || "",
+  ids,
+  email:       document.getElementById('email')?.value || "",
+  password:    document.getElementById('password')?.value || "",
+  host:        document.getElementById('host')?.value || "",
+  port:  Number(document.getElementById('port')?.value || 993),
+  tls:   (document.getElementById('tls')?.value || 'on') === 'on',
+  authType:    document.getElementById('authType')?.value || 'password',
+  accessToken: document.getElementById('accessToken')?.value || "",
 
-    // NEW: pass through scope for range/month search
-    monthStart: window._monthStartISO || "",
-    monthEnd:   window._monthEndISO   || "",
-    rangeDays: (window._monthStartISO && window._monthEndISO)
-  ? undefined
-  : Number(window._rangeDaysActive ?? document.getElementById('range')?.value ?? 30),
-  };
+  // NEW: pass through scope for range/month search
+  monthStart: window._monthStartISO || "",
+  monthEnd:   window._monthEndISO   || "",
+  rangeDays:  (window._monthStartISO && window._monthEndISO)
+                ? undefined
+                : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
+
+  // ⬅️ add this line so the server returns HTML/text
+  fullBodies: true
+};
 
     const r = await fetch('/api/imap/bodyBatch', {
   method: 'POST',
