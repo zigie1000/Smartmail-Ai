@@ -2047,53 +2047,56 @@ if (!_restored) {
 })();
 </script>
 
-<script>/* === Unified, idempotent preview hydrator === */
-(function(){
+<script>
+/* === Unified, idempotent preview hydrator === */
+(function () {
   const SEEN = new Set();
   let timer = 0;
 
-  function collectIds(limit=20){
+  function collectIds(limit = 20) {
     const out = [];
     const nodes = document.querySelectorAll('[id^="pv-"]');
-    for (const el of nodes){
+    for (const el of nodes) {
       const id = el.id.slice(3);
       if (!id) continue;
+      // if we already hydrated this preview, mark it & skip
       if (el.dataset && el.dataset.full === '1') { SEEN.add(id); continue; }
-      if (SEEN.has(id)) continue;               // only skip if we already hydrated it
+      // don’t queue the same id twice
+      if (SEEN.has(id)) continue;
       out.push(id);
       if (out.length >= limit) break;
     }
     return out;
   }
 
-  async function hydrateNow(){
+  async function hydrateNow() {
     timer = 0;
     const ids = collectIds(20);
     if (!ids.length) return;
     try {
-      await ensureBodiesLoadedFor(ids, { force:true });
-      // mark as seen only AFTER success
+      await ensureBodiesLoadedFor(ids, { force: true });
+      // mark as seen only AFTER successful hydration
       ids.forEach(id => SEEN.add(id));
-    } catch(_) {}
+    } catch (_) {}
   }
 
-  function schedule(){
+  function schedule() {
     if (timer) return;
     timer = setTimeout(hydrateNow, 120);
   }
 
   window.addEventListener('load', schedule);
 
-  const mo = new MutationObserver((muts)=>{
-    for (const m of muts){
-      if (m.addedNodes && m.addedNodes.length){ schedule(); break; }
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.addedNodes && m.addedNodes.length) { schedule(); break; }
     }
   });
-  mo.observe(document.documentElement, { childList:true, subtree:true });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  if (typeof window.renderEmails === 'function'){
+  if (typeof window.renderEmails === 'function') {
     const orig = window.renderEmails;
-    window.renderEmails = function(){
+    window.renderEmails = function () {
       const r = orig.apply(this, arguments);
       schedule();
       return r;
