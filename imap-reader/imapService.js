@@ -86,9 +86,10 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 }
 
 function toModelSkeleton(msg) {
-  const from0 = msg.envelope?.from?.[0] ?? {};
-  const to0   = msg.envelope?.to?.[0] ?? {};
-  const subject = (msg.envelope?.subject ?? '').toString();
+  const env = msg.envelope || {};
+  const from0 = (env.from && env.from[0]) || {};
+  const to0 = (env.to && env.to[0]) || {};
+  const subject = (env.subject || '').toString();
 
   return {
     id: String(msg.uid ?? msg.seq ?? ''),
@@ -163,7 +164,7 @@ function classify(model, { vipSenders = [] } = {}) {
   const s = `${model.subject} ${model.snippet}`.toLowerCase();
   const intent =
     /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
-    /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)              ? 'meeting' :
+    /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)           ? 'meeting' :
     /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
     /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' : '';
   let urgency = 0;
@@ -192,8 +193,8 @@ export async function fetchEmails(opts) {
     rangeDays = 7, monthStart, monthEnd, month,
     limit = 20, cursor = null,
     vipSenders = [],
-    query = '',
-    fullBodies = false        // ← NEW: honor router’s intent
+    query = '',                // optional text search
+    fullBodies = false
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
@@ -260,18 +261,18 @@ export async function fetchEmails(opts) {
       raw.push(msg);
     }
 
-   // map → hydrate (optional) → classify
-const items = [];
-for (const msg of raw) {
-  let model = toModelSkeleton(msg);
-  try {
-    if (fullBodies) {
-      model = await hydrateFullMessage(client, msg.uid, model);
+    // map → hydrate (optional) → classify
+    const items = [];
+    for (const msg of raw) {
+      let model = toModelSkeleton(msg);
+      try {
+        if (fullBodies) {
+          model = await hydrateFullMessage(client, msg.uid, model);
+        }
+      } catch {}
+      model = classify(model, { vipSenders });
+      items.push(model);
     }
-  } catch {}
-  model = classify(model, { vipSenders });
-  items.push(model);
-}
 
     const hasMore = startIdx + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
