@@ -237,7 +237,7 @@ router.post('/fetch', async (req, res) => {
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP — FORCE full bodies (both Month & Range)
+    // Fetch from IMAP — ALWAYS hydrate full bodies
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
@@ -246,8 +246,7 @@ router.post('/fetch', async (req, res) => {
       limit,
       cursor,
       query,
-      vipSenders,
-      fullBodies: true
+      vipSenders
     });
 
     // Stage 2 classifier
@@ -269,6 +268,16 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromEmail || '').toLowerCase()) ||
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
+
+    // FINAL GUARD: ensure snippet exists for UI
+    merged = merged.map(m => {
+      if ((!m.snippet || !m.snippet.trim()) && (m.text || m.html)) {
+        const src = m.text || m.html || '';
+        const textish = src.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (textish) m.snippet = textish.slice(0, 600);
+      }
+      return m;
+    });
 
     // Apply overrides
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
