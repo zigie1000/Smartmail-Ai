@@ -135,21 +135,23 @@ async function fetchOverridesFromSql(userId = 'default') {
 
 function normalizeForClassifier(items) {
   return (items || []).map((e, i) => ({
-    id: e.id ?? e.uid ?? String(i + 1),
-    from: e.from || '',
-    fromEmail: (e.fromEmail || '').toLowerCase(),
-    fromDomain: (e.fromDomain || '').toLowerCase(),
-    to: e.to || '',
-    subject: e.subject || '',
-    snippet: e.snippet || e.text || '',
-    date: e.date || '',
-    headers: e.headers || {},
-    hasIcs: !!e.hasIcs,
-    attachTypes: e.attachTypes || [],
-    unread: !!e.unread,
-    flagged: !!e.flagged,
-    contentType: e.contentType || ''
-  }));
+  id: e.id ?? e.uid ?? String(i + 1),
+  from: e.from || '',
+  fromEmail: (e.fromEmail || '').toLowerCase(),
+  fromDomain: (e.fromDomain || '').toLowerCase(),
+  to: e.to || '',
+  subject: e.subject || '',
+  snippet: e.snippet || e.text || '',
+  text: e.text || '',           // ← keep full text
+  html: e.html || '',           // ← keep full html
+  date: e.date || '',
+  headers: e.headers || {},
+  hasIcs: !!e.hasIcs,
+  attachTypes: e.attachTypes || [],
+  unread: !!e.unread,
+  flagged: !!e.flagged,
+  contentType: e.contentType || ''
+}));
 }
 
 /* --- Free-tier caps --- */
