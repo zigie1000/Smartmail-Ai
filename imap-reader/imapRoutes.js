@@ -135,23 +135,23 @@ async function fetchOverridesFromSql(userId = 'default') {
 
 function normalizeForClassifier(items) {
   return (items || []).map((e, i) => ({
-  id: e.id ?? e.uid ?? String(i + 1),
-  from: e.from || '',
-  fromEmail: (e.fromEmail || '').toLowerCase(),
-  fromDomain: (e.fromDomain || '').toLowerCase(),
-  to: e.to || '',
-  subject: e.subject || '',
-  snippet: e.snippet || e.text || '',
-  text: e.text || '',           // ← keep full text
-  html: e.html || '',           // ← keep full html
-  date: e.date || '',
-  headers: e.headers || {},
-  hasIcs: !!e.hasIcs,
-  attachTypes: e.attachTypes || [],
-  unread: !!e.unread,
-  flagged: !!e.flagged,
-  contentType: e.contentType || ''
-}));
+    id: e.id ?? e.uid ?? String(i + 1),
+    from: e.from || '',
+    fromEmail: (e.fromEmail || '').toLowerCase(),
+    fromDomain: (e.fromDomain || '').toLowerCase(),
+    to: e.to || '',
+    subject: e.subject || '',
+    snippet: e.snippet || e.text || '',
+    text: e.text || '',
+    html: e.html || '',
+    date: e.date || '',
+    headers: e.headers || {},
+    hasIcs: !!e.hasIcs,
+    attachTypes: e.attachTypes || [],
+    unread: !!e.unread,
+    flagged: !!e.flagged,
+    contentType: e.contentType || ''
+  }));
 }
 
 /* --- Free-tier caps --- */
@@ -223,6 +223,7 @@ router.post('/fetch', async (req, res) => {
 
     // Date selection
     const msStr = String(monthStart || '').trim();
+    theMe:
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
@@ -237,19 +238,18 @@ router.post('/fetch', async (req, res) => {
           weights:{ email:new Map(), domain:new Map() } };
     const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP
+    // Fetch from IMAP — FORCE full bodies (both Month & Range)
     const { items, nextCursor, hasMore } = await fetchEmails({
-  email: safeEmail, password, accessToken, host, port, tls, authType,
-  monthStart: useMonth ? msStr : undefined,
-  monthEnd:   useMonth ? meStr : undefined,
-  rangeDays,
-  limit,
-  cursor,
-  query,
-  vipSenders,
-  // pass through the client flag; force on for Month mode as before
-  fullBodies: true
-});
+      email: safeEmail, password, accessToken, host, port, tls, authType,
+      monthStart: useMonth ? msStr : undefined,
+      monthEnd:   useMonth ? meStr : undefined,
+      rangeDays,
+      limit,
+      cursor,
+      query,
+      vipSenders,
+      fullBodies: true   // <= always request full bodies
+    });
 
     // Stage 2 classifier
     const norm = normalizeForClassifier(items);
@@ -351,8 +351,7 @@ router.post('/bodyBatch', async (req, res) => {
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
     for (const uid of uniq) {
       try {
-        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
-        const dl = await client.download(uid, { uid: true }); // ← fixed
+        const dl = await client.download(uid, { uid: true });
         if (!dl) continue;
 
         const readable =
