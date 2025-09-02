@@ -192,7 +192,8 @@ export async function fetchEmails(opts) {
     rangeDays = 7, monthStart, monthEnd, month,
     limit = 20, cursor = null,
     vipSenders = [],
-    query = ''                 // optional text search
+    query = '',
+    fullBodies = false        // ← NEW: honor router’s intent
   } = opts || {};
 
   if (!email || !host) throw new Error('email and host are required');
