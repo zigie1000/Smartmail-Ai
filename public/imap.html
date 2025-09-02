@@ -661,9 +661,9 @@ async function bodyBatch(ids){
     // NEW: pass through scope for range/month search
     monthStart: window._monthStartISO || "",
     monthEnd:   window._monthEndISO   || "",
-    rangeDays:  (window._monthStartISO && window._monthEndISO)
-                  ? undefined
-                  : (window._rangeDaysActive || document.getElementById('range')?.value || 30),
+    rangeDays: (window._monthStartISO && window._monthEndISO)
+  ? undefined
+  : Number(window._rangeDaysActive ?? document.getElementById('range')?.value ?? 30),
   };
 
     const r = await fetch('/api/imap/bodyBatch', {
