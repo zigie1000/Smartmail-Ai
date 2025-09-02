@@ -2112,7 +2112,8 @@ if (!_restored) {
   try {
     // pull full bodies for the cards currently on screen
     await ensureBodiesLoadedFor(ids, { force: true });
-
+// DEBUG: log how many IDs we’re about to render
+console.log('[hydrateNow] attempting to render', ids.length, 'emails');
     // render the now-available bodies into each card
     for (const id of ids) {
       const email = (window.emailList || state.emails || [])
