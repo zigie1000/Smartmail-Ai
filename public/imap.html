@@ -671,6 +671,7 @@ async function bodyBatch(ids){
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload)
 });
+
 if (!r.ok) {
   let msg = `bodyBatch failed (${r.status})`;
   try {
@@ -680,6 +681,7 @@ if (!r.ok) {
   setMessage('err', msg);
   throw new Error(msg);
 }
+
 const j = await r.json();
 return j.items || [];
 
