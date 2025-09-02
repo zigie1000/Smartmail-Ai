@@ -246,7 +246,7 @@ router.post('/fetch', async (req, res) => {
   query,
   vipSenders,
   // pass through the client flag; force on for Month mode as before
-  fullBodies: useMonth ? true : !!req.body.fullBodies
+  fullBodies: true
 });
 
     // Stage 2 classifier
