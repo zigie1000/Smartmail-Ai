@@ -1123,30 +1123,40 @@ async function ensureBodiesLoadedFor(ids) {
     return [];
   }
 
-  // merge results + upgrade visible previews
-  for (const it of (items || [])) {
-    // find the UI display id that corresponds to this UID (or raw id)
-    const match =
-      list.find(x => String(x.uid || x.imapUid) === String(it.id)) ||
-      list.find(x => String(x.id) === String(it.id));
-    if (!match) continue;
-    const matchId = String(match.id);
-    const e = byId.get(matchId);
-    if (!e) continue;
+  // merge results + upgrade visible previews (tolerant id matching)
+for (const it of (items || [])) {
+  // normalize identifier coming back from server
+  const itemId = String(
+    it.id || it.uid || it.imapUid || it.gmailId || it.messageId || it.msgId
+  ).trim();
+  if (!itemId) continue;
 
-    if (typeof it.text === 'string')    e.text = it.text.trim();
-    if (typeof it.html === 'string')    e.html = it.html;
-    if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+  // find the UI record whose known ids include this itemId
+  const match = list.find(x => {
+    const cand = [
+      x.id, x.uid, x.imapUid, x.gmailId, x.messageId, x.msgId
+    ].map(v => String(v || '').trim());
+    return cand.includes(itemId);
+  });
+  if (!match) continue;
 
-    const pv = document.getElementById(`pv-${matchId}`);
-    if (pv) {
-      let raw =
-        (e.text && e.text.trim()) ||
-        stripAndTrim(e.html, 180) ||
-        (e.snippet || '');
-      if (raw) pv.textContent = raw;
-    }
+  const matchId = String(match.id);
+  const e = byId.get(matchId);
+  if (!e) continue;
+
+  if (typeof it.text === 'string')   e.text = it.text.trim();
+  if (typeof it.html === 'string')   e.html = it.html;
+  if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+
+  const pv = document.getElementById(`pv-${matchId}`);
+  if (pv) {
+    let raw =
+      (e.text && e.text.trim()) ||
+      stripAndTrim(e.html, 180) ||
+      (e.snippet || '');
+    if (raw) pv.textContent = raw;
   }
+}
 
   return items || [];
 }
