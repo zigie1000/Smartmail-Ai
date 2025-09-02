@@ -131,13 +131,11 @@ async function hydrateFullMessage(client, uid, model) {
         .replace(/<head[\s\S]*?<\/head>/gi, ' ')
         .replace(/<script[\s\S]*?<\/script>/gi, ' ')
         .replace(/<style[\s\S]*?<\/style>/gi, ' ');
-
       // surface useful attributes that carry meaning
       safe = safe
         .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
         .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
         .replace(/aria-label="([^"]*)"/gi, ' $1 ');
-
       // drop tags → normalize whitespace
       textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }
