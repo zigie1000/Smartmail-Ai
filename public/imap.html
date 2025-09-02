@@ -1094,28 +1094,52 @@ async function ensureBodiesLoadedFor(ids) {
   const list = (window.emailList || state.emails || []);
   const map  = new Map(list.map(e => [String(e.id), e]));
 
-  // ✅ fetch bodies using the helper that sends creds + scope (range/month)
+ // Returns fetched items; updates state/emailList + visible preview text snips.
+async function ensureBodiesLoadedFor(ids) {
+  // normalize input (these are the DISPLAY ids in the UI)
+  const want = Array.from(new Set((ids || []).map(x => String(x).trim()).filter(Boolean)));
+  if (!want.length) return [];
+
+  // current list keyed by display id
+  const list = (window.emailList || state.emails || []);
+  const byId = new Map(list.map(e => [String(e.id), e]));
+
+  // TRANSLATE display ids -> real IMAP UIDs when available
+  const uidWant = want
+    .map(id => {
+      const rec = byId.get(id);
+      // tolerate common uid field names
+      const uid = rec && (rec.uid || rec.imapUid || rec.uid_validity && rec.uid);
+      return String(uid || id);
+    })
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // fetch full bodies by UID
   let items = [];
   try {
-    items = await bodyBatch(want);
+    items = await bodyBatch(uidWant);
   } catch (err) {
     console.warn('[hydrate] bodyBatch failed', err);
     return [];
   }
 
-  // merge results + opportunistically upgrade visible previews
+  // merge results + upgrade visible previews
   for (const it of (items || [])) {
-    const id = String(it?.id ?? '');
-    if (!id) continue;
-    const e = map.get(id);
+    // find the UI display id that corresponds to this UID (or raw id)
+    const match =
+      list.find(x => String(x.uid || x.imapUid) === String(it.id)) ||
+      list.find(x => String(x.id) === String(it.id));
+    if (!match) continue;
+    const matchId = String(match.id);
+    const e = byId.get(matchId);
     if (!e) continue;
 
-    if (typeof it.text    === 'string') e.text    = it.text.trim();
-    if (typeof it.html    === 'string') e.html    = it.html;
+    if (typeof it.text === 'string')    e.text = it.text.trim();
+    if (typeof it.html === 'string')    e.html = it.html;
     if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
 
-    // upgrade on-screen preview
-    const pv = document.getElementById(`pv-${id}`);
+    const pv = document.getElementById(`pv-${matchId}`);
     if (pv) {
       let raw =
         (e.text && e.text.trim()) ||
