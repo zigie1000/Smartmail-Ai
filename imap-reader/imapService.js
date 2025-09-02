@@ -26,10 +26,22 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
   return client;
 }
 
+/** Read any Node stream to a Buffer (robust across envs) */
+function streamToBuffer(readable) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    readable.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    readable.once('error', reject);
+    readable.once('end', () => resolve(Buffer.concat(chunks)));
+    // safety for some older streams
+    if (typeof readable.resume === 'function') readable.resume();
+  });
+}
+
 /** Normalize ImapFlow download() return across versions to a readable stream */
 async function getDownloadReadable(client, uid) {
   // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
-  const res = await client.download(uid, { uid: true }); // ← keep this
+  const res = await client.download(uid, { uid: true }); // ← fixed
   if (!res) return null;
   if (typeof res.pipe === 'function') return res;                       // stream directly
   if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
@@ -76,7 +88,6 @@ function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
 
   const q = (query || '').trim();
   if (q) {
-    // Subject OR Body OR From
     crit.push([
       'OR',
       ['HEADER', 'SUBJECT', q],
@@ -115,36 +126,30 @@ function toModelSkeleton(msg) {
 /** Hydrate FULL snippet + text + html for a UID (no byte cap) */
 async function hydrateFullMessage(client, uid, model) {
   try {
-    const stream = await getDownloadReadable(client, uid);
-    if (!stream) return model;
+    const readable = await getDownloadReadable(client, uid);
+    if (!readable) return model;
 
-    const parsed = await simpleParser(stream);
+    // buffer it (fixes flaky stream parsing in some envs)
+    const buf = await streamToBuffer(readable);
+    const parsed = await simpleParser(buf);
 
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString().trim();
 
-    // Prefer real text; fallback to HTML → text with a few semantic extractions
+    // Prefer real text; fallback to HTML and extract useful bits if needed
     let textish = text;
 
-    // Fallback when providers send image/link-only HTML with no plain text
     if (!textish && html) {
-      // strip <head>, <script>, <style>
       let safe = html
         .replace(/<head[\s\S]*?<\/head>/gi, ' ')
         .replace(/<script[\s\S]*?<\/script>/gi, ' ')
         .replace(/<style[\s\S]*?<\/style>/gi, ' ');
-
-      // surface useful attributes that carry meaning
       safe = safe
         .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
         .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
         .replace(/aria-label="([^"]*)"/gi, ' $1 ');
-
-      // drop tags → normalize whitespace
       textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }
-
-    // final guard so snippet isn't blank
     if (!textish && (text || html)) {
       textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }
