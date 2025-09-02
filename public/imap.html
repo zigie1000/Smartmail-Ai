@@ -1147,18 +1147,24 @@ for (const it of (items || [])) {
   const e = byId.get(matchId);
   if (!e) continue;
 
-  if (typeof it.text === 'string')   e.text = it.text.trim();
-  if (typeof it.html === 'string')   e.html = it.html;
-  if (typeof it.snippet === 'string' && !e.snippet) e.snippet = it.snippet;
+  // accept multiple possible body field names from the server
+const txt  = it.text || it.bodyText || it.textPlain || it.plain;
+const html = it.html || it.bodyHtml || it.textHtml;
+const snip = it.snippet || it.preview || it.bodySnippet || it.summary;
 
-  const pv = document.getElementById(`pv-${matchId}`);
-  if (pv) {
-    let raw =
-      (e.text && e.text.trim()) ||
-      stripAndTrim(e.html, 180) ||
-      (e.snippet || '');
-    if (raw) pv.textContent = raw;
-  }
+if (typeof txt  === 'string') e.text = txt.trim();
+if (typeof html === 'string') e.html = html;
+if (typeof snip === 'string' && !e.snippet) e.snippet = snip;
+
+// refresh the visible preview
+const pv = document.getElementById(`pv-${matchId}`);
+if (pv) {
+  let raw =
+    (e.text && e.text.trim()) ||
+    stripAndTrim(e.html, 180) ||
+    (e.snippet || '');
+  if (raw) pv.textContent = raw;
+}
 }
 
   return items || [];
