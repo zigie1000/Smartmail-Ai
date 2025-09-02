@@ -260,16 +260,18 @@ export async function fetchEmails(opts) {
       raw.push(msg);
     }
 
-    // map → hydrate FULL → classify
-    const items = [];
-    for (const msg of raw) {
-      let model = toModelSkeleton(msg);
-      try {
-        model = await hydrateFullMessage(client, msg.uid, model);
-      } catch {}
-      model = classify(model, { vipSenders });
-      items.push(model);
+   // map → hydrate (optional) → classify
+const items = [];
+for (const msg of raw) {
+  let model = toModelSkeleton(msg);
+  try {
+    if (fullBodies) {
+      model = await hydrateFullMessage(client, msg.uid, model);
     }
+  } catch {}
+  model = classify(model, { vipSenders });
+  items.push(model);
+}
 
     const hasMore = startIdx + slice.length < uidList.length;
     const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
