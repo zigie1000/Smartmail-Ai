@@ -223,7 +223,6 @@ router.post('/fetch', async (req, res) => {
 
     // Date selection
     const msStr = String(monthStart || '').trim();
-    theMe:
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
     const useMonth = isValidISO(msStr) && isValidISO(meStr);
