@@ -29,9 +29,9 @@ async function connectAndOpen({ host, port = 993, tls = true, authType, email, p
 /** Normalize ImapFlow download() return across versions to a readable stream */
 async function getDownloadReadable(client, uid) {
   // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
-  const res = await client.download(uid, { uid: true }); // ← fixed
+  const res = await client.download(uid, { uid: true });
   if (!res) return null;
-  if (typeof res.pipe === 'function') return res;                       // stream directly
+  if (typeof res.pipe === 'function') return res; // stream directly
   if (res.content && typeof res.content.pipe === 'function') return res.content; // { content: stream }
   if (res.message && typeof res.message.pipe === 'function') return res.message; // { message: stream }
   return null;
@@ -122,34 +122,34 @@ async function hydrateFullMessage(client, uid, model) {
     const text = (parsed.text || '').toString().trim();
     const html = (parsed.html || '').toString().trim();
 
-let textish = text;
+    let textish = text;
 
-// Fallback when providers send image/link-only HTML with no plain text
-if (!textish && html) {
-  // strip <head>, <script>, <style>
-  let safe = html
-    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+    // Fallback when providers send image/link-only HTML with no plain text
+    if (!textish && html) {
+      // strip <head>, <script>, <style>
+      let safe = html
+        .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
 
-  // surface useful attributes that carry meaning
-  safe = safe
-    .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
-    .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
-    .replace(/aria-label="([^"]*)"/gi, ' $1 ');
+      // surface useful attributes that carry meaning
+      safe = safe
+        .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
+        .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
+        .replace(/aria-label="([^"]*)"/gi, ' $1 ');
 
-  // drop tags → normalize whitespace
-  textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
+      // drop tags → normalize whitespace
+      textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
 
-// final guard so snippet isn't blank
-if (!textish && (text || html)) {
-  textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
+    // final guard so snippet isn't blank
+    if (!textish && (text || html)) {
+      textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
 
-if (textish) model.snippet = textish.slice(0, 600);
-if (text) model.text = text;
-if (html) model.html = html;
+    if (textish) model.snippet = textish.slice(0, 600);
+    if (text) model.text = text;
+    if (html) model.html = html;
   } catch {
     // ignore; leave model as-is if parsing fails
   }
@@ -253,7 +253,10 @@ export async function fetchEmails(opts) {
 
     // fetch metadata for just the slice
     const raw = [];
-    for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
+    for await (const msg of client.fetch(
+      { uid: slice },
+      { envelope: true, internalDate: true, source: false }
+    )) {
       raw.push(msg);
     }
 
@@ -262,7 +265,7 @@ export async function fetchEmails(opts) {
     for (const msg of raw) {
       let model = toModelSkeleton(msg);
       try {
-        model = await hydrateFullMessage(client, msg.uid, model);
+        model = await hydrateFullMessage(client, msg.uid, model); // ALWAYS hydrate full bodies
       } catch {}
       model = classify(model, { vipSenders });
       items.push(model);
