@@ -1655,6 +1655,11 @@ state.perPage = Math.max(1, Number($("limit").value || 20));
 state.page = 1;
 render();
 
+if (typeof window.__imapHydrateNow === "function") {
+  setTimeout(() => window.__imapHydrateNow(), 0);
+}
+
+     
     // Save server cursors
     state.nextCursor = data?.nextCursor || null;
     if (next) {
