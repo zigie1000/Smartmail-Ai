@@ -2129,6 +2129,9 @@ if (!_restored) {
   }
 }
 
+// expose for render()
+window.__imapHydrateNow = hydrateNow;
+   
   function schedule() {
     if (timer) return;
     timer = setTimeout(hydrateNow, 120);
