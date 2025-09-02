@@ -237,15 +237,17 @@ router.post('/fetch', async (req, res) => {
 
     // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
-      email: safeEmail, password, accessToken, host, port, tls, authType,
-      monthStart: useMonth ? msStr : undefined,
-      monthEnd:   useMonth ? meStr : undefined,
-      rangeDays,
-      limit,
-      cursor,
-      query,
-      vipSenders
-    });
+  email: safeEmail, password, accessToken, host, port, tls, authType,
+  monthStart: useMonth ? msStr : undefined,
+  monthEnd:   useMonth ? meStr : undefined,
+  rangeDays,
+  limit,
+  cursor,
+  query,
+  vipSenders,
+  // pass through the client flag; force on for Month mode as before
+  fullBodies: useMonth ? true : !!req.body.fullBodies
+});
 
     // Stage 2 classifier
     const norm = normalizeForClassifier(items);
