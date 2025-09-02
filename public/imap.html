@@ -950,12 +950,11 @@ const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
       </div>
     </div>
     <details class="preview" data-id="${id}">
-      <summary>Preview</summary>
-      <!-- keep the mount point EMPTY; we'll render full body here -->
-      <div class="preview-body" id="pv-${id}" style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
-  ${snippetSafe}
-</div>
-    </details>
+  <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
+  <div class="preview-body" id="pv-${id}" style="white-space:pre-wrap;color:#374151;font-size:14px;margin-top:6px">
+    ${snippetSafe}
+  </div>
+</details>
     <div class="meta" style="margin-top:6px">
       <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
       ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
