@@ -247,7 +247,7 @@ router.post('/fetch', async (req, res) => {
       cursor,
       query,
       vipSenders,
-      fullBodies: true   // <= always request full bodies
+      fullBodies: true
     });
 
     // Stage 2 classifier
@@ -350,6 +350,7 @@ router.post('/bodyBatch', async (req, res) => {
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
     for (const uid of uniq) {
       try {
+        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
         const dl = await client.download(uid, { uid: true });
         if (!dl) continue;
 
