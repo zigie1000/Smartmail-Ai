@@ -1259,12 +1259,10 @@ function renderFullPreview(email) {
     iframe.style.width = "100%";
     iframe.style.border = "none";
     iframe.style.background = "#fff";
-    // initial minimal height to avoid 0
-    iframe.style.height = "300px";
+    iframe.style.height = "300px"; // avoid 0 before we measure
     pv.appendChild(iframe);
 
     // Prefer srcdoc (safer than doc.write in many hosts)
-    // Add a base to ensure relative urls open in new tab and don’t break layout
     const srcdoc = `
 <!doctype html>
 <html>
@@ -1283,13 +1281,12 @@ function renderFullPreview(email) {
 <body>${String(html)}</body>
 </html>`;
     try { iframe.srcdoc = srcdoc; }
-    catch { // fallback for odd browsers
+    catch {
       const doc = iframe.contentDocument || iframe.contentWindow.document;
       doc.open(); doc.write(srcdoc); doc.close();
     }
 
     // Robust autosizer
-    const start = Date.now();
     let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
 
     function measure() {
@@ -1311,8 +1308,7 @@ function renderFullPreview(email) {
       try {
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         if (!doc) return;
-        const imgs = doc.images || [];
-        for (const img of imgs) {
+        for (const img of doc.images || []) {
           if (img.complete) continue;
           img.addEventListener("load", measure, { passive: true });
           img.addEventListener("error", measure, { passive: true });
@@ -1324,46 +1320,37 @@ function renderFullPreview(email) {
       measure();
       imagesHook();
 
-      // 1) A few rapid ticks for first paint & late CSS
+      // a few quick ticks for initial paint
       iv = setInterval(() => {
         ticks++;
         measure();
-        if (ticks > 30) { // ~3s @ 100ms
-          clearInterval(iv); iv = null;
-        }
+        if (ticks > 30) { clearInterval(iv); iv = null; }
       }, 100);
 
       try {
         const doc = iframe.contentDocument || iframe.contentWindow.document;
 
-        // 2) ResizeObserver on body if supported
         if (window.ResizeObserver && doc?.body) {
           ro = new ResizeObserver(measure);
           ro.observe(doc.body);
         }
-
-        // 3) MutationObserver for dynamic DOM changes
         if (window.MutationObserver && doc) {
           mo = new MutationObserver(measure);
           mo.observe(doc, { childList: true, subtree: true, attributes: true, characterData: true });
         }
-
-        // 4) Fonts ready → remeasure
         if (doc?.fonts && doc.fonts.ready) {
           doc.fonts.ready.then(measure).catch(()=>{});
         }
       } catch {}
     }
 
-    // kick once the iframe DOM is ready
     iframe.addEventListener("load", () => {
       startAutosize();
-      // one more delayed pass to catch late images
       setTimeout(measure, 800);
       setTimeout(measure, 1600);
     }, { once: true });
 
-    // safety: also trigger after a short delay if 'load' didn’t fire (rare)
+    // safety if load doesn’t fire (rare)
     setTimeout(startAutosize, 200);
 
     markFull();
@@ -1389,15 +1376,6 @@ function renderFullPreview(email) {
     "(no body available)";
   pv.textContent = String(fallback);
   markFull();
-}
-
-  // last resort: snippet/preview fallback
-  const fallback =
-    email.snippet ||
-    email.preview ||
-    email.bodySnippet ||
-    "(no body available)";
-  pv.textContent = String(fallback);
 }
 
    
