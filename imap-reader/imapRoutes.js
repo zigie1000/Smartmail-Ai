@@ -1,6 +1,5 @@
-// imapRoutes.js — IMAP fetch/classify with tier check, month/range windows, cursor paging,
-// VIP & weights, user overrides, AND robust logging. Always fetches full bodies.
-
+// imapRoutes.js — IMAP fetch/classify with tier check, month/range, cursor paging,
+// VIP & weights, PLUS user overrides (learning) that refine future classifications.
 import express from 'express';
 import crypto from 'crypto';
 import { ImapFlow } from 'imapflow';
@@ -18,14 +17,18 @@ const supa = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
 
 const router = express.Router();
 
-/* ---------- helpers ---------- */
 const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
-const rowsToSet = (rows, key) => new Set((rows || []).map(r => String(r[key] || '').toLowerCase()).filter(Boolean));
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-/* ---------- tier ---------- */
+function rowsToSet(rows, key) {
+  return new Set((rows || [])
+    .map(r => String(r[key] || '').toLowerCase())
+    .filter(Boolean));
+}
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+/* --- Tier helpers --- */
 async function getTier({ licenseKey = '', email = '' }) {
   const em = String(email || '').toLowerCase();
   try {
@@ -51,12 +54,13 @@ async function getTier({ licenseKey = '', email = '' }) {
 
   return 'free';
 }
+
 async function isPaid(tier) {
   if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
   return !!tier && tier !== 'free';
 }
 
-/* ---------- personalization ---------- */
+/* --- Personalization & weights --- */
 async function fetchListsFromSql(userId = 'default') {
   const empty = {
     vip: new Set(),
@@ -68,18 +72,15 @@ async function fetchListsFromSql(userId = 'default') {
   if (!supa) return empty;
 
   try {
-    const [
-      vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights
-    ] = await Promise.all([
-      supa.from('vip_senders').select('email'),
-      supa.from('vip_domains').select('domain'),
-      supa.from('legal_domains').select('domain'),
-      supa.from('government_domains').select('domain'),
-      supa.from('bulk_domains').select('domain'),
-      supa.from('mail_importance_feedback')
-          .select('kind,identity,pos,neg')
-          .eq('user_id', userId)
-    ]).then(rs => rs.map(r => r.data || []));
+    const [vipSenders, vipDomains, legalDomains, govDomains, bulkDomains, weights] =
+      await Promise.all([
+        supa.from('vip_senders').select('email'),
+        supa.from('vip_domains').select('domain'),
+        supa.from('legal_domains').select('domain'),
+        supa.from('government_domains').select('domain'),
+        supa.from('bulk_domains').select('domain'),
+        supa.from('mail_importance_feedback').select('kind,identity,pos,neg').eq('user_id', userId)
+      ]).then(rs => rs.map(r => r.data || []));
 
     const vip = new Set([...rowsToSet(vipSenders, 'email'), ...rowsToSet(vipDomains, 'domain')]);
     const legal = rowsToSet(legalDomains, 'domain');
@@ -103,7 +104,7 @@ async function fetchListsFromSql(userId = 'default') {
   }
 }
 
-/* ---------- user overrides ---------- */
+/* --- User overrides (learning) --- */
 async function fetchOverridesFromSql(userId = 'default') {
   if (!supa) return { byEmail: new Map(), byDomain: new Map() };
   try {
@@ -132,7 +133,6 @@ async function fetchOverridesFromSql(userId = 'default') {
   }
 }
 
-/* ---------- classifier shape ---------- */
 function normalizeForClassifier(items) {
   return (items || []).map((e, i) => ({
     id: e.id ?? e.uid ?? String(i + 1),
@@ -154,12 +154,13 @@ function normalizeForClassifier(items) {
   }));
 }
 
-/* ---------- free caps ---------- */
+/* --- Free-tier caps --- */
 const lastFetchAt = new Map(); // key=userId
 function applyFreeCapsIfNeeded(tier, rangeDays, limit) {
   const isFree = !tier || tier === 'free';
   const caps = { isFree, rangeMax: 7, limitMax: 20, minFetchMs: 30_000 };
   if (!isFree) return { ...caps, rangeDays, limit };
+
   return {
     ...caps,
     rangeDays: Math.min(Number(rangeDays ?? 7), caps.rangeMax),
@@ -167,10 +168,7 @@ function applyFreeCapsIfNeeded(tier, rangeDays, limit) {
   };
 }
 
-/* ======================================================================= */
-/*                                  ROUTES                                 */
-/* ======================================================================= */
-
+/* --- Routes --- */
 router.post('/tier', async (req, res) => {
   try {
     const { email = '', licenseKey = '' } = req.body || {};
@@ -184,9 +182,7 @@ router.post('/tier', async (req, res) => {
   }
 });
 
-/* ---------- main fetch ---------- */
 router.post('/fetch', async (req, res) => {
-  const tag = `[FETCH:${(Math.random().toString(36).slice(2, 7))}]`;
   try {
     const {
       email = '', password = '', accessToken = '',
@@ -208,7 +204,6 @@ router.post('/fetch', async (req, res) => {
     const userId = userIdFromEmail(safeEmail || 'anon');
     const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
 
-    // rate-limit for free
     if (capped.isFree && capped.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -219,14 +214,14 @@ router.post('/fetch', async (req, res) => {
       lastFetchAt.set(userId, now);
     }
 
-    // auth guard
+    // Auth validation
     if (String(authType).toLowerCase() === 'password') {
       if (!password) return res.status(400).json({ error: 'No password configured' });
     } else if (String(authType).toLowerCase() === 'xoauth2') {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // window selection
+    // Date selection
     const msStr = String(monthStart || '').trim();
     const meStr = String(monthEnd   || '').trim();
     const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
@@ -235,27 +230,34 @@ router.post('/fetch', async (req, res) => {
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
 
-    console.log(`${tag} IN`, {
-      email: safeEmail.replace(/(.{2}).+(@.*)/, '$1***$2'), // scrub
-      host, port, tls: !!tls, authType,
+    // helpful logs
+    const tag = Math.random().toString(36).slice(2,7);
+    console.log(`[FETCH:${tag}] IN`, {
+      email: safeEmail.replace(/(.{2}).+(@.+)/, '$1***$2'),
+      host, port, tls, authType,
       mode: useMonth ? 'month' : 'range',
       monthStart: useMonth ? msStr : null,
       monthEnd:   useMonth ? meStr : null,
-      rangeDays,
-      limit,
-      cursor: !!cursor,
-      query: String(query || '').slice(0, 80)
+      rangeDays:  useMonth ? null : rangeDays,
+      limit, cursor: !!cursor, query
+    });
+    console.log(`[FETCH:${tag}] tier=${tier} paid=${paid}`);
+    console.log(`[FETCH:${tag}] window`, {
+      mode: useMonth ? 'month' : 'range',
+      monthStart: useMonth ? msStr : null,
+      monthEnd:   useMonth ? meStr : null,
+      rangeDays:  useMonth ? null : rangeDays,
+      limit
     });
 
-    // lists (VIP, weights) — fetch only for paid
+    // Lists (VIP, weights…)
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
-    console.log(`${tag} tier=${tier} paid=${paid}`);
-    console.log(`${tag} lists: vip=${lists.vip.size} legal=${lists.legal.size} bulk=${lists.bulk.size}`);
+    console.log(`[FETCH:${tag}] lists: vip=${lists.vip.size} legal=${lists.legal.size} bulk=${lists.bulk.size}`);
 
-    // IMAP fetch — ALWAYS request full bodies (works for both Range + Month)
+    // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
@@ -265,23 +267,22 @@ router.post('/fetch', async (req, res) => {
       cursor,
       query,
       vipSenders: Array.from(lists.vip),
-      fullBodies: true   // <-- best-for-all: server will fetch bodies regardless of UI mode
+      // ALWAYS full bodies in Month; Range honors client flag
+      fullBodies: useMonth ? true : !!req.body.fullBodies
     });
 
-    console.log(`${tag} fetched=${(items || []).length} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
-
-    // classify (stage 2)
+    // Stage 2 classifier
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
       const out = await classifyEmails(norm, { userId, lists });
       cls = Array.isArray(out) ? out : Array.isArray(out?.results) ? out.results : [];
     } catch (err) {
-      console.warn(`${tag} classifyEmails failed:`, err?.message || err);
+      console.warn('classifyEmails failed:', err?.message || err);
       cls = [];
     }
 
-    // merge base + classifier + VIP + overrides
+    // Merge base + classifier + VIP
     let merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
@@ -290,12 +291,14 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
 
+    // Apply overrides
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
     merged = merged.map(m => {
       const emailKey = (m.fromEmail || '').toLowerCase();
       const domainKey = (m.fromDomain || '').toLowerCase();
       const o = overrides.byEmail.get(emailKey) || overrides.byDomain.get(domainKey) || null;
       if (!o) return m;
+
       const out = { ...m };
       if (o.category) out.category = out.intent = o.category;
       if (o.forceImportant) out.importance = 'important';
@@ -304,16 +307,17 @@ router.post('/fetch', async (req, res) => {
       return out;
     });
 
-    console.log(`${tag} classified=${merged.length}`);
-
     const notice = !paid
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for learning and overrides.'
       : null;
 
+    console.log(`[FETCH:${tag}] fetched=${items.length} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
+    console.log(`[FETCH:${tag}] classified=${merged.length}`);
+    console.log(`[FETCH:${tag}] OUT`, { returned: merged.length, nextCursor: !!nextCursor, notice: !!notice });
+
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
-    console.log(`${tag} OUT ok emails=${merged.length}`);
   } catch (e) {
-    console.error(`${tag} ERROR`, e?.message || e);
+    console.error('IMAP /fetch error:', e?.message || e);
     const code = String(e?.code || '').toUpperCase();
     if (code === 'EAUTH') return res.status(401).json({ error: 'Authentication failed' });
     if (code === 'ENOTFOUND') return res.status(502).json({ error: 'IMAP host not found' });
@@ -321,7 +325,6 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
-/* ---------- test login ---------- */
 router.post('/test', async (req, res) => {
   try {
     const {
@@ -338,85 +341,74 @@ router.post('/test', async (req, res) => {
   }
 });
 
-/* ---------- full-body batch hydrator ---------- */
+/* --- Full-body batch hydrator ------------------------------------------- */
 router.post('/bodyBatch', async (req, res) => {
-  const tag = `[BODYBATCH:${(Math.random().toString(36).slice(2, 7))}]`;
   const {
     email = '', password = '', accessToken = '',
     host = '', port = 993, tls = true, authType = 'password',
     ids = []
   } = req.body || {};
 
+  if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+  if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
+
+  const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
+  const makeAuth = () => {
+    const kind = String(authType || 'password').toLowerCase();
+    if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
+    return { user: email, pass: password || '' };
+  };
+
+  let client;
   try {
-    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
-    if (!Array.isArray(ids) || ids.length === 0) {
-      console.log(`${tag} IN idsCount=0 → []`);
-      return res.json({ items: [] });
+    client = new ImapFlow({
+      host,
+      port: Number(port) || 993,
+      secure: normBool(tls),
+      auth: makeAuth(),
+      logger: false
+    });
+    await client.connect();
+    await client.mailboxOpen('INBOX', { readOnly: true });
+
+    const out = [];
+    const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
+    for (const uid of uniq) {
+      try {
+        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
+        const dl = await client.download(uid, { uid: true });
+        if (!dl) continue;
+
+        const readable =
+          (dl && typeof dl.pipe === 'function') ? dl :
+          (dl && dl.content && typeof dl.content.pipe === 'function') ? dl.content :
+          (dl && dl.message && typeof dl.message.pipe === 'function') ? dl.message :
+          null;
+        if (!readable) continue;
+
+        const parsed = await simpleParser(readable);
+        const text = (parsed.text || '').toString().trim();
+        const html = (parsed.html || '').toString().trim();
+        const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        out.push({
+          id: String(uid),
+          text,
+          html,
+          snippet: textish ? textish.slice(0, 600) : ''
+        });
+      } catch (_) { /* skip one uid on error */ }
     }
-    console.log(`${tag} IN idsCount=${ids.length}`);
 
-    const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
-    const makeAuth = () => {
-      const kind = String(authType || 'password').toLowerCase();
-      if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
-      return { user: email, pass: password || '' };
-    };
-
-    let client;
-    try {
-      client = new ImapFlow({
-        host,
-        port: Number(port) || 993,
-        secure: normBool(tls),
-        auth: makeAuth(),
-        logger: false
-      });
-      await client.connect();
-      await client.mailboxOpen('INBOX', { readOnly: true });
-
-      const out = [];
-      const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
-      for (const uid of uniq) {
-        try {
-          // IMPORTANT: fetch by UID
-          const dl = await client.download(uid, { uid: true });
-          if (!dl) continue;
-
-          const readable =
-            (dl && typeof dl.pipe === 'function') ? dl :
-            (dl && dl.content && typeof dl.content.pipe === 'function') ? dl.content :
-            (dl && dl.message && typeof dl.message.pipe === 'function') ? dl.message :
-            null;
-          if (!readable) continue;
-
-          const parsed = await simpleParser(readable);
-          const text = (parsed.text || '').toString().trim();
-          const html = (parsed.html || '').toString().trim();
-          const textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          out.push({
-            id: String(uid),
-            text,
-            html,
-            snippet: textish ? textish.slice(0, 600) : ''
-          });
-        } catch (_) { /* skip individual uid on error */ }
-      }
-
-      try { await client.logout(); } catch (_) {}
-      console.log(`${tag} OUT items=${out.length}`);
-      res.json({ items: out });
-    } catch (e) {
-      try { if (client) await client.logout(); } catch (_) {}
-      console.error(`${tag} ERROR`, e?.message || e);
-      res.status(500).json({ error: 'Failed to fetch bodies' });
-    }
+    try { await client.logout(); } catch (_) {}
+    res.json({ items: out });
   } catch (e) {
-    console.error(`${tag} ERROR`, e?.message || e);
+    try { if (client) await client.logout(); } catch (_) {}
+    console.error('IMAP /bodyBatch error:', e?.message || e);
     res.status(500).json({ error: 'Failed to fetch bodies' });
   }
 });
 
-/* ---------- learning (overrides + weights) ---------- */
+/* --- Learning endpoint (overrides + weights) ---------------------------- */
 router.post('/feedback', async (req, res) => {
   try {
     const {
@@ -433,7 +425,7 @@ router.post('/feedback', async (req, res) => {
 
     const userId = userIdFromEmail(safeOwner || 'anon');
 
-    // 1) importance weights
+    // 1) learn importance weights
     const imp = String(importance || label || '').toLowerCase();
     if (imp === 'important' || imp === 'unimportant') {
       const pos = imp === 'important' ? 1 : 0;
@@ -456,7 +448,7 @@ router.post('/feedback', async (req, res) => {
       }
     }
 
-    // 2) explicit overrides
+    // 2) persist explicit overrides
     if (supa && (category || typeof vip === 'boolean' || imp)) {
       const kind = fromEmail ? 'email' : 'domain';
       const identity = (fromEmail || fromDomain).toLowerCase();
