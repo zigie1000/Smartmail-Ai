@@ -691,11 +691,13 @@ const r = await fetch('/api/imap/bodyBatch', {
 
 console.warn('[bodyBatch] response status:', r.status);
 
-  if (!r.ok) {
-  if (!r.ok) {
+if (!r.ok) {
   console.warn('[bodyBatch] FAILED with status', r.status, 'payload was:', payload);
   let msg = `bodyBatch failed (${r.status})`;
-  try { const j = await r.json(); if (j && j.error) msg += `: ${j.error}`; } catch {}
+  try {
+    const j = await r.json();
+    if (j && j.error) msg += `: ${j.error}`;
+  } catch {}
   setMessage('err', msg);
   throw new Error(msg);
 }
