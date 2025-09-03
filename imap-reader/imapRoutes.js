@@ -183,6 +183,9 @@ router.post('/tier', async (req, res) => {
 });
 
 router.post('/fetch', async (req, res) => {
+  const reqId = Math.random().toString(36).slice(2, 8);
+  const startedAt = Date.now();
+
   try {
     const {
       email = '', password = '', accessToken = '',
@@ -195,11 +198,32 @@ router.post('/fetch', async (req, res) => {
       query = ''
     } = req.body || {};
 
-    if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
+    console.log(
+      `[FETCH:${reqId}] IN`,
+      JSON.stringify({
+        email,
+        host,
+        port,
+        tls: !!tls,
+        authType,
+        monthStart,
+        monthEnd,
+        cursor: !!cursor,
+        rangeDays: qRangeDays,
+        limit: qLimit,
+        query: (query || '').slice(0, 60)
+      })
+    );
+
+    if (!email || !host) {
+      console.warn(`[FETCH:${reqId}] 400 missing email/host`);
+      return res.status(400).json({ error: 'email and host are required' });
+    }
 
     const safeEmail = isLikelyEmail(email) ? email : '';
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
+    console.log(`[FETCH:${reqId}] tier=${tier} paid=${paid}`);
 
     const userId = userIdFromEmail(safeEmail || 'anon');
     const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
@@ -209,16 +233,23 @@ router.post('/fetch', async (req, res) => {
       const last = lastFetchAt.get(userId) || 0;
       if (now - last < capped.minFetchMs) {
         const wait = Math.ceil((capped.minFetchMs - (now - last)) / 1000);
+        console.warn(`[FETCH:${reqId}] 429 throttle wait=${wait}s`);
         return res.status(429).json({ error: `Please wait ${wait}s (free plan limit).` });
       }
       lastFetchAt.set(userId, now);
     }
 
-    // Auth validation
+    // Auth validation (avoid logging secrets)
     if (String(authType).toLowerCase() === 'password') {
-      if (!password) return res.status(400).json({ error: 'No password configured' });
+      if (!password) {
+        console.warn(`[FETCH:${reqId}] 400 no password`);
+        return res.status(400).json({ error: 'No password configured' });
+      }
     } else if (String(authType).toLowerCase() === 'xoauth2') {
-      if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
+      if (!accessToken) {
+        console.warn(`[FETCH:${reqId}] 400 no accessToken`);
+        return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
+      }
     }
 
     // Date selection
@@ -230,12 +261,23 @@ router.post('/fetch', async (req, res) => {
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
 
+    console.log(
+      `[FETCH:${reqId}] window`,
+      JSON.stringify({
+        mode: useMonth ? 'month' : 'range',
+        monthStart: useMonth ? msStr : null,
+        monthEnd:   useMonth ? meStr : null,
+        rangeDays,
+        limit
+      })
+    );
+
     // Lists (VIP, weights…)
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
-    const vipSenders = Array.from(lists.vip);
+    console.log(`[FETCH:${reqId}] lists: vip=${lists.vip.size} legal=${lists.legal.size} bulk=${lists.bulk.size}`);
 
     // Fetch from IMAP
     const { items, nextCursor, hasMore } = await fetchEmails({
@@ -246,10 +288,11 @@ router.post('/fetch', async (req, res) => {
       limit,
       cursor,
       query,
-      vipSenders,
-      // Aug 29 behavior: force full bodies in Month; pass-through client flag for Range
+      vipSenders: Array.from(lists.vip),
       fullBodies: useMonth ? true : !!req.body.fullBodies
     });
+
+    console.log(`[FETCH:${reqId}] fetched=${(items||[]).length} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
 
     // Stage 2 classifier
     const norm = normalizeForClassifier(items);
@@ -257,8 +300,9 @@ router.post('/fetch', async (req, res) => {
     try {
       const out = await classifyEmails(norm, { userId, lists });
       cls = Array.isArray(out) ? out : Array.isArray(out?.results) ? out.results : [];
+      console.log(`[FETCH:${reqId}] classified=${cls.length}`);
     } catch (err) {
-      console.warn('classifyEmails failed:', err?.message || err);
+      console.warn(`[FETCH:${reqId}] classifyEmails failed:`, err?.message || err);
       cls = [];
     }
 
@@ -291,9 +335,19 @@ router.post('/fetch', async (req, res) => {
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for learning and overrides.'
       : null;
 
+    console.log(
+      `[FETCH:${reqId}] OUT`,
+      JSON.stringify({
+        returned: merged.length,
+        nextCursor: !!nextCursor,
+        notice: !!notice,
+        ms: Date.now() - startedAt
+      })
+    );
+
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
-    console.error('IMAP /fetch error:', e?.message || e);
+    console.error(`[FETCH:${reqId}] ERROR:`, e?.message || e);
     const code = String(e?.code || '').toUpperCase();
     if (code === 'EAUTH') return res.status(401).json({ error: 'Authentication failed' });
     if (code === 'ENOTFOUND') return res.status(502).json({ error: 'IMAP host not found' });
@@ -307,9 +361,11 @@ router.post('/test', async (req, res) => {
       email = '', password = '', accessToken = '',
       host = '', port = 993, tls = true, authType = 'password'
     } = req.body || {};
+    console.log('[TEST] IN', JSON.stringify({ email, host, port, tls: !!tls, authType }));
     if (!email || !host) return res.status(400).json({ ok:false, error: 'email and host are required' });
 
     const ok = await testLogin({ email, password, accessToken, host, port, tls, authType });
+    console.log('[TEST] OUT ok=', !!ok);
     res.json({ ok: !!ok });
   } catch (e) {
     console.error('IMAP /test error:', e?.message || e);
@@ -319,14 +375,32 @@ router.post('/test', async (req, res) => {
 
 /* --- Full-body batch hydrator ------------------------------------------- */
 router.post('/bodyBatch', async (req, res) => {
+  const reqId = Math.random().toString(36).slice(2, 8);
+  const t0 = Date.now();
+
   const {
     email = '', password = '', accessToken = '',
     host = '', port = 993, tls = true, authType = 'password',
     ids = []
   } = req.body || {};
 
-  if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
-  if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
+  console.log(
+    `[BODYBATCH:${reqId}] IN`,
+    JSON.stringify({
+      email, host, port, tls: !!tls, authType,
+      idsCount: Array.isArray(ids) ? ids.length : 0,
+      sample: Array.isArray(ids) ? ids.slice(0, 8) : []
+    })
+  );
+
+  if (!email || !host) {
+    console.warn(`[BODYBATCH:${reqId}] 400 missing email/host`);
+    return res.status(400).json({ error: 'email and host are required' });
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    console.log(`[BODYBATCH:${reqId}] OUT items=0 (no ids) ms=${Date.now()-t0}`);
+    return res.json({ items: [] });
+  }
 
   const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
   const makeAuth = () => {
@@ -351,8 +425,8 @@ router.post('/bodyBatch', async (req, res) => {
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
     for (const uid of uniq) {
       try {
-        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
-        const dl = await client.download(uid, { uid: true }); // ← UID mode
+        // VERY IMPORTANT: treat given number as **UID** (not sequence number)
+        const dl = await client.download(uid, { uid: true }); // UID mode
         if (!dl) continue;
 
         const readable =
@@ -372,14 +446,18 @@ router.post('/bodyBatch', async (req, res) => {
           html,
           snippet: textish ? textish.slice(0, 600) : ''
         });
-      } catch (_) { /* skip one uid on error */ }
+      } catch (e) {
+        console.warn(`[BODYBATCH:${reqId}] skip uid=${uid} err=${e?.message || e}`);
+      }
     }
 
     try { await client.logout(); } catch (_) {}
+
+    console.log(`[BODYBATCH:${reqId}] OUT items=${out.length} ms=${Date.now()-t0}`);
     res.json({ items: out });
   } catch (e) {
     try { if (client) await client.logout(); } catch (_) {}
-    console.error('IMAP /bodyBatch error:', e?.message || e);
+    console.error(`[BODYBATCH:${reqId}] ERROR:`, e?.message || e);
     res.status(500).json({ error: 'Failed to fetch bodies' });
   }
 });
