@@ -688,12 +688,12 @@ async function bodyBatch(ids){
   });
 
   if (!r.ok) {
-    let msg = `bodyBatch failed (${r.status})`;
-    try { const j = await r.json(); if (j && j.error) msg += `: ${j.error}`; } catch {}
-    console.warn('[bodyBatch] payload used:', payload);
-    setMessage('err', msg);
-    throw new Error(msg);
-  }
+  console.warn('[bodyBatch] payload used:', payload);
+  let msg = `bodyBatch failed (${r.status})`;
+  try { const j = await r.json(); if (j && j.error) msg += `: ${j.error}`; } catch {}
+  setMessage('err', msg);
+  throw new Error(msg);
+}
 
   const j = await r.json();
   return j.items || [];
