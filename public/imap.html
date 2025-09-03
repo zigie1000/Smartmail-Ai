@@ -1117,7 +1117,7 @@ function exportCSV(){
   const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="emails.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
- // Returns fetched items; updates state/emailList + visible preview text snips.
+// Returns fetched items; updates state/emailList + visible preview text snips.
 async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
   try {
     console.warn('[ensureBodiesLoadedFor] starting with ids:', ids.map(String));
@@ -1152,7 +1152,7 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
       }
     }
 
-    // 3) call server
+    // 3) Call server
     let items = [];
     try {
       items = await bodyBatch(uidWant);
@@ -1161,15 +1161,14 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
       return [];
     }
 
-    console.warn('[ensureBodiesLoadedFor] bodyBatch returned:',
-      Array.isArray(items) ? items.length : 0, 'items');
+    console.warn('[ensureBodiesLoadedFor] bodyBatch returned:', Array.isArray(items) ? items.length : 0, 'items');
 
     if (!Array.isArray(items) || !items.length) {
       console.warn('[ensureBodiesLoadedFor] no items to merge, returning empty.');
       return [];
     }
 
-    // 4) normalize / merge
+    // 4) Normalize / merge
     const byId = Object.create(null);
     for (const it of items) {
       const id = String(it.id || it.uid || '');
@@ -1192,9 +1191,10 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
       if (got.text) list[i].text = got.text;
       if (got.html) list[i].html = got.html;
       if (!list[i].snippet) {
-        const raw = (got.text || got.html || '').replace(/<[^>]+>/g, ' ')
-                                               .replace(/\s+/g, ' ')
-                                               .trim();
+        const raw = (got.text || got.html || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
         if (raw) list[i].snippet = raw.slice(0, 300);
       }
     }
@@ -1205,56 +1205,10 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
 
     console.warn('[ensureBodiesLoadedFor] merged ready for render:', merged.map(x => x.id));
     return merged;
+
   } catch (err) {
     console.warn('[ensureBodiesLoadedFor] unexpected failure:', err);
     return [];
-  }
-}
-
-/* === NEW: render full preview into the preview mount === */
-function renderFullPreview(email){
-  const pv = document.getElementById(`pv-${email.id}`);
-  if (!pv) { console.warn('Preview mount missing for id', email.id); return; }
-
-  // clear any previous snippet
-  pv.innerHTML = '';
-
-  // Prefer HTML if present; otherwise plain text
-  const html = email.html || email.htmlBody || email.bodyHtml || email.textHtml;
-  const text = email.text || email.bodyText || email.textPlain || email.plain;
-
-  if (html) {
-    // sandboxed iframe so the email’s CSS doesn’t break the app
-    const iframe = document.createElement('iframe');
-    iframe.style.width = '100%';
-    iframe.style.border = 'none';
-    iframe.style.background = '#fff';
-    pv.appendChild(iframe);
-
-    // write the HTML and auto-size
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.open(); doc.write(html); doc.close();
-
-    // grow height after layout
-    const resize = () => {
-      try {
-        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-        iframe.style.height = (h || 300) + 'px';
-      } catch(_) {}
-    };
-    iframe.onload = resize;
-    // in case onload doesn’t fire (same-origin), schedule a measure
-    setTimeout(resize, 30);
-  } else if (text) {
-    const pre = document.createElement('pre');
-    pre.textContent = text;
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontSize = '14px';
-    pv.appendChild(pre);
-  } else {
-    // last resort: show whatever we can
-    const fallback = email.snippet || email.preview || '';
-    pv.textContent = fallback ? String(fallback) : '(no body available)';
   }
 }
 // Ensure a single message has full body loaded, then return that message
