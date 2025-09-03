@@ -647,7 +647,6 @@ function stripAndTrim(html, maxLen=180){
 }
 /* --- end helpers --- */
 // ==== Full-content hydration helpers ====
-<script>
 async function bodyBatch(ids){
   // Provider + defaults
   const provider = (document.getElementById('provider')?.value || '').toLowerCase();
@@ -699,7 +698,7 @@ async function bodyBatch(ids){
   const j = await r.json();
   return j.items || [];
 }
-</script>
+   
 // hydrate a single card on-demand
 async function hydrateOnePreview(id){
   try{
