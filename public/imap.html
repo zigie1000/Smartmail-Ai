@@ -1227,6 +1227,70 @@ async function ensureFullById(id){
   const list = (window.emailList || state.emails || []);
   return list.find(e => String(e.id) === String(id)) || {};
 }
+
+/* === NEW: render full preview into the preview mount === */
+function renderFullPreview(email) {
+  const pv = document.getElementById(`pv-${email.id}`);
+  if (!pv) {
+    console.warn('Preview mount missing for id', email.id);
+    return;
+  }
+
+  // clear any previous snippet
+  pv.innerHTML = '';
+
+  // Prefer HTML if present; otherwise plain text (tolerate many field names)
+  const html =
+      email.html
+   || email.htmlBody
+   || email.bodyHtml
+   || email.textHtml;
+
+  const text =
+      email.text
+   || email.bodyText
+   || email.textPlain
+   || email.plain;
+
+  if (html && /\S/.test(html)) {
+    // sandboxed iframe so the email’s CSS doesn’t leak into the app
+    const iframe = document.createElement('iframe');
+    iframe.style.width = '100%';
+    iframe.style.border = 'none';
+    iframe.style.background = '#fff';
+    pv.appendChild(iframe);
+
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(String(html));
+    doc.close();
+
+    // auto-size to content
+    const resize = () => {
+      try {
+        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+        iframe.style.height = (h || 300) + 'px';
+      } catch (_) {}
+    };
+    iframe.onload = resize;
+    setTimeout(resize, 30);
+    return;
+  }
+
+  if (text && /\S/.test(text)) {
+    const pre = document.createElement('pre');
+    pre.textContent = String(text);
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.fontSize = '14px';
+    pv.appendChild(pre);
+    return;
+  }
+
+  // last resort: fallback to snippet/preview if available
+  const fallback = email.snippet || email.preview || email.bodySnippet || email.summary || '';
+  pv.textContent = fallback ? String(fallback) : '(no body available)';
+}
+
    
 // ---- Send Selected → Generator (always full body) ----
 async function sendSelected(){
