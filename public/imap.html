@@ -1513,85 +1513,90 @@ function bestTimestampMs(e){
   return NaN;
 }  
    
-// ---- Networking (list) ----
-async function fetchAndClassify(next=false, prev=false){
+// === fetch + classify (with double-click guard + month/range patch) ===
+async function fetchAndClassify(next = false, prev = false) {
+  // ---- Anti double-click guard (exact placement: first lines of function) ----
+  if (window._fetchRunning) {
+    console.warn("Fetch already running — ignoring duplicate click");
+    return;
+  }
+  window._fetchRunning = true;
+
   skeleton(6);
-  try{
+  try {
     const provider = $("provider").value;
 
     // iCloud defaults
     if (provider === "icloud") {
-      if (!/imap\.mail\.me\.com/i.test($("host").value||"")) $("host").value = "imap.mail.me.com";
+      if (!/imap\.mail\.me\.com/i.test($("host").value || "")) $("host").value = "imap.mail.me.com";
       $("tls").value = "on";
-      if (Number($("limit").value||50) > 20 && !state.isPaid) $("limit").value = "20";
-      if (Number($("range").value||2) > 7 && !state.isPaid) $("range").value = "7";
+      if (Number($("limit").value || 50) > 20 && !state.isPaid) $("limit").value = "20";
+      if (Number($("range").value || 2) > 7 && !state.isPaid) $("range").value = "7";
     }
 
+    // Base payload from form
     const payload = {
-  email: $("email")?.value || "",
-  password: $("password")?.value || "",
-  host: $("host")?.value || "",
-  port: Number($("port")?.value || 993),
-  tls: ($("tls")?.value || "on")=="on",
-  rangeDays: Number($("range")?.value || 2),
-  limit: Number($("limit")?.value || 20),
-  authType: $("authType")?.value || "password",
-  accessToken: $("accessToken")?.value || "",
-  licenseKey:
-    $("licenseKey")?.value ||
-    localStorage.getItem("smartemail.licenseKey") ||
-    localStorage.getItem("licenseKey") ||
-    "",
-  includePreview: true,
-  includeSnippet: true,
-  includeBody: false
-};
+      email: $("email")?.value || "",
+      password: $("password")?.value || "",
+      host: $("host")?.value || "",
+      port: Number($("port")?.value || 993),
+      tls: ($("tls")?.value || "on") === "on",
+      rangeDays: Number($("range")?.value || 2),
+      limit: Number($("limit")?.value || 20),
+      authType: $("authType")?.value || "password",
+      accessToken: $("accessToken")?.value || "",
+      licenseKey:
+        $("licenseKey")?.value ||
+        localStorage.getItem("smartemail.licenseKey") ||
+        localStorage.getItem("licenseKey") ||
+        "",
+      includePreview: true,
+      includeSnippet: true,
+      includeBody: false
+    };
 
-// === Month/Range payload patch ===
-const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
+    // ---- Month/Range payload patch (authoritative window) ----
+    const mStart = window._monthStartISO;
+    const mEnd   = window._monthEndISO;
+    if (mStart && mEnd) {
+      // Month mode → explicit window; force full bodies on server
+      payload.monthStart = mStart;
+      payload.monthEnd   = mEnd;
+      payload.fullBodies = true;
+      delete payload.rangeDays;
+    } else {
+      // Range mode → guarantee a number (Mode bar > UI fallback)
+      payload.rangeDays = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
+    }
 
-if (mStart && mEnd) {
-  // Month mode → explicit window; force full bodies on server
-  payload.monthStart = mStart;
-  payload.monthEnd   = mEnd;
-  payload.fullBodies = true;
-  delete payload.rangeDays;
-} else {
-  // Range mode → guarantee a number (UI or Mode bar)
-  payload.rangeDays = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
-}
+    // Optional: show exactly what we send
+    console.log("[IMAP] Final payload going to server:", payload);
 
-// Debug: see exactly what is sent
-console.log("[IMAP] Final payload going to server:", payload);
-console.log("[CLIENT] IMAP payload being sent:", payload);     
-console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
-     
     // include the IMAP login account email for the generator
     const userEmail = $("email")?.value || "";
-    try { payload.userEmail = userEmail; } catch(e){}
+    try { payload.userEmail = userEmail; } catch (_) {}
 
-    // Server pagination
+    // Server pagination cursors
     if (next && state.nextCursor) payload.cursor = state.nextCursor;
     if (prev) {
       state.cursorStack.pop();
       const backCursor = state.cursorStack[state.cursorStack.length - 1] || null;
       if (backCursor) payload.cursor = backCursor;
-    } 
+    }
 
     // XOAUTH2 requires a token
-    if ((payload.authType||"").toLowerCase()==="xoauth2" &&
-        !String(payload.accessToken||"").trim()) {
+    if ((payload.authType || "").toLowerCase() === "xoauth2" &&
+        !String(payload.accessToken || "").trim()) {
       list.innerHTML = "";
-      setMessage("err","XOAUTH2 selected — paste a valid access token first.");
+      setMessage("err", "XOAUTH2 selected — paste a valid access token first.");
       return;
     }
 
     // Gmail app password nudge
-    if ((payload.authType||"").toLowerCase()==="password" &&
-        /imap\.gmail\.com$/i.test(payload.host||"") &&
-        String(payload.password||"").trim().length < 16) {
-      setMessage("err","Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
+    if ((payload.authType || "").toLowerCase() === "password" &&
+        /imap\.gmail\.com$/i.test(payload.host || "") &&
+        String(payload.password || "").trim().length < 16) {
+      setMessage("err", "Gmail usually requires a 16-char App Password for IMAP, or use XOAUTH2.");
     }
 
     // Fill host from preset if missing
@@ -1607,134 +1612,105 @@ console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
     }
     if (!payload.host) {
       list.innerHTML = "";
-      setMessage("err","IMAP host is required. Choose a Provider or enter the host.");
+      setMessage("err", "IMAP host is required. Choose a Provider or enter the host.");
       return;
     }
 
     saveForm();
-     
-console.log("[IMAP] Final payload going to server:", payload);
-     
-const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
-console.log("[IMAP] Raw server response:", data);
-     
-const emails = Array.isArray(data.emails) ? data.emails : [];
-     
-// Map + compute timestamp
-state.emails = emails.map((e, i) => {
-  const ts = bestTimestampMs(e);
-  return {
-    ...e,
-    id: e.id ?? e.uid ?? String(i + 1),
-    _ts: ts
-  };
-});     
-     
-console.log("[IMAP] Parsed emails length:", emails.length, "Sample:", emails.slice(0, 3));
-    console.log(
-  "[IMAP] Server returned", (emails || []).length, "emails. Sample:",
-  (emails || []).slice(0, 3).map(e => ({
-    id: e.id || e.uid,
-    subject: e.subject,
-    date: e.date,
-    internalDate: e.internalDate,
-    receivedAt: e.receivedAt
-  }))
-); 
 
+    // ---- Call server
+    const data = await postJSON("/api/imap/fetch", payload, { timeout: 120000, retries: 2 });
 
-// --- Enforce client-side date window (Range or Month from Mode bar) ---
-const mStartFilter = window._monthStartISO;
-const mEndFilter   = window._monthEndISO;
-const monthMode = !!(mStartFilter && mEndFilter);
+    // ---- Parse + normalize
+    const emails = Array.isArray(data.emails) ? data.emails : [];
+    state.emails = emails.map((e, i) => ({
+      ...e,
+      id: e.id ?? e.uid ?? String(i + 1),
+      _ts: bestTimestampMs(e)
+    }));
 
-let startTs = -Infinity;
-let endTs   =  Infinity;
+    // ---- Client-side clamp to Mode bar window (safety)
+    const mStartFilter = window._monthStartISO;
+    const mEndFilter   = window._monthEndISO;
+    const monthMode    = !!(mStartFilter && mEndFilter);
 
-// Clamp end to end-of-today (UTC) …
-const _now = nowDate();
-const todayEndUTC = Date.UTC(
-  _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
-  23, 59, 59, 999
-);
+    let startTs = -Infinity;
+    let endTs   =  Infinity;
 
-if (monthMode) {
-  // Month mode: inclusive UTC window
-  const s = new Date(mStartFilter + 'T00:00:00Z').getTime();
-  const e = new Date(mEndFilter   + 'T23:59:59Z').getTime();
-  startTs = Number.isFinite(s) ? s : -Infinity;
-  endTs   = Math.min(Number.isFinite(e) ? e : Infinity, todayEndUTC);
-} else {
-  // Range mode …
-  const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
-  const days = Number.isFinite(daysSel) ? daysSel : 30;
-  const end  = todayEndUTC;
-  if (days <= 0) {
-  startTs = -Infinity;
-  endTs   = end;
-} else {
-  const start = end - (Math.max(1, days) - 1) * 86400000;
-  startTs = start;
-  endTs   = end;
-}
-   }
-// (optional) in your log, show the renamed fields
-console.log("IMAP window", {
-  monthMode,
-  mStart: mStartFilter,
-  mEnd:   mEndFilter,
-  startTs, endTs,
-  startISO: Number.isFinite(startTs) ? new Date(startTs).toISOString() : "-∞",
-  endISO:   Number.isFinite(endTs)   ? new Date(endTs).toISOString()   : "+∞"
-});
-// --- Apply client-side filter by date window ---
-const beforeCount = state.emails.length;
-state.emails = state.emails.filter(e => {
-  const t = Number(e._ts);
-  if (!Number.isFinite(t)) return true; // keep emails with no timestamp
-  if (Number.isFinite(startTs) && t < startTs) return false;
-  if (Number.isFinite(endTs)   && t > endTs)   return false;
-  return true;
-});
-console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
-console.log("[IMAP] filter counts", { beforeCount, afterCount: state.emails.length });
+    // end-of-today (UTC) using server-synced clock if present
+    const _now = nowDate();
+    const todayEndUTC = Date.UTC(
+      _now.getUTCFullYear(), _now.getUTCMonth(), _now.getUTCDate(),
+      23, 59, 59, 999
+    );
 
-// --- Re-apply saved overrides ---
-state.emails = applySavedOverridesTo(state.emails);
+    if (monthMode) {
+      const s = new Date(mStartFilter + "T00:00:00Z").getTime();
+      const e = new Date(mEndFilter   + "T23:59:59Z").getTime();
+      startTs = Number.isFinite(s) ? s : -Infinity;
+      endTs   = Math.min(Number.isFinite(e) ? e : Infinity, todayEndUTC);
+    } else {
+      const daysSel = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
+      const days = Number.isFinite(daysSel) ? daysSel : 30;
+      const end  = todayEndUTC;
+      if (days <= 0) {
+        startTs = -Infinity;
+        endTs   = end;
+      } else {
+        startTs = end - (Math.max(1, days) - 1) * 86400000;
+        endTs   = end;
+      }
+    }
 
-state.view = state.emails.slice();
-state.perPage = Math.max(1, Number($("limit").value || 20));
-state.page = 1;
-render();
+    const beforeCount = state.emails.length;
+    state.emails = state.emails.filter(e => {
+      const t = Number(e._ts);
+      if (!Number.isFinite(t)) return true;
+      if (Number.isFinite(startTs) && t < startTs) return false;
+      if (Number.isFinite(endTs)   && t > endTs)   return false;
+      return true;
+    });
+    console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
 
-if (typeof window.__imapHydrateNow === "function") {
-  setTimeout(() => window.__imapHydrateNow(), 0);
-}
+    // Re-apply any saved local overrides
+    state.emails = applySavedOverridesTo(state.emails);
 
-     
-    // Save server cursors
+    // ---- Render
+    state.view   = state.emails.slice();
+    state.perPage = Math.max(1, Number($("limit").value || 20));
+    state.page    = 1;
+    render();
+
+    // Lazy hydrate visible previews
+    if (typeof window.__imapHydrateNow === "function") {
+      setTimeout(() => window.__imapHydrateNow(), 0);
+    }
+
+    // ---- Paging cursors & UI
     state.nextCursor = data?.nextCursor || null;
     if (next) {
       state.cursorStack.push(payload.cursor || null);
     } else if (!prev) {
       state.cursorStack = [null];
     }
-
-    // Update pager buttons + label
     $("next").disabled = !state.nextCursor;
     $("prev").disabled = !(state.cursorStack.length > 1);
     $("pageInfo").textContent = `Page ${state.cursorStack.length}`;
 
-    if (typeof data.tier === 'string') setTierUI(data.tier, data.tier !== 'free');
+    if (typeof data.tier === "string") setTierUI(data.tier, data.tier !== "free");
     if (data.notice) setMessage("ok", data.notice);
 
     setMessage("ok", `Fetched ${state.emails.length} emails.`);
-  }catch(err){
-    console.error(err); list.innerHTML="";
-    const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message||""))))
+  } catch (err) {
+    console.error(err);
+    list.innerHTML = "";
+    const m = (err && (err.name === "AbortError" || /timed out/i.test(String(err.message || ""))))
       ? "Request timed out. Try a shorter range or check network."
       : (err.message || "Could not fetch/classify emails.");
     setMessage("err", m);
+  } finally {
+    // ---- Always release the guard (even on error)
+    window._fetchRunning = false;
   }
 }
 
