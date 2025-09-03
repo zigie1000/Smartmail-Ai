@@ -1232,32 +1232,32 @@ async function ensureFullById(id){
 function renderFullPreview(email) {
   const pv = document.getElementById(`pv-${email.id}`);
   if (!pv) {
-    console.warn('Preview mount missing for id', email.id);
+    console.warn("Preview mount missing for id", email.id);
     return;
   }
 
   // clear any previous snippet
-  pv.innerHTML = '';
+  pv.innerHTML = "";
 
-  // Prefer HTML if present; otherwise plain text (tolerate many field names)
+  // Prefer HTML if present; fallback to plain text
   const html =
-      email.html
-   || email.htmlBody
-   || email.bodyHtml
-   || email.textHtml;
+    email.html ||
+    email.htmlBody ||
+    email.bodyHtml ||
+    email.textHtml;
 
   const text =
-      email.text
-   || email.bodyText
-   || email.textPlain
-   || email.plain;
+    email.text ||
+    email.bodyText ||
+    email.textPlain ||
+    email.plain;
 
   if (html && /\S/.test(html)) {
-    // sandboxed iframe so the email’s CSS doesn’t leak into the app
-    const iframe = document.createElement('iframe');
-    iframe.style.width = '100%';
-    iframe.style.border = 'none';
-    iframe.style.background = '#fff';
+    // render HTML in sandboxed iframe (isolates email CSS)
+    const iframe = document.createElement("iframe");
+    iframe.style.width = "100%";
+    iframe.style.border = "none";
+    iframe.style.background = "#fff";
     pv.appendChild(iframe);
 
     const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -1265,11 +1265,11 @@ function renderFullPreview(email) {
     doc.write(String(html));
     doc.close();
 
-    // auto-size to content
+    // auto-size iframe to content
     const resize = () => {
       try {
         const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-        iframe.style.height = (h || 300) + 'px';
+        iframe.style.height = (h || 300) + "px";
       } catch (_) {}
     };
     iframe.onload = resize;
@@ -1278,17 +1278,21 @@ function renderFullPreview(email) {
   }
 
   if (text && /\S/.test(text)) {
-    const pre = document.createElement('pre');
+    const pre = document.createElement("pre");
     pre.textContent = String(text);
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontSize = '14px';
+    pre.style.whiteSpace = "pre-wrap";
+    pre.style.fontSize = "14px";
     pv.appendChild(pre);
     return;
   }
 
-  // last resort: fallback to snippet/preview if available
-  const fallback = email.snippet || email.preview || email.bodySnippet || email.summary || '';
-  pv.textContent = fallback ? String(fallback) : '(no body available)';
+  // last resort: snippet/preview fallback
+  const fallback =
+    email.snippet ||
+    email.preview ||
+    email.bodySnippet ||
+    "(no body available)";
+  pv.textContent = String(fallback);
 }
 
    
