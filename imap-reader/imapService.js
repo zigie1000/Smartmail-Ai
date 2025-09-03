@@ -1,304 +1,402 @@
-// imapService.js — IMAP fetcher with scoped (Month/Range) search,
-// optional text query, conditional full-body hydration & UID pagination.
+// imapService.js
+// SmartEmail IMAP service (full file)
+// - Fetch & classify messages (range/month) with optional full bodies
+// - Batch body hydration
+// - Test login
+// Requires: imapflow, mailparser
 
-import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser';
+const { ImapFlow } = require('imapflow');
+const { simpleParser } = require('mailparser');
 
-/* ----------------------------- helpers ----------------------------- */
-function normBool(v) { return v === true || String(v).toLowerCase() === 'true'; }
+// --- Utilities ---------------------------------------------------------------
 
-function makeAuth({ authType = 'password', email, password, accessToken }) {
-  const kind = String(authType || 'password').toLowerCase();
-  if (kind === 'xoauth2') return { user: email, accessToken: accessToken || '' };
-  return { user: email, pass: password || '' };
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function coerceBool(v) {
+  if (typeof v === 'boolean') return v;
+  if (v == null) return false;
+  const s = String(v).toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-async function connectAndOpen({ host, port = 993, tls = true, authType, email, password, accessToken }) {
-  const client = new ImapFlow({
-    host,
-    port: Number(port) || 993,
-    secure: normBool(tls),
-    auth: makeAuth({ authType, email, password, accessToken }),
-    logger: false
-  });
-  await client.connect();
-  await client.mailboxOpen('INBOX', { readOnly: true });
-  return client;
+function toNumber(n, d = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : d;
 }
 
-/** Normalize ImapFlow download() return across versions to a readable stream */
-async function getDownloadReadable(client, uid) {
-  // IMPORTANT: download() defaults to sequence numbers; we are passing UIDs.
-  const res = await client.download(uid, { uid: true });
-  if (!res) return null;
-  if (typeof res.pipe === 'function') return res;                     // stream
-  if (res.content && typeof res.content.pipe === 'function') return res.content; // {content}
-  if (res.message && typeof res.message.pipe === 'function') return res.message; // {message}
-  return null;
+function toUTCDateOnly(iso) {
+  // iso -> 2025-09-03 => Date at 00:00:00Z
+  if (!iso) return null;
+  const t = Date.parse(iso + 'T00:00:00Z');
+  return Number.isFinite(t) ? new Date(t) : null;
 }
 
-/** Parse month inputs into [start, endExclusive] */
-function parseMonthRange(monthStart, monthEnd) {
-  const clean = (s) => (typeof s === 'string' ? s.trim() : '');
-  const ms = clean(monthStart);
-  const me = clean(monthEnd);
-
-  if (ms && me && !Number.isNaN(Date.parse(ms)) && !Number.isNaN(Date.parse(me))) {
-    const start = new Date(ms);
-    const meD = new Date(me);
-    const endExclusive = new Date(meD.getFullYear(), meD.getMonth(), meD.getDate() + 1);
-    return { start, endExclusive };
-  }
-  if (ms && !me && !Number.isNaN(Date.parse(ms))) {
-    const d = new Date(ms);
-    const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-    const endExclusive = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
-    return { start, endExclusive };
-  }
-  return { start: null, endExclusive: null };
+function endOfDayUTC(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso + 'T23:59:59Z');
+  return Number.isFinite(t) ? new Date(t) : null;
 }
 
-/** Build IMAP SEARCH criteria combining Month/Range + optional text query */
-function buildScopedCriteria({ rangeDays, monthStart, monthEnd, query }) {
-  const crit = ['ALL'];
-  const { start, endExclusive } = parseMonthRange(monthStart, monthEnd);
-
-  if (start && endExclusive) {
-    crit.push(['SINCE', start]);
-    crit.push(['BEFORE', endExclusive]); // exclusive upper bound
-  } else {
-    const days = Number(rangeDays);
-    if (Number.isFinite(days) && days > 0) {
-      const since = new Date(Date.now() - days * 24 * 3600 * 1000);
-      crit.push(['SINCE', since]);
-    }
-  }
-
-  const q = (query || '').trim();
-  if (q) {
-    // subject/body/from OR-chain to keep it simple but useful
-    crit.push([
-      'OR',
-      ['HEADER', 'SUBJECT', q],
-      ['OR', ['BODY', q], ['HEADER', 'FROM', q]]
-    ]);
-  }
-  return crit;
-}
-
-function toModelSkeleton(msg) {
-  const env = msg.envelope || {};
-  const from0 = (env.from && env.from[0]) || {};
-  const to0 = (env.to && env.to[0]) || {};
-  const subject = (env.subject || '').toString();
-
-  return {
-    id: String(msg.uid ?? msg.seq ?? ''),
-    uid: msg.uid,
-    subject,
-    from: (from0.name || from0.address || '').toString(),
-    fromEmail: (from0.address || '').toString(),
-    fromDomain: ((from0.address || '').split('@')[1] || '').toLowerCase(),
-    to: (to0.address || '').toString(),
-    date: msg.internalDate ? new Date(msg.internalDate).toISOString() : new Date().toISOString(),
-    internalDate: msg.internalDate || null,
-    snippet: (msg.snippet || '').toString().trim(),
-    importance: 'unimportant',
-    intent: '',
-    urgency: 0,
-    action_required: false,
-    isVip: false,
-    text: '',
-    html: ''
-  };
-}
-
-/** Hydrate FULL snippet + text + html for a UID (no byte cap) */
-async function hydrateFullMessage(client, uid, model) {
+function stripHtml(x, max = 300) {
   try {
-    const stream = await getDownloadReadable(client, uid);
-    if (!stream) return model;
-
-    // tolerant for different imapflow return shapes
-    const parsed = await simpleParser(stream.content || stream.message || stream);
-
-    const text = (parsed.text || '').toString().trim();
-    const html = (parsed.html || '').toString().trim();
-
-    // Prefer true plain text; robust fallback to HTML-only emails
-    let textish = text;
-
-    // Fallback when providers send image/link-only HTML with no plain text
-    if (!textish && html) {
-      // strip <head>, <script>, <style>
-      let safe = html
-        .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
-
-      // surface useful attributes that carry meaning
-      safe = safe
-        .replace(/<img [^>]*alt="([^"]*)"/gi, ' $1 ')
-        .replace(/<a [^>]*title="([^"]*)"/gi, ' $1 ')
-        .replace(/aria-label="([^"]*)"/gi, ' $1 ');
-
-      // drop tags → normalize whitespace
-      textish = safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-
-    // final guard so snippet isn't blank
-    if (!textish && (text || html)) {
-      textish = (text || html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-
-    if (textish) model.snippet = textish.slice(0, 600);
-    if (text) model.text = text;
-    if (html) model.html = html;
+    const s = String(x || '')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
   } catch {
-    // ignore; leave model as-is if parsing fails
+    return '';
   }
-  return model;
 }
 
-/** Tiny heuristic classifier (no LLM) */
-function classify(model, { vipSenders = [] } = {}) {
-  const s = `${model.subject} ${model.snippet}`.toLowerCase();
-  const intent =
-    /\b(invoice|billing|payment|receipt|subscription|refund)\b/.test(s) ? 'billing' :
-    /\b(meeting|meet|zoom|calendar|invite|join)\b/.test(s)           ? 'meeting' :
-    /\b(ticket|support|issue|bug|help)\b/.test(s)                        ? 'support' :
-    /\b(offer|promo|newsletter|digest|update)\b/.test(s)                 ? 'newsletter' : '';
-  let urgency = 0;
-  if (/\burgent|asap|immediately|right away|today\b/.test(s)) urgency = 3;
-  else if (/\bsoon|priority|important\b/.test(s))             urgency = 2;
-  else if (/\breminder|follow up|ping\b/.test(s))             urgency = 1;
-  let importance = 'unimportant';
-  if (urgency >= 2 || /\bdeadline|overdue|action required\b/.test(s)) importance = 'important';
-  const action_required = /\bplease (review|approve|reply|confirm)|action required\b/.test(s) || urgency >= 2;
-  const isVip = !!vipSenders.find(v => v && model.fromEmail?.toLowerCase() === String(v).toLowerCase());
-  return { ...model, intent, urgency, importance, action_required, isVip };
+function bestDateEpoch(headers, internalDate) {
+  // Prefer Date header; fallback to internalDate
+  const h = headers || {};
+  const cand = h.date || h['Date'] || internalDate;
+  const d = cand ? new Date(cand) : null;
+  const t = d && Number.isFinite(d.getTime()) ? d.getTime() : null;
+  return t ?? (internalDate ? new Date(internalDate).getTime() : null);
 }
 
-function normalizeUids(uids) {
-  const arr = Array.isArray(uids) ? uids : Array.from(uids || []);
-  const nums = arr.map(Number).filter(Number.isFinite);
-  nums.sort((a, b) => b - a);
-  return nums;
+// Very light classifier (placeholder). You can swap with your own.
+function classifyOne(msg) {
+  const subj = (msg.subject || '').toLowerCase();
+  const from = (msg.from || '').toLowerCase();
+  const text = (msg.text || msg.snippet || '').toLowerCase();
+
+  let intent = '';
+  if (subj.includes('invoice') || text.includes('invoice') || text.includes('payment')) intent = 'billing';
+  else if (subj.includes('meeting') || subj.includes('invite') || text.includes('zoom')) intent = 'meeting';
+  else if (subj.includes('unsubscribe') || text.includes('newsletter')) intent = 'newsletter';
+  else if (subj.includes('security') || subj.includes('verify') || text.includes('2fa')) intent = 'security';
+  else intent = 'other';
+
+  // toy importance/urgency
+  const importance = /urgent|asap|immediately/.test(text) ? 'important' : 'unclassified';
+  const urgency = /urgent|asap|immediately|reply soon/.test(text) ? 2 : 0;
+
+  return { intent, importance, urgency };
 }
 
-/* ------------------------------ API ------------------------------- */
-export async function fetchEmails(opts) {
+// --- IMAP connection helper --------------------------------------------------
+
+async function withImapClient(opts, fn) {
   const {
-    email, password, accessToken,
-    host, port = 993, tls = true, authType = 'password',
-    rangeDays = 7, monthStart, monthEnd, month,
-    limit = 20, cursor = null,
-    vipSenders = [],
-    query = '',                // optional text search
-    fullBodies = false         // ← key addition
-  } = opts || {};
+    email, password, host, port, tls,
+    authType, accessToken
+  } = opts;
 
-  if (!email || !host) throw new Error('email and host are required');
+  const client = new ImapFlow({
+    host: host || 'imap.gmail.com',
+    port: toNumber(port, 993),
+    secure: coerceBool(tls) !== false, // default true
+    auth: (String(authType || 'password').toLowerCase() === 'xoauth2')
+      ? { user: email, accessToken: accessToken }
+      : { user: email, pass: password },
+    logger: false,
+    disableAutoIdle: false
+  });
 
-  const _monthStart = monthStart || month || '';
-  const _monthEnd   = monthEnd || '';
-  const q = (query || '').trim();
-
-  let client;
   try {
-    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
-
-    // 1) primary IMAP search (scoped by Month/Range + optional text)
-    const criteria = buildScopedCriteria({ rangeDays, monthStart: _monthStart, monthEnd: _monthEnd, query: q });
-    let uidList = normalizeUids(await client.search(criteria, { uid: true }));
-
-    // 2) Gmail RAW fallback — still scoped by Month/Range and includes text query
-    if ((!uidList || uidList.length === 0) && /(?:^|\.)gmail\.com$/i.test(host)) {
-      const { start, endExclusive } = parseMonthRange(_monthStart, _monthEnd);
-      const pad = (n) => String(n).padStart(2, '0');
-      const fmt = (d) => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
-      const a = start ? fmt(start) : fmt(new Date(Date.now() - (Number(rangeDays) || 30) * 864e5));
-      const b = endExclusive ? fmt(endExclusive) : fmt(new Date());
-      const term = q ? ` (subject:"${q}" OR from:${q} OR "${q}")` : '';
-      try {
-        uidList = normalizeUids(
-          await client.search({ gmailRaw: `in:inbox after:${a} before:${b}${term}` }, { uid: true })
-        );
-      } catch { /* ignore */ }
-    }
-
-    // 3) Hard fallback — last N*5 UIDs if all else fails
-    if (!uidList || uidList.length === 0) {
-      try {
-        const st = await client.status('INBOX', { uidnext: true });
-        const lastUid = Math.max(1, (st.uidnext || 1) - 1);
-        const want = Math.max(1, Number(limit) || 20);
-        const startUid = Math.max(1, lastUid - (want * 5) + 1);
-        const collected = [];
-        for await (const m of client.fetch({ uid: `${startUid}:${lastUid}` }, { uid: true })) {
-          collected.push(m.uid);
-        }
-        uidList = normalizeUids(collected);
-      } catch { uidList = []; }
-    }
-
-    // 4) pagination over the *scoped* uid list
-    let startIdx = 0;
-    if (cursor != null) {
-      const idx = uidList.indexOf(Number(cursor));
-      startIdx = idx >= 0 ? idx + 1 : 0;
-    }
-    const pageSize = Math.max(1, Number(limit) || 20);
-    const slice = uidList.slice(startIdx, startIdx + pageSize);
-
-    if (!slice.length) {
-      await client.logout();
-      return { items: [], nextCursor: null, hasMore: false };
-    }
-
-    // 5) fetch metadata for just the slice
-    const raw = [];
-    for await (const msg of client.fetch({ uid: slice }, { envelope: true, internalDate: true, source: false })) {
-      raw.push(msg);
-    }
-
-    // 6) map → hydrate (optional) → classify
-    const items = [];
-    for (const msg of raw) {
-      let model = toModelSkeleton(msg);
-      try {
-        if (fullBodies) {
-          model = await hydrateFullMessage(client, msg.uid, model);
-        }
-      } catch {}
-      model = classify(model, { vipSenders });
-      items.push(model);
-    }
-
-    const hasMore = startIdx + slice.length < uidList.length;
-    const nextCursor = hasMore ? String(slice[slice.length - 1]) : null;
-
-    await client.logout();
-    return { items, nextCursor, hasMore };
+    await client.connect();
+    // open INBOX readonly for safety
+    await client.mailboxOpen('INBOX', { readOnly: true });
+    const out = await fn(client);
+    try { await client.logout(); } catch {}
+    return out;
   } catch (err) {
-    try { if (client) await client.logout(); } catch {}
-    const e = new Error(err?.message || String(err));
-    e.code = err?.code;
-    throw e;
+    try { await client.logout(); } catch {}
+    throw err;
   }
 }
 
-export async function testLogin({ email, password, accessToken, host, port = 993, tls = true, authType = 'password' }) {
-  if (!email || !host) throw new Error('email and host are required');
-  let client;
-  try {
-    client = await connectAndOpen({ host, port, tls, authType, email, password, accessToken });
-    await client.logout();
-    return true;
-  } catch {
-    try { if (client) await client.logout(); } catch {}
-    return false;
+// --- Search window builder ---------------------------------------------------
+
+function buildSearch({ mode, monthStart, monthEnd, rangeDays, query }) {
+  // imapflow search uses arrays, e.g. ['SINCE', new Date(...), 'BEFORE', new Date(...)]
+  const crit = [];
+
+  const hasMonth = !!(monthStart && monthEnd);
+  if (hasMonth) {
+    const s = toUTCDateOnly(monthStart);
+    const e = endOfDayUTC(monthEnd);
+    if (s) crit.push('SINCE', s);
+    if (e) {
+      const d2 = new Date(e.getTime() + 1000); // before is exclusive
+      crit.push('BEFORE', d2);
+    }
+  } else {
+    const days = toNumber(rangeDays, 30);
+    if (days > 0) {
+      const end = new Date();
+      const start = new Date(end.getTime() - (Math.max(1, days) - 1) * 86400000);
+      // Use local Date objects; imapflow converts to RFC822 dates
+      crit.push('SINCE', new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())));
+    }
+    // If days === 0 => no SINCE (unbounded)
   }
+
+  if (query && String(query).trim()) {
+    // Basic subject OR from search; server-specific advanced search omitted for portability.
+    const q = String(query).trim();
+    crit.push(['OR', ['HEADER', 'Subject', q], ['FROM', q]]);
+  }
+
+  return crit.length ? crit : ['ALL'];
 }
 
-export default { fetchEmails, testLogin };
+// --- Core fetch --------------------------------------------------------------
+
+async function fetchEmails(params = {}) {
+  const {
+    email, password, host, port, tls,
+    authType, accessToken,
+    limit = 20,
+    rangeDays,
+    monthStart, monthEnd,
+    query = '',
+    cursor = null,      // sequence uid to continue from
+    fullBodies = false, // <-- honored for range & month
+    includePreview = true,
+    includeSnippet = true,
+    includeBody = false // legacy switch; ignored when fullBodies = true
+  } = params;
+
+  const mode = (monthStart && monthEnd) ? 'month' : 'range';
+
+  const MAX = Math.max(1, toNumber(limit, 20));
+
+  return await withImapClient(
+    { email, password, host, port, tls, authType, accessToken },
+    async (client) => {
+
+      // Build criteria and sort newest first (by UID)
+      const criteria = buildSearch({ mode, monthStart, monthEnd, rangeDays, query });
+
+      // Resolve matching UIDs
+      let uids = await client.search(criteria, { uid: true });
+      uids.sort((a, b) => b - a); // newest first
+
+      // Paging: if cursor provided, continue *after* that uid
+      let startIndex = 0;
+      if (cursor) {
+        const c = toNumber(cursor);
+        if (c) {
+          startIndex = uids.findIndex(u => u < c);
+          if (startIndex < 0) startIndex = uids.length; // nothing older
+        }
+      }
+
+      const pageUids = uids.slice(startIndex, startIndex + MAX);
+      const nextCursor = (startIndex + MAX < uids.length) ? pageUids[pageUids.length - 1] : null;
+      const hasMore = !!nextCursor;
+
+      const wantBody = !!fullBodies || !!includeBody;
+
+      // Fields to fetch
+      const fetchOpts = {
+        uid: true,
+        source: wantBody,                 // raw message stream
+        envelope: true,
+        internalDate: true,
+        bodyStructure: false
+      };
+
+      // If no fullBodies, still try to get small text parts for preview
+      const previewOpts = {
+        uid: true,
+        envelope: true,
+        internalDate: true,
+        bodyStructure: true,
+        source: false
+      };
+
+      const emails = [];
+
+      if (wantBody) {
+        // FULL bodies path
+        for await (const msg of client.fetch(pageUids, fetchOpts)) {
+          let text = '';
+          let html = '';
+          try {
+            const parsed = await simpleParser(msg.source);
+            text = parsed.text || '';
+            html = parsed.html || '';
+          } catch (_) {}
+
+          const from = (msg.envelope?.from && msg.envelope.from.map(a => a.name || a.address).join(', ')) || '';
+          const fromEmail = (msg.envelope?.from && msg.envelope.from[0]?.address) || '';
+          const fromDomain = fromEmail.split('@')[1] || '';
+
+          const snippet = includeSnippet ? (text ? text.slice(0, 280) : stripHtml(html, 280)) : '';
+
+          const one = {
+            id: msg.uid,
+            uid: msg.uid,
+            subject: msg.envelope?.subject || '',
+            from,
+            fromEmail,
+            fromDomain,
+            date: bestDateEpoch({ date: msg.envelope?.date }, msg.internalDate),
+            snippet,
+            preview: snippet,
+            text,
+            html
+          };
+          Object.assign(one, classifyOne(one));
+          emails.push(one);
+        }
+      } else {
+        // Lightweight preview path
+        // Grab envelope + structure; then request the first small text part for a snippet.
+        for await (const msg of client.fetch(pageUids, previewOpts)) {
+          const from = (msg.envelope?.from && msg.envelope.from.map(a => a.name || a.address).join(', ')) || '';
+          const fromEmail = (msg.envelope?.from && msg.envelope.from[0]?.address) || '';
+          const fromDomain = fromEmail.split('@')[1] || '';
+
+          let snippet = '';
+          if (includePreview || includeSnippet) {
+            // Try TEXT/PLAIN first, then TEXT/HTML; limit bytes
+            const bs = msg.bodyStructure;
+            let plainPart = null, htmlPart = null;
+
+            const walk = (node) => {
+              if (!node) return;
+              if (Array.isArray(node.childNodes)) node.childNodes.forEach(walk);
+              if (node.type === 'text') {
+                if (node.subtype === 'plain' && !plainPart) plainPart = node;
+                if (node.subtype === 'html'  && !htmlPart)  htmlPart = node;
+              }
+            };
+            walk(bs);
+
+            let previewBuf = null;
+            try {
+              if (plainPart) {
+                previewBuf = await client.download(msg.uid, plainPart.part);
+              } else if (htmlPart) {
+                previewBuf = await client.download(msg.uid, htmlPart.part);
+              }
+            } catch (_) {}
+
+            if (previewBuf && previewBuf.content) {
+              const raw = previewBuf.content.toString('utf8');
+              snippet = plainPart ? raw.slice(0, 280) : stripHtml(raw, 280);
+            }
+          }
+
+          const one = {
+            id: msg.uid,
+            uid: msg.uid,
+            subject: msg.envelope?.subject || '',
+            from,
+            fromEmail,
+            fromDomain,
+            date: bestDateEpoch({ date: msg.envelope?.date }, msg.internalDate),
+            snippet,
+            preview: snippet
+          };
+          Object.assign(one, classifyOne(one));
+          emails.push(one);
+        }
+      }
+
+      return {
+        emails,
+        nextCursor,
+        hasMore,
+        tier: 'premium',
+        notice: false
+      };
+    }
+  );
+}
+
+// --- Batch full bodies -------------------------------------------------------
+
+async function fetchBodiesBatch(params = {}) {
+  const {
+    email, password, host, port, tls,
+    authType, accessToken,
+    ids = [],
+    monthStart, monthEnd,
+    rangeDays
+  } = params;
+
+  if (!Array.isArray(ids) || !ids.length) return { items: [] };
+
+  return await withImapClient(
+    { email, password, host, port, tls, authType, accessToken },
+    async (client) => {
+      // Optional: apply the same search window to avoid fetching bodies outside the window
+      const criteria = buildSearch({
+        mode: (monthStart && monthEnd) ? 'month' : 'range',
+        monthStart, monthEnd, rangeDays
+      });
+
+      let allowed = null;
+      try {
+        allowed = new Set(await client.search(criteria, { uid: true }));
+      } catch (_) {
+        allowed = null; // ignore if search fails; proceed with ids
+      }
+
+      const want = allowed ? ids.filter(u => allowed.has(Number(u))) : ids;
+
+      const items = [];
+      for await (const msg of client.fetch(want, { uid: true, source: true, envelope: true, internalDate: true })) {
+        let text = '';
+        let html = '';
+        try {
+          const parsed = await simpleParser(msg.source);
+          text = parsed.text || '';
+          html = parsed.html || '';
+        } catch (_) {}
+
+        items.push({
+          id: msg.uid,
+          uid: msg.uid,
+          subject: msg.envelope?.subject || '',
+          date: bestDateEpoch({ date: msg.envelope?.date }, msg.internalDate),
+          text,
+          html,
+          snippet: text ? text.slice(0, 280) : stripHtml(html, 280)
+        });
+
+        // Gentle pacing to avoid rate spikes on some providers
+        if (items.length % 10 === 0) await sleep(25);
+      }
+
+      return { items };
+    }
+  );
+}
+
+// --- Test login --------------------------------------------------------------
+
+async function testLogin(params = {}) {
+  const {
+    email, password, host, port, tls,
+    authType, accessToken
+  } = params;
+
+  await withImapClient(
+    { email, password, host, port, tls, authType, accessToken },
+    async (client) => {
+      // simple NOOP: list mailbox to assert access
+      await client.mailboxOpen('INBOX', { readOnly: true });
+    }
+  );
+
+  return { ok: true };
+}
+
+// --- Exports -----------------------------------------------------------------
+
+module.exports = {
+  fetchEmails,
+  fetchBodiesBatch,
+  testLogin
+};
