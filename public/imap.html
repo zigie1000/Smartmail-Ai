@@ -1712,11 +1712,13 @@ if (mStart && mEnd) {
 
     // ---- Parse + normalize
     const emails = Array.isArray(data.emails) ? data.emails : [];
-    state.emails = emails.map((e, i) => ({
-      ...e,
-      id: e.id ?? e.uid ?? String(i + 1),
-      _ts: bestTimestampMs(e)
-    }));
+    // Force cards to use the IMAP UID as their id
+state.emails = emails.map((e, i) => ({
+  ...e,
+  uid: e.uid ?? e.id,
+  id: String(e.uid ?? e.id ?? i + 1),   // <— card id is UID
+  _ts: bestTimestampMs(e)
+}));
 
     // ---- Client-side clamp to Mode bar window (safety)
     const mStartFilter = window._monthStartISO;
