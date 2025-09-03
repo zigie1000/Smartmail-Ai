@@ -1,5 +1,5 @@
 // imapRoutes.js — IMAP fetch/classify with tier check, month/range, cursor paging,
-// VIP & weights, PLUS user overrides (learning) that refine future classifications.
+// VIP & weights, PLUS user overrides (learning). Full bodies are forced for Month AND Range.
 import express from 'express';
 import crypto from 'crypto';
 import { ImapFlow } from 'imapflow';
@@ -54,7 +54,6 @@ async function getTier({ licenseKey = '', email = '' }) {
 
   return 'free';
 }
-
 async function isPaid(tier) {
   if (process.env.PAID_FEATURES_FOR_ALL === '1') return true;
   return !!tier && tier !== 'free';
@@ -183,8 +182,8 @@ router.post('/tier', async (req, res) => {
 });
 
 router.post('/fetch', async (req, res) => {
+  const tag = Math.random().toString(36).slice(2, 7);
   const t0 = Date.now();
-  const reqId = Math.random().toString(36).slice(2, 7);
   try {
     const {
       email = '', password = '', accessToken = '',
@@ -194,15 +193,27 @@ router.post('/fetch', async (req, res) => {
       cursor = null,
       rangeDays: qRangeDays,
       limit: qLimit,
-      query = '',
-      fullBodies: wantBodiesClient // may be true in Range
+      query = ''
     } = req.body || {};
 
     if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
 
     const safeEmail = isLikelyEmail(email) ? email : '';
+    console.log(`[FETCH:${tag}] IN`, {
+      email: safeEmail ? `${safeEmail.slice(0,2)}***@${safeEmail.split('@')[1]}` : '',
+      host, port, tls, authType,
+      mode: (monthStart && monthEnd) ? 'month' : 'range',
+      monthStart: monthStart || null,
+      monthEnd: monthEnd || null,
+      rangeDays: qRangeDays ?? null,
+      limit: qLimit ?? null,
+      cursor: !!cursor,
+      query
+    });
+
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
+    console.log(`[FETCH:${tag}] tier=${tier} paid=${paid}`);
 
     const userId = userIdFromEmail(safeEmail || 'anon');
     const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
@@ -233,15 +244,23 @@ router.post('/fetch', async (req, res) => {
     const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
     const limit = Math.max(1, Number(capped.limit) || 20);
 
+    console.log(`[FETCH:${tag}] window`, {
+      mode: useMonth ? 'month' : 'range',
+      monthStart: useMonth ? msStr : null,
+      monthEnd: useMonth ? meStr : null,
+      rangeDays,
+      limit
+    });
+
     // Lists (VIP, weights…)
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
-    const vipSenders = Array.from(lists.vip);
 
-    // Fetch from IMAP
-    const wantBodies = useMonth ? true : !!wantBodiesClient; // <-- Range can request bodies
+    console.log(`[FETCH:${tag}] lists: vip=${lists.vip.size} legal=${lists.legal.size} bulk=${lists.bulk.size}`);
+
+    // Fetch from IMAP — **force fullBodies for both Month and Range**
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
@@ -250,9 +269,11 @@ router.post('/fetch', async (req, res) => {
       limit,
       cursor,
       query,
-      vipSenders,
-      fullBodies: wantBodies
+      vipSenders: Array.from(lists.vip),
+      fullBodies: true               // <— FORCE full bodies in both modes
     });
+
+    console.log(`[FETCH:${tag}] fetched=${items?.length ?? 0} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
 
     // Stage 2 classifier
     const norm = normalizeForClassifier(items);
@@ -264,6 +285,7 @@ router.post('/fetch', async (req, res) => {
       console.warn('classifyEmails failed:', err?.message || err);
       cls = [];
     }
+    console.log(`[FETCH:${tag}] classified=${cls.length}`);
 
     // Merge base + classifier + VIP
     let merged = norm.map((it, i) => ({
@@ -274,14 +296,13 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
 
-    // Apply overrides
+    // Apply user overrides (paid)
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
     merged = merged.map(m => {
       const emailKey = (m.fromEmail || '').toLowerCase();
       const domainKey = (m.fromDomain || '').toLowerCase();
       const o = overrides.byEmail.get(emailKey) || overrides.byDomain.get(domainKey) || null;
       if (!o) return m;
-
       const out = { ...m };
       if (o.category) out.category = out.intent = o.category;
       if (o.forceImportant) out.importance = 'important';
@@ -295,7 +316,8 @@ router.post('/fetch', async (req, res) => {
       : null;
 
     const ms = Date.now() - t0;
-    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice, ms });
+    console.log(`[FETCH:${tag}] OUT`, { returned: merged.length, nextCursor: !!nextCursor, notice: !!notice, ms: isFinite(ms) ? ms : null });
+    res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
     const code = String(e?.code || '').toUpperCase();
@@ -305,6 +327,7 @@ router.post('/fetch', async (req, res) => {
   }
 });
 
+/* --- Quick login test ---------------------------------------------------- */
 router.post('/test', async (req, res) => {
   try {
     const {
