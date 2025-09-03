@@ -1309,8 +1309,12 @@ function renderFullPreview(email) {
         if (doc?.fonts?.ready) doc.fonts.ready.then(measure).catch(()=>{});
       } catch {}
     };
-    iframe.addEventListener("load", () => { startAutosize(); setTimeout(measure, 800); setTimeout(measure, 1600); }, { once:true });
-    setTimeout(startAutosize, 200);
+    iframe.addEventListener("load", () => {
+  startAutosize();
+  setTimeout(measure, 800);
+  setTimeout(measure, 1600);
+  setTimeout(measure, 3000);   // ← B: late nudge for mobile Safari
+}, { once: true });
 
     markFull();
     return;
