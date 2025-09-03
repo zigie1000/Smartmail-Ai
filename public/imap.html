@@ -1547,18 +1547,23 @@ async function fetchAndClassify(next=false, prev=false){
   includeBody: false
 };
 
-// ⬇️ INSERT THIS RIGHT HERE
+// === Month/Range payload patch ===
 const mStart = window._monthStartISO;
 const mEnd   = window._monthEndISO;
+
 if (mStart && mEnd) {
+  // Month mode → explicit window; force full bodies on server
   payload.monthStart = mStart;
   payload.monthEnd   = mEnd;
   payload.fullBodies = true;
   delete payload.rangeDays;
 } else {
-  payload.rangeDays = Number(window._rangeDaysActive || $("range")?.value || 30);
+  // Range mode → guarantee a number (UI or Mode bar)
+  payload.rangeDays = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
 }
 
+// Debug: see exactly what is sent
+console.log("[IMAP] Final payload going to server:", payload);
 console.log("[CLIENT] IMAP payload being sent:", payload);     
 console.log("[IMAP] Payload (pre-patch):", JSON.stringify(payload, null, 2));
      
