@@ -681,11 +681,15 @@ async function bodyBatch(ids){
     fullBodies:  true // harmless here; server ignores it on this endpoint
   };
 
-  const r = await fetch('/api/imap/bodyBatch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  console.warn('[bodyBatch] sending payload:', payload);
+
+const r = await fetch('/api/imap/bodyBatch', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload)
+});
+
+console.warn('[bodyBatch] response status:', r.status);
 
   if (!r.ok) {
   console.warn('[bodyBatch] payload used:', payload);
