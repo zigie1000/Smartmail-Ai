@@ -1,192 +1,216 @@
-// imapService.js
-// Robust IMAP fetch + optional login test using ImapFlow.
-// Fixes: ensures SINCE uses a real Date object and correct search structure.
+// imap-reader/imapService.js
+// ESM-only. Works with "type":"module" in package.json
+
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
 
 /**
- * Install dependency if you haven't:
- *   npm i imapflow
+ * Create a connected ImapFlow client.
  */
-
-import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser'; // npm i mailparser
-
-// Small helper: create a client safely
-function makeClient({ host, port = 993, tls = true, authType = 'password', email, password, accessToken }) {
+async function connectClient({ host, port = 993, tls = true, authType = "password", email, password, accessToken }) {
   const auth =
-    authType === 'xoauth2'
-      ? { auth: { user: email, accessToken } }
-      : { auth: { user: email, pass: password } };
+    String(authType || "password").toLowerCase() === "xoauth2"
+      ? { user: email, accessToken, method: "XOAUTH2" }
+      : { user: email, pass: password };
 
-  return new ImapFlow({
+  const client = new ImapFlow({
     host,
-    port,
+    port: Number(port || 993),
     secure: !!tls,
-    clientInfo: { name: 'SmartEmail', version: '1.0' },
-    // If you *must* use system CA on some providers, you can run Node with --use-system-ca.
-    // We keep verification ON (good practice). Avoid rejectUnauthorized:false.
-    ...auth
+    auth,
+    // gzip/deflate helps at scale; imapflow enables when server supports COMPRESS
+    logger: false,
   });
+
+  await client.connect();
+  await client.mailboxOpen("INBOX");
+  return client;
 }
 
 /**
- * Normalize a MessageEnvelope+structure to the shape your classifier expects.
+ * Build an ImapFlow search object for month/range windows.
+ * - If monthStart/monthEnd provided → use since/before (end+1d)
+ * - Else if rangeDays > 0 → since end-of-today - (rangeDays-1)
+ * - Else (0 or invalid) → no date filter (unbounded)
  */
-function toItem({ meta, body, flags }) {
-  const fromAddr = (meta.envelope.from && meta.envelope.from[0]) || {};
-  const fromEmail = (fromAddr.address || '').toLowerCase();
-  const fromDomain = fromEmail.split('@')[1] || '';
+function buildSearchWindow({ monthStart, monthEnd, rangeDays }) {
+  const out = {};
+  const endOfTodayUTC = (() => {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  })();
 
-  // Very short snippet (from text parts), safe fallback:
-  const snippet =
-    (body.text && body.text.slice(0, 240)) ||
-    (body.html && body.html.replace(/<[^>]+>/g, ' ').slice(0, 240)) ||
-    '';
-
-  const contentType =
-    (body.headers && body.headers.get && body.headers.get('content-type')) ||
-    '';
-
-  // quick ICS/attachment hints
-  const attachTypes = [];
-  let hasIcs = false;
-  if (body.attachments && body.attachments.length) {
-    for (const a of body.attachments) {
-      const ct = (a.contentType || '').toLowerCase();
-      attachTypes.push(ct);
-      if (ct.includes('text/calendar') || (a.filename || '').toLowerCase().endsWith('.ics')) {
-        hasIcs = true;
-      }
+  if (monthStart && monthEnd) {
+    // since = monthStartT00:00Z, before = (monthEnd + 1d)T00:00Z
+    const s = new Date(`${monthStart}T00:00:00Z`);
+    const e = new Date(`${monthEnd}T00:00:00Z`);
+    if (!isNaN(s) && !isNaN(e)) {
+      const before = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate() + 1, 0, 0, 0, 0));
+      out.since = s;
+      out.before = before;
+      return out;
     }
   }
 
-  return {
-    id: String(meta.uid),
-    uid: meta.uid,
-    from: fromAddr.name || fromEmail || '',
-    fromEmail,
-    fromDomain,
-    to:
-      (meta.envelope.to || [])
-        .map(t => t.address)
-        .filter(Boolean)
-        .join(', ') || '',
-    subject: meta.envelope.subject || '',
-    snippet,
-    date: meta.internalDate ? new Date(meta.internalDate).toISOString() : '',
-    headers: (() => {
-      const h = {};
-      if (body.headers && body.headers.forEach) {
-        body.headers.forEach((v, k) => (h[k] = v));
-      }
-      return h;
-    })(),
-    hasIcs,
-    attachTypes,
-    unread: !flags.has('\\Seen'),
-    flagged: flags.has('\\Flagged'),
-    contentType
-  };
+  const n = Number(rangeDays);
+  if (Number.isFinite(n) && n > 0) {
+    // end = endOfToday; start = end - (n-1) days
+    const start = new Date(endOfTodayUTC.getTime() - (Math.max(1, n) - 1) * 86400000);
+    out.since = start;
+    // no 'before' keeps up to today
+    return out;
+  }
+
+  // unbounded (dangerous on huge mailboxes, but allowed)
+  return out;
 }
 
 /**
- * Fetch emails from INBOX.
- * Options:
- *   email, password, accessToken, host, port, tls, authType
- *   search: { rangeDays?: number }  // build SINCE internally
- *   limit: number
+ * Fetch emails. Always returns newest-first limited page.
+ * Supports:
+ *  - range mode (rangeDays)
+ *  - month mode (monthStart, monthEnd)
+ *  - simple cursor (base64 JSON { offset })
+ *  - fullBodies: when true, parse text/html; otherwise lightweight ENVELOPE/FLAGS
  */
 export async function fetchEmails({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password',
+  auth = {},
   search = {},
-  limit = 20
+  limit = 20,
+  cursor = null,
+  fullBodies = true,
 }) {
-  const client = makeClient({ host, port, tls, authType, email, password, accessToken });
-
-  // Build search safely here so SINCE uses a real Date object.
-  const rangeDays = Math.max(0, Number(search.rangeDays || 0));
-  const sinceDate = rangeDays > 0 ? new Date(Date.now() - rangeDays * 864e5) : null;
+  const client = await connectClient(auth);
 
   try {
-    await client.connect();
-    // lock mailbox
-    const lock = await client.getMailboxLock('INBOX');
-    try {
-      // Search newest first; ImapFlow returns UIDs asc by default so we’ll slice from end.
-      let uids;
-      if (sinceDate) {
-        // ImapFlow will format the internal IMAP query correctly when passed a Date object.
-        uids = await client.search({ since: sinceDate });
-      } else {
-        uids = await client.search({}); // all messages
-      }
+    // 1) Find matching UIDs (ascending by spec); turn into newest-first list
+    const window = buildSearchWindow(search);
+    // ImapFlow can take an object with { since, before }
+    const uidsAsc = await client.search(window); // returns numeric UIDs ascending
+    const uids = Array.isArray(uidsAsc) ? uidsAsc.slice().reverse() : []; // newest first
 
-      // Take last N (newest)
-      if (uids.length > limit) {
-        uids = uids.slice(-limit);
+    // 2) Cursor math
+    const lim = Math.max(1, Number(limit || 20));
+    let offset = 0;
+    if (cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(String(cursor), "base64").toString("utf8"));
+        if (decoded && Number.isFinite(decoded.offset)) offset = decoded.offset;
+      } catch {
+        // ignore bad cursor
       }
-
-      const items = [];
-      for await (const msg of client.fetch(uids, {
-        envelope: true,
-        flags: true,
-        internalDate: true,
-        source: true, // stream raw source for parsing
-      })) {
-        // Parse to get text/html/attachments and headers
-        const parsed = await simpleParser(msg.source);
-        items.push(
-          toItem({
-            meta: { uid: msg.uid, envelope: msg.envelope, internalDate: msg.internalDate },
-            body: parsed,
-            flags: msg.flags
-          })
-        );
-      }
-
-      return {
-        items,
-        nextCursor: null,
-        hasMore: false
-      };
-    } finally {
-      lock.release();
     }
-  } catch (err) {
-    // surface clear message for your logs/UI
-    const m = String(err && err.message) || 'IMAP fetch failed';
-    throw new Error(`IMAP /fetch error: ${m}`);
+
+    const pageUids = uids.slice(offset, offset + lim);
+    const nextOffset = offset + pageUids.length;
+    const nextCursor = nextOffset < uids.length
+      ? Buffer.from(JSON.stringify({ offset: nextOffset }), "utf8").toString("base64")
+      : null;
+
+    // 3) Fetch metadata/bodies for the page
+    const items = [];
+    if (!pageUids.length) {
+      return { emails: [], nextCursor: null };
+    }
+
+    // Choose fetch options
+    const fetchOpts = fullBodies
+      ? { uid: true, source: true, envelope: true, flags: true, internalDate: true }
+      : { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: false };
+
+    for await (const msg of client.fetch(pageUids, fetchOpts)) {
+      const uid = msg.uid;
+      const envelope = msg.envelope || {};
+      const fromAddr = (envelope.from && envelope.from[0]) || {};
+      const toAddr = (envelope.to && envelope.to[0]) || {};
+      const subject = envelope.subject || "";
+
+      let text = "";
+      let html = "";
+      if (fullBodies && msg.source) {
+        try {
+          const parsed = await simpleParser(msg.source);
+          text = (parsed.text || "").trim();
+          html = (parsed.html || "").trim();
+        } catch {
+          // keep graceful
+        }
+      }
+
+      // Minimal normalization the UI expects
+      items.push({
+        uid,
+        id: String(uid),
+        subject,
+        from: [fromAddr.name, fromAddr.address].filter(Boolean).join(" <") + (fromAddr.address ? ">" : ""),
+        fromEmail: fromAddr.address || "",
+        to: [toAddr.name, toAddr.address].filter(Boolean).join(" <") + (toAddr.address ? ">" : ""),
+        toEmail: toAddr.address || "",
+        date: msg.internalDate || envelope.date || null,
+        snippet: text ? text.slice(0, 280) : "",
+        text,
+        html,
+        flags: Array.isArray(msg.flags) ? msg.flags : [],
+        importance: "unclassified",
+        urgency: 0,
+        action_required: false,
+      });
+    }
+
+    return { emails: items, nextCursor };
   } finally {
-    try { await client.logout(); } catch { /* noop */ }
+    try { await client.logout(); } catch {}
   }
 }
 
 /**
- * Lightweight connectivity test (safe to delete later).
- * Simply opens INBOX and logs out.
+ * Fetch bodies by UID list — used by your /bodyBatch hydrator.
+ * Returns items with { uid,id,text,html } for any UIDs it can parse.
  */
-export async function testLogin({
-  email,
-  password,
-  accessToken,
-  host,
-  port = 993,
-  tls = true,
-  authType = 'password'
-}) {
-  const client = makeClient({ host, port, tls, authType, email, password, accessToken });
+export async function fetchBodiesByUid({ auth = {}, uids = [] }) {
+  const client = await connectClient(auth);
+
   try {
-    await client.connect();
-    await client.getMailboxLock('INBOX').then(l => l.release());
-    return true;
-  } catch (err) {
-    return false;
+    const ids = (Array.isArray(uids) ? uids : [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (!ids.length) return [];
+
+    const out = [];
+    for await (const msg of client.fetch(ids, { uid: true, source: true })) {
+      let text = "";
+      let html = "";
+      try {
+        if (msg.source) {
+          const parsed = await simpleParser(msg.source);
+          text = (parsed.text || "").trim();
+          html = (parsed.html || "").trim();
+        }
+      } catch {
+        // ignore
+      }
+      out.push({
+        uid: msg.uid,
+        id: String(msg.uid),
+        text,
+        html,
+      });
+    }
+    return out;
   } finally {
-    try { await client.logout(); } catch { /* noop */ }
+    try { await client.logout(); } catch {}
+  }
+}
+
+/**
+ * Simple login test — opens INBOX and returns ok:true on success.
+ */
+export async function testLogin(auth = {}) {
+  const client = await connectClient(auth);
+  try {
+    return { ok: true, user: auth?.email || "" };
+  } finally {
+    try { await client.logout(); } catch {}
   }
 }
