@@ -130,21 +130,22 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .tag.imp{background:var(--imp-bg);border-color:var(--imp-line)}
 
 details{margin-top:8px}
- /* --- Prevent preview clipping & ensure iframe sizing --- */
-details.preview { overflow: visible; }
-details.preview .preview-body { display:block; overflow:visible; max-height:none; }
-details.preview[open] .preview-body { max-height:none; overflow:visible; }
+ /* --- Prevent preview clipping & ensure iframe sizing (no gaps when closed) --- */
+details.preview { margin-top: 8px; }
 
-details.preview .preview-body iframe{
-  display:block;
-  width:100%;
-  border:0;
-  min-height:300px; /* avoids 0 height before autosizer runs */
-}
+/* hide body when collapsed */
+details.preview .preview-body { display: none; }
 
-/* optional: guard against ancestor containment quirks */
-details.preview,
-details.preview * { contain: size layout style; contain-intrinsic-size:auto 300px; }  
+/* show body only when opened */
+details.preview[open] .preview-body { display: block; overflow: visible; }
+
+/* iframe styles; height is auto-managed by JS */
+details.preview .preview-body iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}  
 summary{cursor:pointer;color:#374151}
 .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sel{margin-right:6px}
