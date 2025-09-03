@@ -2090,9 +2090,6 @@ setTierUI('free', false);
  "btnSearch"].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
 
 setTimeout(checkTier, 0);
-const _f = document.getElementById('btnFetch');
-if (_f) { _f.disabled = false; _f.onclick = fetchAndClassify; }
-
 // Try restoring any saved IMAP state first (added above)
 const _restored = (typeof restoreImapState === 'function') && restoreImapState();
 
