@@ -1,234 +1,261 @@
-// server/imapRoutes.js
+// imap-reader/imapRoutes.js
 import express from "express";
-import { randomBytes } from "crypto";
-import { listAndClassify, fetchBodiesByUid, testLogin } from "./imapService.js";
+import * as svc from "./imapService.js"; // import everything; pick available symbols at runtime
+
+// Resolve service functions with safe fallbacks (avoids “does not provide an export named …”)
+const listAndClassify =
+  svc.listAndClassify || svc.listAndClassifyEmails || svc.fetchAndClassify;
+const fetchBodiesByUid =
+  svc.fetchBodiesByUid ||
+  svc.bodyBatchByUid ||
+  svc.getBodiesByUid ||
+  svc.fetchBodies ||
+  svc.bodyBatch;
+const testLogin = svc.testLogin || svc.tryLogin || svc.verifyLogin;
+
+if (!listAndClassify) {
+  throw new Error("imapService.js is missing listAndClassify(..)");
+}
+if (!fetchBodiesByUid) {
+  throw new Error(
+    "imapService.js is missing a body-batch function (expected one of: fetchBodiesByUid, bodyBatchByUid, getBodiesByUid, fetchBodies, bodyBatch)"
+  );
+}
 
 const router = express.Router();
 
-function tag() {
-  return randomBytes(3).toString("base64url");
-}
-
-function num(v, d = 0) {
+// Small helper to coerce booleans/numbers safely
+const asBool = (v, d = false) =>
+  typeof v === "boolean" ? v : String(v ?? "").toLowerCase() === "true" ? true : d;
+const asNum = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
-}
-function truthy(v) {
-  if (v === true) return true;
-  const s = String(v || "").trim().toLowerCase();
-  return s === "1" || s === "true" || s === "yes";
-}
+};
 
-/* -----------------------------------------
-   POST /api/imap/fetch
-   Body:
-     email, password | accessToken, host, port, tls,
-     authType('password'|'xoauth2'),
-     monthStart, monthEnd  (optional)
-     rangeDays             (optional)
-     limit                 (page size)
-     cursor                (server paging token)
-     fullBodies            (force full bodies for range too)
-     query                 (optional IMAP text query)
------------------------------------------ */
+// ----- POST /api/imap/fetch ---------------------------------------------------
 router.post("/fetch", async (req, res) => {
-  const id = tag();
+  const t0 = Date.now();
+  const short = Math.random().toString(36).slice(2, 7);
 
   try {
     const {
       email = "",
       password = "",
-      accessToken = "",
       host = "",
       port = 993,
       tls = true,
       authType = "password",
-
+      accessToken = "",
+      // window
       monthStart = null,
       monthEnd = null,
-      rangeDays = null,
-
+      rangeDays = 30,
       limit = 20,
       cursor = null,
       query = "",
-
-      fullBodies: fullBodiesIn = false,
-
-      // optional UI flags (harmless on server)
+      fullBodies = false, // client may force this (we also force for month mode)
       includePreview = true,
       includeSnippet = true,
       includeBody = false,
-      licenseKey = "",
+      userEmail = "",
+      licenseKey = ""
     } = req.body || {};
 
-    // Normalize window
     const monthMode = !!(monthStart && monthEnd);
-    const rangeN = monthMode ? null : num(rangeDays, 30);
+    const windowDesc = {
+      mode: monthMode ? "month" : "range",
+      monthStart: monthMode ? monthStart : null,
+      monthEnd: monthMode ? monthEnd : null,
+      rangeDays: monthMode ? undefined : asNum(rangeDays, 30),
+      limit: asNum(limit, 20)
+    };
 
-    // If client requested full bodies explicitly, respect it for RANGE too.
-    const fullBodies = monthMode ? true : truthy(fullBodiesIn);
+    console.log(`[FETCH:${short}] IN`, {
+      email,
+      host,
+      port: asNum(port, 993),
+      tls: asBool(tls, true),
+      authType,
+      mode: windowDesc.mode,
+      monthStart: windowDesc.monthStart,
+      monthEnd: windowDesc.monthEnd,
+      rangeDays: windowDesc.rangeDays ?? null,
+      limit: windowDesc.limit,
+      cursor: !!cursor,
+      query
+    });
+    console.log(`[FETCH:${short}] window`, windowDesc);
 
-    const paid = true; // your real tier logic can set this
-    const tier = paid ? "premium" : "free";
-
-    console.log(`[FETCH:${id}] IN {`);
-    console.log(
-      `  email: '${email.replace(/(.{2}).+(@.*)/, "$1***$2")}',\n  host: '${host}',\n  port: ${num(
-        port,
-        993
-      )},\n  tls: ${!!tls},\n  authType: '${authType}',\n  mode: '${monthMode ? "month" : "range"}',`
-    );
-    console.log(
-      `  monthStart: ${monthMode ? `'${monthStart}'` : "null"},\n  monthEnd: ${
-        monthMode ? `'${monthEnd}'` : "null"
-      },\n  rangeDays: ${rangeN ?? "null"},\n  limit: ${num(limit, 20)},\n  cursor: ${
-        cursor ? "true" : "false"
-      },\n  query: '${String(query || "").slice(0, 80)}'`
-    );
-    console.log(`}`);
-
-    console.log(`[FETCH:${id}] tier=${tier} paid=${paid}`);
-    console.log(
-      `[FETCH:${id}] window { mode: '${monthMode ? "month" : "range"}', monthStart: ${
-        monthMode ? `'${monthStart}'` : "null"
-      }, monthEnd: ${monthMode ? `'${monthEnd}'` : "null"}, rangeDays: ${rangeN ?? "undefined"}, limit: ${num(
-        limit,
-        20
-      )} }`
-    );
-    if (fullBodies) console.log(`[FETCH:${id}] fullBodies=true`);
-
-    // Run the IMAP fetch (+ classification)
-    const t0 = Date.now();
-    const out = await listAndClassify({
-      auth: { authType, email, password, accessToken },
-      conn: { host, port: num(port, 993), tls: !!tls },
-      window: monthMode
-        ? { mode: "month", monthStart, monthEnd }
-        : { mode: "range", rangeDays: rangeN },
-      page: { limit: Math.max(1, num(limit, 20)), cursor: cursor || null },
-      want: {
-        preview: !!includePreview,
-        snippet: !!includeSnippet,
-        body: !!includeBody || fullBodies, // <- ensures bodies are returned when requested
-        fullBodies, // <- pass through so the service chooses BODY[] strategy
-      },
-      query: String(query || ""),
-      paid,
+    // Call service
+    const result = await listAndClassify({
+      email,
+      password,
+      host,
+      port: asNum(port, 993),
+      tls: asBool(tls, true),
+      authType,
+      accessToken,
+      // window
+      monthStart: windowDesc.monthStart,
+      monthEnd: windowDesc.monthEnd,
+      rangeDays: windowDesc.rangeDays,
+      limit: windowDesc.limit,
+      cursor,
+      query,
+      // content knobs
+      includePreview,
+      includeSnippet,
+      includeBody,
+      // FORCE full bodies in month mode; honor client flag for range
+      fullBodies: monthMode ? true : !!fullBodies,
+      // optional meta
+      userEmail,
+      licenseKey
     });
 
-    const ms = Date.now() - t0;
+    const emails = Array.isArray(result?.emails) ? result.emails : [];
+    const nextCursor = result?.nextCursor ?? null;
+    const hasMore = !!nextCursor;
 
-    // Basic counters for logs
     console.log(
-      `[FETCH:${id}] fetched=${(out && out.count) || (out && out.emails && out.emails.length) || 0} nextCursor=${
-        out && out.nextCursor ? "true" : "false"
-      } hasMore=${out && out.hasMore ? "true" : "false"}`
-    );
-    console.log(`[FETCH:${id}] classified=${out && out.emails ? out.emails.length : 0}`);
-    console.log(
-      `[FETCH:${id}] OUT { returned: ${out && out.emails ? out.emails.length : 0}, nextCursor: ${
-        out && out.nextCursor ? "true" : "false"
-      }, notice: ${out && out.notice ? "true" : "false"}, ms: ${ms} }`
+      `[FETCH:${short}] fetched=${emails.length} nextCursor=${!!nextCursor} hasMore=${hasMore}`
     );
 
-    return res.json({
-      emails: out.emails || [],
-      nextCursor: out.nextCursor || null,
-      hasMore: !!out.hasMore,
-      tier,
-      notice: out.notice || null,
-    });
+    // Pass through tier/notice if provided
+    const out = {
+      emails,
+      nextCursor,
+      notice: result?.notice || false,
+      tier: result?.tier || undefined,
+      isPaid: !!result?.isPaid
+    };
+
+    console.log(
+      `[FETCH:${short}] OUT`,
+      { returned: emails.length, nextCursor: !!nextCursor, notice: !!out.notice, ms: Date.now() - t0 }
+    );
+
+    return res.json(out);
   } catch (err) {
-    console.error(`[FETCH:${id}] ERROR`, err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: err?.message || "Server error" });
+    console.error(`[FETCH:${short}] ERROR`, err);
+    const msg =
+      err?.message ||
+      (typeof err === "string" ? err : "Failed to fetch/classify emails");
+    return res.status(500).json({ error: msg });
   }
 });
 
-/* -----------------------------------------
-   POST /api/imap/bodyBatch
-   Body: {
-     ids: number[] (UIDs),
-     // same auth + connection as /fetch
-     email,password,accessToken,host,port,tls,authType,
-     // window hints (optional): monthStart/End or rangeDays
-   }
------------------------------------------ */
+// ----- POST /api/imap/bodyBatch ----------------------------------------------
+// Fetch **full bodies** for a set of IMAP UIDs (or ids)
 router.post("/bodyBatch", async (req, res) => {
-  const id = tag();
   try {
     const {
       ids = [],
       email = "",
       password = "",
-      accessToken = "",
       host = "",
       port = 993,
       tls = true,
       authType = "password",
-
+      accessToken = "",
       monthStart = null,
       monthEnd = null,
-      rangeDays = null,
+      rangeDays = null
     } = req.body || {};
 
-    const uids = (Array.isArray(ids) ? ids : []).map((v) => Number(v)).filter((n) => Number.isFinite(n));
-
-    if (!uids.length) return res.json({ items: [] });
-
-    console.log(`[BATCH:${id}] ids=${uids.length} host=${host}`);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids (array) is required" });
+    }
 
     const items = await fetchBodiesByUid({
-      auth: { authType, email, password, accessToken },
-      conn: { host, port: num(port, 993), tls: !!tls },
-      window: monthStart && monthEnd
-        ? { mode: "month", monthStart, monthEnd }
-        : rangeDays != null
-        ? { mode: "range", rangeDays: num(rangeDays, 30) }
-        : null,
-      uids,
-      preferHtml: true,
-      preferPlain: true,
+      ids,
+      email,
+      password,
+      host,
+      port: asNum(port, 993),
+      tls: asBool(tls, true),
+      authType,
+      accessToken,
+      monthStart: monthStart || undefined,
+      monthEnd: monthEnd || undefined,
+      rangeDays: rangeDays == null ? undefined : asNum(rangeDays, 30)
     });
 
-    return res.json({ items: items || [] });
+    return res.json({ items: Array.isArray(items) ? items : [] });
   } catch (err) {
-    console.error(`[BATCH:${id}] ERROR`, err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: err?.message || "Server error" });
+    console.error("[bodyBatch] ERROR", err);
+    const msg =
+      err?.message || (typeof err === "string" ? err : "bodyBatch failed");
+    return res.status(500).json({ error: msg });
   }
 });
 
-/* -----------------------------------------
-   POST /api/imap/test  (simple login check)
------------------------------------------ */
+// ----- POST /api/imap/test ----------------------------------------------------
 router.post("/test", async (req, res) => {
-  const id = tag();
   try {
+    const {
+      email = "",
+      password = "",
+      host = "",
+      port = 993,
+      tls = true,
+      authType = "password",
+      accessToken = ""
+    } = req.body || {};
+
     const ok = await testLogin({
-      auth: {
-        authType: req.body?.authType || "password",
-        email: req.body?.email || "",
-        password: req.body?.password || "",
-        accessToken: req.body?.accessToken || "",
-      },
-      conn: {
-        host: req.body?.host || "",
-        port: num(req.body?.port, 993),
-        tls: !!req.body?.tls,
-      },
+      email,
+      password,
+      host,
+      port: asNum(port, 993),
+      tls: asBool(tls, true),
+      authType,
+      accessToken
     });
+
     return res.json({ ok: !!ok });
   } catch (err) {
-    console.error(`[TEST:${id}] ERROR`, err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: err?.message || "Login failed" });
+    console.error("[TEST] ERROR", err);
+    const msg = err?.message || "Login failed";
+    return res.status(401).json({ ok: false, error: msg });
   }
 });
 
-/* -----------------------------------------
-   POST /api/imap/tier  (stub – make real if you have billing)
------------------------------------------ */
+// ----- POST /api/imap/tier ----------------------------------------------------
+// Keep simple: if a non-empty licenseKey is present, mark as premium
 router.post("/tier", async (req, res) => {
-  return res.json({ tier: "premium", isPaid: true });
+  try {
+    const { email = "", licenseKey = "" } = req.body || {};
+    const isPaid = !!String(licenseKey || "").trim();
+    const tier = isPaid ? "premium" : "free";
+    return res.json({
+      tier,
+      isPaid,
+      notice: isPaid ? null : "Free plan limits may apply."
+    });
+  } catch {
+    return res.json({ tier: "free", isPaid: false });
+  }
+});
+
+// ----- POST /api/imap/feedback ------------------------------------------------
+// Accept importance/category feedback; you can wire this to your DB later.
+router.post("/feedback", async (req, res) => {
+  try {
+    const { ownerEmail, licenseKey, fromEmail, fromDomain, label, category } =
+      req.body || {};
+    console.log("[feedback]", {
+      ownerEmail,
+      hasKey: !!licenseKey,
+      fromEmail,
+      fromDomain,
+      label,
+      category
+    });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e?.message || "error" });
+  }
 });
 
 export default router;
