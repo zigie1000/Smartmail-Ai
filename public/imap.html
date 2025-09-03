@@ -1248,8 +1248,10 @@ function renderFullPreview(email) {
   const pv = document.getElementById(`pv-${email.id}`);
   if (!pv) return;
 
+  // clear previous
   pv.innerHTML = "";
 
+  // pick best body
   const html =
         email.html ||
         email.htmlBody ||
@@ -1262,32 +1264,115 @@ function renderFullPreview(email) {
         email.textPlain ||
         email.plain;
 
+  // helper: mark hydrated once we inject something
   const markFull = () => { try { pv.dataset.full = "1"; } catch(_){} };
 
+  // If we have HTML, sandbox it and autosize continuously
   if (html && /\S/.test(html)) {
     const iframe = document.createElement("iframe");
     // allow links in the email to open new tabs; scripts remain blocked
-     iframe.setAttribute("sandbox", "allow-same-origin allow-popups");
+    iframe.setAttribute("sandbox", "allow-same-origin allow-popups");
     iframe.style.width = "100%";
     iframe.style.border = "none";
     iframe.style.background = "#fff";
+    // initial minimal height to avoid 0
     iframe.style.height = "300px";
     pv.appendChild(iframe);
 
+    // --- robust autosizer helpers ---
+    let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
+
+    const measure = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+        const h = Math.max(
+          doc.body?.scrollHeight || 0,
+          doc.documentElement?.scrollHeight || 0
+        );
+        if (h && h !== lastH) {
+          lastH = h;
+          iframe.style.height = h + "px";
+        }
+      } catch {}
+    };
+
+    const imagesHook = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+        const imgs = doc.images || [];
+        for (const img of imgs) {
+          if (img.complete) continue;
+          img.addEventListener("load",  measure, { passive:true });
+          img.addEventListener("error", measure, { passive:true });
+        }
+      } catch {}
+    };
+
+    const startAutosize = () => {
+      measure();
+      imagesHook();
+
+      // a few quick ticks for initial paint & late CSS
+      iv = setInterval(() => {
+        ticks++;
+        measure();
+        if (ticks > 30) { // ~3s @ 100ms
+          clearInterval(iv); iv = null;
+        }
+      }, 100);
+
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+        // ResizeObserver on body if supported
+        if (window.ResizeObserver && doc?.body) {
+          ro = new ResizeObserver(measure);
+          ro.observe(doc.body);
+        }
+
+        // MutationObserver for dynamic DOM changes
+        if (window.MutationObserver && doc) {
+          mo = new MutationObserver(measure);
+          mo.observe(doc, { childList:true, subtree:true, attributes:true, characterData:true });
+        }
+
+        // Fonts ready → remeasure
+        if (doc?.fonts && doc.fonts.ready) {
+          doc.fonts.ready.then(measure).catch(()=>{});
+        }
+      } catch {}
+    };
+
+    // Register the load handler BEFORE setting srcdoc (Safari timing guard)
+    const onLoad = () => {
+      startAutosize();
+      setTimeout(measure, 800);
+      setTimeout(measure, 1600);
+      setTimeout(measure, 3000);   // late nudge for mobile Safari
+    };
+    iframe.addEventListener("load", onLoad, { once: true });
+
+    // Prefer srcdoc (safer than doc.write in many hosts)
+    // Add a base to ensure relative urls open in new tab and don’t break layout
     const srcdoc = `
 <!doctype html>
-<html><head>
-<meta charset="utf-8">
-<base target="_blank">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  html,body{margin:0;padding:8px 10px;box-sizing:border-box}
-  img,iframe,video{max-width:100%;height:auto}
-  table{max-width:100%;border-collapse:collapse}
-  body{background:#fff;color:#111;line-height:1.45;font-size:14px}
-  a{word-break:break-word}
-</style>
-</head><body>${String(html)}</body></html>`;
+<html>
+<head>
+  <meta charset="utf-8">
+  <base target="_blank">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html,body{margin:0;padding:8px 10px;box-sizing:border-box}
+    img,iframe,video{max-width:100%;height:auto}
+    table{max-width:100%;border-collapse:collapse}
+    body{background:#fff;color:#111;line-height:1.45;font-size:14px}
+    a{word-break:break-word}
+  </style>
+</head>
+<body>${String(html)}</body>
+</html>`.trim();
 
     try { iframe.srcdoc = srcdoc; }
     catch {
@@ -1295,46 +1380,14 @@ function renderFullPreview(email) {
       doc.open(); doc.write(srcdoc); doc.close();
     }
 
-    // robust autosize
-    let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
-    const measure = () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        const h = Math.max(doc.body?.scrollHeight||0, doc.documentElement?.scrollHeight||0);
-        if (h && h !== lastH) { lastH = h; iframe.style.height = h + "px"; }
-      } catch {}
-    };
-    const imagesHook = () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        for (const img of doc.images || []) {
-          if (img.complete) continue;
-          img.addEventListener("load", measure, { passive:true });
-          img.addEventListener("error", measure, { passive:true });
-        }
-      } catch {}
-    };
-    const startAutosize = () => {
-      measure(); imagesHook();
-      iv = setInterval(() => { ticks++; measure(); if (ticks > 30) { clearInterval(iv); iv = null; } }, 100);
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        if (window.ResizeObserver && doc?.body) { ro = new ResizeObserver(measure); ro.observe(doc.body); }
-        if (window.MutationObserver && doc) { mo = new MutationObserver(measure); mo.observe(doc, { childList:true, subtree:true, attributes:true, characterData:true }); }
-        if (doc?.fonts?.ready) doc.fonts.ready.then(measure).catch(()=>{});
-      } catch {}
-    };
-    iframe.addEventListener("load", () => {
-  startAutosize();
-  setTimeout(measure, 800);
-  setTimeout(measure, 1600);
-  setTimeout(measure, 3000);   // ← B: late nudge for mobile Safari
-}, { once: true });
+    // Safety: start even if 'load' was missed/too-early
+    setTimeout(onLoad, 200);
 
     markFull();
     return;
   }
 
+  // Plain-text fallback
   if (text && /\S/.test(text)) {
     const pre = document.createElement("pre");
     pre.textContent = String(text);
@@ -1345,6 +1398,7 @@ function renderFullPreview(email) {
     return;
   }
 
+  // last resort: snippet
   const fallback =
         email.snippet ||
         email.preview ||
