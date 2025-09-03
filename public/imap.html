@@ -1231,15 +1231,12 @@ async function ensureFullById(id){
 /* === NEW: render full preview into the preview mount === */
 function renderFullPreview(email) {
   const pv = document.getElementById(`pv-${email.id}`);
-  if (!pv) {
-    console.warn("Preview mount missing for id", email.id);
-    return;
-  }
+  if (!pv) return;
 
-  // clear any previous snippet
+  // clear previous
   pv.innerHTML = "";
 
-  // Prefer HTML if present; fallback to plain text
+  // pick best body
   const html =
     email.html ||
     email.htmlBody ||
@@ -1252,39 +1249,147 @@ function renderFullPreview(email) {
     email.textPlain ||
     email.plain;
 
+  // helper: mark hydrated once we inject something
+  const markFull = () => { try { pv.dataset.full = "1"; } catch(_){} };
+
+  // If we have HTML, sandbox it and autosize continuously
   if (html && /\S/.test(html)) {
-    // render HTML in sandboxed iframe (isolates email CSS)
     const iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-same-origin"); // style/layout ok, scripts blocked
     iframe.style.width = "100%";
     iframe.style.border = "none";
     iframe.style.background = "#fff";
+    // initial minimal height to avoid 0
+    iframe.style.height = "300px";
     pv.appendChild(iframe);
 
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.open();
-    doc.write(String(html));
-    doc.close();
+    // Prefer srcdoc (safer than doc.write in many hosts)
+    // Add a base to ensure relative urls open in new tab and don’t break layout
+    const srcdoc = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <base target="_blank">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html,body{margin:0;padding:8px 10px;box-sizing:border-box}
+    img,iframe,video{max-width:100%;height:auto}
+    table{max-width:100%;border-collapse:collapse}
+    body{background:#fff;color:#111;line-height:1.45;font-size:14px}
+    a{word-break:break-word}
+  </style>
+</head>
+<body>${String(html)}</body>
+</html>`;
+    try { iframe.srcdoc = srcdoc; }
+    catch { // fallback for odd browsers
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      doc.open(); doc.write(srcdoc); doc.close();
+    }
 
-    // auto-size iframe to content
-    const resize = () => {
+    // Robust autosizer
+    const start = Date.now();
+    let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
+
+    function measure() {
       try {
-        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-        iframe.style.height = (h || 300) + "px";
-      } catch (_) {}
-    };
-    iframe.onload = resize;
-    setTimeout(resize, 30);
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+        const h = Math.max(
+          doc.body?.scrollHeight || 0,
+          doc.documentElement?.scrollHeight || 0
+        );
+        if (h && h !== lastH) {
+          lastH = h;
+          iframe.style.height = h + "px";
+        }
+      } catch {}
+    }
+
+    function imagesHook() {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+        const imgs = doc.images || [];
+        for (const img of imgs) {
+          if (img.complete) continue;
+          img.addEventListener("load", measure, { passive: true });
+          img.addEventListener("error", measure, { passive: true });
+        }
+      } catch {}
+    }
+
+    function startAutosize() {
+      measure();
+      imagesHook();
+
+      // 1) A few rapid ticks for first paint & late CSS
+      iv = setInterval(() => {
+        ticks++;
+        measure();
+        if (ticks > 30) { // ~3s @ 100ms
+          clearInterval(iv); iv = null;
+        }
+      }, 100);
+
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+        // 2) ResizeObserver on body if supported
+        if (window.ResizeObserver && doc?.body) {
+          ro = new ResizeObserver(measure);
+          ro.observe(doc.body);
+        }
+
+        // 3) MutationObserver for dynamic DOM changes
+        if (window.MutationObserver && doc) {
+          mo = new MutationObserver(measure);
+          mo.observe(doc, { childList: true, subtree: true, attributes: true, characterData: true });
+        }
+
+        // 4) Fonts ready → remeasure
+        if (doc?.fonts && doc.fonts.ready) {
+          doc.fonts.ready.then(measure).catch(()=>{});
+        }
+      } catch {}
+    }
+
+    // kick once the iframe DOM is ready
+    iframe.addEventListener("load", () => {
+      startAutosize();
+      // one more delayed pass to catch late images
+      setTimeout(measure, 800);
+      setTimeout(measure, 1600);
+    }, { once: true });
+
+    // safety: also trigger after a short delay if 'load' didn’t fire (rare)
+    setTimeout(startAutosize, 200);
+
+    markFull();
     return;
   }
 
+  // Plain-text fallback
   if (text && /\S/.test(text)) {
     const pre = document.createElement("pre");
     pre.textContent = String(text);
     pre.style.whiteSpace = "pre-wrap";
     pre.style.fontSize = "14px";
     pv.appendChild(pre);
+    markFull();
     return;
   }
+
+  // last resort: snippet
+  const fallback =
+    email.snippet ||
+    email.preview ||
+    email.bodySnippet ||
+    "(no body available)";
+  pv.textContent = String(fallback);
+  markFull();
+}
 
   // last resort: snippet/preview fallback
   const fallback =
