@@ -1,5 +1,5 @@
 // imapRoutes.js — IMAP fetch/classify with tier check, month/range, cursor paging,
-// VIP & weights, PLUS user overrides (learning) that refine future classifications.
+// VIP & weights, user overrides, and detailed server-side logging.
 import express from 'express';
 import crypto from 'crypto';
 import { ImapFlow } from 'imapflow';
@@ -20,6 +20,10 @@ const router = express.Router();
 const sha256 = (s) => crypto.createHash('sha256').update(String(s || '')).digest('hex');
 const userIdFromEmail = (email) => sha256(String(email).trim().toLowerCase());
 const isLikelyEmail = (s) => typeof s === 'string' && /\S+@\S+\.\S+/.test(s);
+
+// --- logging helpers ---
+const rid = () => Math.random().toString(36).slice(2, 7);
+const maskEmail = (e='') => String(e).replace(/(^.).+(@.*)$/, '$1***$2');
 
 function rowsToSet(rows, key) {
   return new Set((rows || [])
@@ -195,15 +199,46 @@ router.post('/fetch', async (req, res) => {
       query = ''
     } = req.body || {};
 
+    const reqId = rid();
+    const t0 = Date.now();
+    console.log(`[FETCH:${reqId}] IN`, {
+      email: maskEmail(email), host, port, tls, authType,
+      mode: (String(monthStart||'') && String(monthEnd||'')) ? 'month' : 'range',
+      monthStart: monthStart || null,
+      monthEnd:   monthEnd   || null,
+      rangeDays:  qRangeDays ?? null,
+      limit:      qLimit     ?? null,
+      cursor: !!cursor,
+      query
+    });
+
     if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
 
     const safeEmail = isLikelyEmail(email) ? email : '';
     const tier = await getTier({ licenseKey, email: safeEmail });
     const paid = await isPaid(tier);
 
-    const userId = userIdFromEmail(safeEmail || 'anon');
-    const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
+    // Date selection (server truth)
+    const msStr = String(monthStart || '').trim();
+    const meStr = String(monthEnd   || '').trim();
+    const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
+    const useMonth = isValidISO(msStr) && isValidISO(meStr);
 
+    const capped = applyFreeCapsIfNeeded(tier, qRangeDays, qLimit);
+    const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
+    const limit = Math.max(1, Number(capped.limit) || 20);
+
+    console.log(`[FETCH:${reqId}] tier=${tier} paid=${paid}`);
+    console.log(`[FETCH:${reqId}] window`, {
+      mode: useMonth ? 'month' : 'range',
+      monthStart: useMonth ? msStr : null,
+      monthEnd:   useMonth ? meStr : null,
+      rangeDays:  useMonth ? null  : rangeDays,
+      limit
+    });
+
+    // Free throttle
+    const userId = userIdFromEmail(safeEmail || 'anon');
     if (capped.isFree && capped.minFetchMs > 0) {
       const now = Date.now();
       const last = lastFetchAt.get(userId) || 0;
@@ -221,43 +256,14 @@ router.post('/fetch', async (req, res) => {
       if (!accessToken) return res.status(400).json({ error: 'XOAUTH2 requires accessToken' });
     }
 
-    // Date selection
-    const msStr = String(monthStart || '').trim();
-    const meStr = String(monthEnd   || '').trim();
-    const isValidISO = (s) => !!s && !Number.isNaN(Date.parse(s));
-    const useMonth = isValidISO(msStr) && isValidISO(meStr);
-
-    const rangeDays = useMonth ? undefined : Math.max(0, Number(capped.rangeDays) || 0);
-    const limit = Math.max(1, Number(capped.limit) || 20);
-
-    // helpful logs
-    const tag = Math.random().toString(36).slice(2,7);
-    console.log(`[FETCH:${tag}] IN`, {
-      email: safeEmail.replace(/(.{2}).+(@.+)/, '$1***$2'),
-      host, port, tls, authType,
-      mode: useMonth ? 'month' : 'range',
-      monthStart: useMonth ? msStr : null,
-      monthEnd:   useMonth ? meStr : null,
-      rangeDays:  useMonth ? null : rangeDays,
-      limit, cursor: !!cursor, query
-    });
-    console.log(`[FETCH:${tag}] tier=${tier} paid=${paid}`);
-    console.log(`[FETCH:${tag}] window`, {
-      mode: useMonth ? 'month' : 'range',
-      monthStart: useMonth ? msStr : null,
-      monthEnd:   useMonth ? meStr : null,
-      rangeDays:  useMonth ? null : rangeDays,
-      limit
-    });
-
-    // Lists (VIP, weights…)
+    // Lists (VIP, weights, etc.)
     const lists = paid
       ? await fetchListsFromSql(userId)
       : { vip:new Set(), legal:new Set(), government:new Set(), bulk:new Set(),
           weights:{ email:new Map(), domain:new Map() } };
-    console.log(`[FETCH:${tag}] lists: vip=${lists.vip.size} legal=${lists.legal.size} bulk=${lists.bulk.size}`);
+    console.log(`[FETCH:${reqId}] lists: vip=${(lists.vip||new Set()).size} legal=${(lists.legal||new Set()).size} bulk=${(lists.bulk||new Set()).size}`);
 
-    // Fetch from IMAP
+    // Fetch
     const { items, nextCursor, hasMore } = await fetchEmails({
       email: safeEmail, password, accessToken, host, port, tls, authType,
       monthStart: useMonth ? msStr : undefined,
@@ -267,11 +273,11 @@ router.post('/fetch', async (req, res) => {
       cursor,
       query,
       vipSenders: Array.from(lists.vip),
-      // ALWAYS full bodies in Month; Range honors client flag
       fullBodies: useMonth ? true : !!req.body.fullBodies
     });
+    console.log(`[FETCH:${reqId}] fetched=${Array.isArray(items)?items.length:0} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
 
-    // Stage 2 classifier
+    // Classify
     const norm = normalizeForClassifier(items);
     let cls = [];
     try {
@@ -281,8 +287,9 @@ router.post('/fetch', async (req, res) => {
       console.warn('classifyEmails failed:', err?.message || err);
       cls = [];
     }
+    console.log(`[FETCH:${reqId}] classified=${Array.isArray(cls)?cls.length:0}`);
 
-    // Merge base + classifier + VIP
+    // Merge + overrides
     let merged = norm.map((it, i) => ({
       ...it,
       ...(cls[i] || {}),
@@ -291,14 +298,12 @@ router.post('/fetch', async (req, res) => {
         lists.vip.has((it.fromDomain || '').toLowerCase())
     }));
 
-    // Apply overrides
     const overrides = paid ? await fetchOverridesFromSql(userId) : { byEmail: new Map(), byDomain: new Map() };
     merged = merged.map(m => {
       const emailKey = (m.fromEmail || '').toLowerCase();
       const domainKey = (m.fromDomain || '').toLowerCase();
       const o = overrides.byEmail.get(emailKey) || overrides.byDomain.get(domainKey) || null;
       if (!o) return m;
-
       const out = { ...m };
       if (o.category) out.category = out.intent = o.category;
       if (o.forceImportant) out.importance = 'important';
@@ -311,10 +316,12 @@ router.post('/fetch', async (req, res) => {
       ? 'Free plan: up to 20 emails from the last 7 days. Upgrade for learning and overrides.'
       : null;
 
-    console.log(`[FETCH:${tag}] fetched=${items.length} nextCursor=${!!nextCursor} hasMore=${!!hasMore}`);
-    console.log(`[FETCH:${tag}] classified=${merged.length}`);
-    console.log(`[FETCH:${tag}] OUT`, { returned: merged.length, nextCursor: !!nextCursor, notice: !!notice });
-
+    console.log(`[FETCH:${reqId}] OUT`, {
+      returned: merged.length,
+      nextCursor: !!nextCursor,
+      notice: !!notice,
+      ms: Date.now() - t0
+    });
     res.json({ emails: merged, nextCursor: nextCursor || null, hasMore: !!hasMore, tier, notice });
   } catch (e) {
     console.error('IMAP /fetch error:', e?.message || e);
@@ -349,8 +356,17 @@ router.post('/bodyBatch', async (req, res) => {
     ids = []
   } = req.body || {};
 
+  const bbId = rid();
+  console.log(`[BODYBATCH:${bbId}] IN`, {
+    email: maskEmail(email), host, port, tls, authType,
+    idsCount: Array.isArray(ids) ? ids.length : 0
+  });
+
   if (!email || !host) return res.status(400).json({ error: 'email and host are required' });
-  if (!Array.isArray(ids) || ids.length === 0) return res.json({ items: [] });
+  if (!Array.isArray(ids) || ids.length === 0) {
+    console.log(`[BODYBATCH:${bbId}] OUT`, { items: 0 });
+    return res.json({ items: [] });
+  }
 
   const normBool = (v) => v === true || String(v).toLowerCase() === 'true';
   const makeAuth = () => {
@@ -375,8 +391,7 @@ router.post('/bodyBatch', async (req, res) => {
     const uniq = Array.from(new Set(ids.map(x => Number(x)).filter(Number.isFinite)));
     for (const uid of uniq) {
       try {
-        // IMPORTANT: tell ImapFlow that uid is a UID (not seqno)
-        const dl = await client.download(uid, { uid: true });
+        const dl = await client.download(uid, { uid: true }); // UID mode
         if (!dl) continue;
 
         const readable =
@@ -400,6 +415,7 @@ router.post('/bodyBatch', async (req, res) => {
     }
 
     try { await client.logout(); } catch (_) {}
+    console.log(`[BODYBATCH:${bbId}] OUT`, { items: out.length });
     res.json({ items: out });
   } catch (e) {
     try { if (client) await client.logout(); } catch (_) {}
