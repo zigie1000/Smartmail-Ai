@@ -1251,7 +1251,8 @@ function renderFullPreview(email) {
 
   if (html && /\S/.test(html)) {
     const iframe = document.createElement("iframe");
-    iframe.setAttribute("sandbox", "allow-same-origin"); // styles ok, scripts blocked
+    // allow links in the email to open new tabs; scripts remain blocked
+     iframe.setAttribute("sandbox", "allow-same-origin allow-popups");
     iframe.style.width = "100%";
     iframe.style.border = "none";
     iframe.style.background = "#fff";
