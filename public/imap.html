@@ -2281,20 +2281,21 @@ if (!_restored) {
   try {
     // pull full bodies for the cards currently on screen
     await ensureBodiesLoadedFor(ids, { force: true });
-// DEBUG: log how many IDs we’re about to render
-console.log('[hydrateNow] attempting to render', ids.length, 'emails');
-    // render the now-available bodies into each card
+
+    // render / refresh each card
     for (const id of ids) {
       const email = (window.emailList || state.emails || [])
         .find(x => String(x.id) === String(id));
       if (!email) continue;
 
-      // inject full HTML/text into the preview mount
-      renderFullPreview(email);
-
-      // mark card as hydrated so we don't redo it
-      const pv = document.getElementById(`pv-${id}`);
-      if (pv) pv.dataset.full = '1';
+      // Only inject iframe when the preview is actually visible (open).
+      // This avoids big blank gaps in Safari when <details> is closed.
+      const detailsEl = document.querySelector(`details.preview[data-id="${id}"]`);
+      if (detailsEl && detailsEl.open) {
+        renderFullPreview(email);
+        const pv = document.getElementById(`pv-${id}`);
+        if (pv) pv.dataset.full = '1';
+      }
 
       // refresh the collapsed summary text
       const raw = (email.text && email.text.trim())
@@ -2304,7 +2305,7 @@ console.log('[hydrateNow] attempting to render', ids.length, 'emails');
       if (det) det.textContent = `Preview — ${stripAndTrim(raw, 120) || "(no preview available)"}`;
     }
 
-    // only after successful render, mark ids as seen
+    // mark as seen only after success
     ids.forEach(id => SEEN.add(id));
   } catch (_) {
     // ignore; keep cards as-is if something fails
