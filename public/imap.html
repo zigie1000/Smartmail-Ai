@@ -1118,86 +1118,97 @@ function exportCSV(){
 }
 
  // Returns fetched items; updates state/emailList + visible preview text snips.
-async function ensureBodiesLoadedFor(ids) {
-  // normalize input (these are the DISPLAY ids in the UI)
-  const want = Array.from(new Set((ids || []).map(x => String(x).trim()).filter(Boolean)));
-  if (!want.length) return [];
-
-  // current list keyed by display id
-  const list = (window.emailList || state.emails || []);
-  const byId = new Map(list.map(e => [String(e.id), e]));
-
-  // TRANSLATE display ids -> real IMAP UIDs when available
-  const uidWant = want
-    .map(id => {
-      const rec = byId.get(id);
-      // tolerate common uid field names
-      const uid = rec && (rec.uid || rec.imapUid || (rec.uid_validity && rec.uid));
-      return String(uid || id);
-    })
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  // fetch full bodies by UID
-  let items = [];
+async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
   try {
-    items = await bodyBatch(uidWant);
-  } catch (err) {
-    console.warn('[hydrate] bodyBatch failed', err);
-    return [];
-  }
+    console.warn('[ensureBodiesLoadedFor] starting with ids:', ids.map(String));
 
-  // merge results + upgrade visible previews (tolerant id matching)
-  for (const it of (items || [])) {
-    // normalize identifier coming back from server
-    const itemId = String(
-      it.id || it.uid || it.imapUid || it.gmailId || it.messageId || it.msgId
-    ).trim();
-    if (!itemId) continue;
+    // 1) Translate display ids → real IMAP UIDs
+    const list = (window.emailList || state.emails || []);
+    const uidWant = ids
+      .map(id => {
+        const m = list.find(x => String(x.id) === String(id));
+        const uid = m && (m.uid || m.id);
+        const n = Number(uid);
+        return Number.isFinite(n) ? n : null;
+      })
+      .filter(Boolean);
 
-    // find the UI record whose known ids include this itemId
-    const match = list.find(x => {
-      const cand = [x.id, x.uid, x.imapUid, x.gmailId, x.messageId, x.msgId]
-        .map(v => String(v || '').trim());
-      return cand.includes(itemId);
-    });
-    if (!match) continue;
+    console.warn('[ensureBodiesLoadedFor] resolved uidWant:', uidWant);
 
-    const matchId = String(match.id);
-    const e = byId.get(matchId);
-    if (!e) continue;
+    if (!uidWant.length) {
+      console.warn('[ensureBodiesLoadedFor] No UIDs resolved, aborting.');
+      return [];
+    }
 
-    // accept multiple possible body field names from the server
-    const txt  = it.text || it.bodyText || it.textPlain || it.plain;
-    const html = it.html || it.bodyHtml || it.textHtml;
-    const snip = it.snippet || it.preview || it.bodySnippet || it.summary;
-
-    if (typeof txt  === 'string') e.text = txt.trim();
-    if (typeof html === 'string') e.html = html;
-    if (typeof snip === 'string' && !e.snippet) e.snippet = snip;
-
-    // refresh the visible preview
-    const pv = document.getElementById(`pv-${matchId}`);
-    if (pv) {
-      let raw =
-        (e.text && e.text.trim()) ||
-        stripAndTrim(e.html, 180) ||
-        (e.snippet || '');
-
-      if (raw) {
-        pv.textContent = raw;
-
-        // also refresh the collapsed summary text
-        const det = document.querySelector(`details.preview[data-id="${matchId}"] > summary`);
-        if (det) {
-          const short = stripAndTrim(raw, 120);
-          det.textContent = `Preview — ${short || "(no preview available)"}`;
-        }
+    // 2) Skip if already marked full
+    if (!force) {
+      const allFull = uidWant.every(u => {
+        const el = document.getElementById(`pv-${u}`) || document.getElementById(`pv-${String(u)}`);
+        return el && el.dataset.full === '1';
+      });
+      if (allFull) {
+        console.warn('[ensureBodiesLoadedFor] all already marked full, skipping fetch.');
+        return [];
       }
     }
-  }
 
-  return items || [];
+    // 3) call server
+    let items = [];
+    try {
+      items = await bodyBatch(uidWant);
+    } catch (e) {
+      console.warn('[ensureBodiesLoadedFor] bodyBatch threw error:', e);
+      return [];
+    }
+
+    console.warn('[ensureBodiesLoadedFor] bodyBatch returned:',
+      Array.isArray(items) ? items.length : 0, 'items');
+
+    if (!Array.isArray(items) || !items.length) {
+      console.warn('[ensureBodiesLoadedFor] no items to merge, returning empty.');
+      return [];
+    }
+
+    // 4) normalize / merge
+    const byId = Object.create(null);
+    for (const it of items) {
+      const id = String(it.id || it.uid || '');
+      if (!id) {
+        console.warn('[ensureBodiesLoadedFor] skipping item with no id/uid:', it);
+        continue;
+      }
+      const t = typeof it.text === 'string' ? it.text.trim() :
+                typeof it.bodyText === 'string' ? it.bodyText.trim() :
+                typeof it.textPlain === 'string' ? it.textPlain.trim() : '';
+      const h = typeof it.html === 'string' ? it.html.trim() :
+                typeof it.bodyHtml === 'string' ? it.bodyHtml.trim() : '';
+      byId[id] = { ...it, text: t, html: h };
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      const k = String(list[i].id);
+      const got = byId[k];
+      if (!got) continue;
+      if (got.text) list[i].text = got.text;
+      if (got.html) list[i].html = got.html;
+      if (!list[i].snippet) {
+        const raw = (got.text || got.html || '').replace(/<[^>]+>/g, ' ')
+                                               .replace(/\s+/g, ' ')
+                                               .trim();
+        if (raw) list[i].snippet = raw.slice(0, 300);
+      }
+    }
+
+    const merged = ids
+      .map(id => list.find(x => String(x.id) === String(id)))
+      .filter(Boolean);
+
+    console.warn('[ensureBodiesLoadedFor] merged ready for render:', merged.map(x => x.id));
+    return merged;
+  } catch (err) {
+    console.warn('[ensureBodiesLoadedFor] unexpected failure:', err);
+    return [];
+  }
 }
 
 /* === NEW: render full preview into the preview mount === */
