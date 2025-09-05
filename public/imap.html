@@ -1283,19 +1283,24 @@ function renderFullPreview(email) {
     // --- robust autosizer helpers ---
     let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
 
-    const measure = () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        if (!doc) return;
-        const h = Math.max(
-          doc.body?.scrollHeight || 0,
-          doc.documentElement?.scrollHeight || 0
-        );
-        if (h && h !== lastH) {
-          lastH = h;
-          iframe.style.height = h + "px";
-        }
-      } catch {}
+    function measure() {
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!doc) return;
+
+    const body = doc.body, html = doc.documentElement;
+    const h = Math.max(
+      body?.scrollHeight || 0,
+      body?.offsetHeight || 0,
+      html?.scrollHeight || 0,
+      html?.offsetHeight || 0
+    );
+
+    if (h && iframe.style.height !== h + "px") {
+      iframe.style.height = h + "px";
+    }
+  } catch {}
+}
     };
 
     const imagesHook = () => {
