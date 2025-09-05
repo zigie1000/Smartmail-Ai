@@ -1970,6 +1970,9 @@ $("monthClear")?.addEventListener("click", ()=>{
 ["email","password","host","port","tls","range","authType","limit","licenseKey","monthStr"]
   .forEach(id => on(id, "change", saveForm));
 
+   on("email",      "change", checkTier);     // ← re-check tier when Email changes
+on("licenseKey", "change", checkTier);     // ← re-check tier when License changes
+
 // Hide old Range + Month controls (we use the new Mode bar instead)
 (function () {
   function hideOldFilters() {
