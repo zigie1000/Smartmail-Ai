@@ -1021,11 +1021,7 @@ function render(){
   }
   list.innerHTML = items.map(cardHtml).join("");
 
-// kick off background hydration of previews we just mounted
-if (typeof window.__imapHydrateNow === "function") {
-  // let the DOM paint before scanning for pv-* nodes
-  setTimeout(() => window.__imapHydrateNow(), 0);
-}
+
 
 const total = state.view.length;
 $("pageInfo").textContent = `${total} emails`;
