@@ -1559,11 +1559,12 @@ async function checkTier() {
     });
     let data = null; try { data = await resp.json(); } catch {}
     if (resp.ok && data && typeof data.tier === "string") {
-      setTierUI(data.tier || "free", !!data.isPaid);
-      if (data.notice) setMessage("ok", data.notice);
-    } else {
-      setTierUI("free", false);
-    }
+  const isPaid = data.tier.toLowerCase() !== "free" && !!data.active;
+  setTierUI(data.tier || "free", isPaid);
+  if (data.notice) setMessage("ok", data.notice);
+} else {
+  setTierUI("free", false);
+}
   } catch (e) {
     setTierUI("free", false);
   }
