@@ -403,14 +403,21 @@ window.nowDate = function () {
     if(url.includes('/api/imap/fetch') && init && typeof init.body === 'string' && init.body.trim().startsWith('{')){
       try{
         const body = JSON.parse(init.body);
-        if(mMonth.checked && window._monthStartISO && window._monthEndISO){
-          body.monthStart = window._monthStartISO;
-          body.monthEnd   = window._monthEndISO;
-          body.fullBodies = true;   // guarantee full content in month mode
-          delete body.rangeDays;
-        }else{
-          body.rangeDays  = window._rangeDaysActive;
-        }
+            // Decide mode cleanly
+    if (mMonth.checked && window._monthStartISO && window._monthEndISO) {
+      body.mode = "month";
+      body.monthStart = window._monthStartISO;
+      body.monthEnd   = window._monthEndISO;
+      body.fullBodies = true;
+      delete body.rangeDays;   // don’t send rangeDays when month is selected
+    }
+    else if (mRange.checked && window._rangeDaysActive) {
+      body.mode = "range";
+      body.rangeDays = window._rangeDaysActive;
+      body.fullBodies = true;
+      delete body.monthStart;
+      delete body.monthEnd;
+    }
         init.body = JSON.stringify(body);
 
         // Banner echo of what we actually sent
