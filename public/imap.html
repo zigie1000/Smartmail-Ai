@@ -1280,85 +1280,87 @@ function renderFullPreview(email) {
     iframe.style.height = "1px";
     pv.appendChild(iframe);
 
-    // --- robust autosizer helpers ---
-    let lastH = 0, ticks = 0, iv = null, ro = null, mo = null;
+  // --- robust autosizer helpers (place right after pv.appendChild(iframe)) ---
+let lastH = 0;
+let ticks = 0;
+let iv = null, ro = null, mo = null;
 
-    function measure() {
+const measure = () => {
   try {
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    const doc  = iframe.contentDocument || iframe.contentWindow.document;
     if (!doc) return;
-
     const body = doc.body, html = doc.documentElement;
     const h = Math.max(
-      body?.scrollHeight || 0,
-      body?.offsetHeight || 0,
-      html?.scrollHeight || 0,
-      html?.offsetHeight || 0
+      body?.scrollHeight  || 0,
+      body?.offsetHeight  || 0,
+      html?.scrollHeight  || 0,
+      html?.offsetHeight  || 0
     );
-
-    if (h && iframe.style.height !== h + "px") {
+    if (h && h !== lastH) {
+      lastH = h;
       iframe.style.height = h + "px";
     }
   } catch {}
-}
-    };
+};
 
-    const imagesHook = () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        if (!doc) return;
-        const imgs = doc.images || [];
-        for (const img of imgs) {
-          if (img.complete) continue;
-          img.addEventListener("load",  measure, { passive:true });
-          img.addEventListener("error", measure, { passive:true });
-        }
-      } catch {}
-    };
+const imagesHook = () => {
+  try {
+    const doc  = iframe.contentDocument || iframe.contentWindow.document;
+    if (!doc) return;
+    const imgs = doc.images || [];
+    for (const img of imgs) {
+      if (img.complete) continue;
+      img.addEventListener("load",  measure, { passive:true });
+      img.addEventListener("error", measure, { passive:true });
+    }
+  } catch {}
+};
 
-    const startAutosize = () => {
-      measure();
-      imagesHook();
+const startAutosize = () => {
+  measure();
+  imagesHook();
 
-      // a few quick ticks for initial paint & late CSS
-      iv = setInterval(() => {
-        ticks++;
-        measure();
-        if (ticks > 30) { // ~3s @ 100ms
-          clearInterval(iv); iv = null;
-        }
-      }, 100);
+  // a few quick ticks for first paint & late CSS
+  iv = setInterval(() => {
+    ticks++;
+    measure();
+    if (ticks > 30) { // ~3s @ 100ms
+      clearInterval(iv);
+      iv = null;
+    }
+  }, 100);
 
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
 
-        // ResizeObserver on body if supported
-        if (window.ResizeObserver && doc?.body) {
-          ro = new ResizeObserver(measure);
-          ro.observe(doc.body);
-        }
+    // ResizeObserver on body if supported
+    if (window.ResizeObserver && doc?.body) {
+      ro = new ResizeObserver(measure);
+      ro.observe(doc.body);
+    }
 
-        // MutationObserver for dynamic DOM changes
-        if (window.MutationObserver && doc) {
-          mo = new MutationObserver(measure);
-          mo.observe(doc, { childList:true, subtree:true, attributes:true, characterData:true });
-        }
+    // MutationObserver for dynamic DOM changes
+    if (window.MutationObserver && doc) {
+      mo = new MutationObserver(measure);
+      mo.observe(doc, { childList:true, subtree:true, attributes:true, characterData:true });
+    }
 
-        // Fonts ready → remeasure
-        if (doc?.fonts && doc.fonts.ready) {
-          doc.fonts.ready.then(measure).catch(()=>{});
-        }
-      } catch {}
-    };
+    // Fonts ready → remeasure
+    if (doc?.fonts && doc.fonts.ready) {
+      doc.fonts.ready.then(measure).catch(()=>{});
+    }
+  } catch {}
+};
 
-    // Register the load handler BEFORE setting srcdoc (Safari timing guard)
-    const onLoad = () => {
-      startAutosize();
-      setTimeout(measure, 800);
-      setTimeout(measure, 1600);
-      setTimeout(measure, 3000);   // late nudge for mobile Safari
-    };
-    iframe.addEventListener("load", onLoad, { once: true });
+// Register the load handler BEFORE setting srcdoc (Safari timing guard)
+const onLoad = () => {
+  startAutosize();
+  setTimeout(measure,  800);
+  setTimeout(measure, 1600);
+  setTimeout(measure, 3000); // late nudge on mobile Safari
+};
+iframe.addEventListener("load", onLoad, { once:true });
+// --- end autosizer helpers ---
 
     // Prefer srcdoc (safer than doc.write in many hosts)
     // Add a base to ensure relative urls open in new tab and don’t break layout
