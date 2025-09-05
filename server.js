@@ -540,6 +540,54 @@ app.post('/api/license/check', async (req, res) => {
   }
 });
 
+// --- alias for legacy front-end call used by imap.html ---
+app.post('/api/imap/tier', async (req, res) => {
+  try {
+    const emailRaw = (req.body?.email || '').trim().toLowerCase();
+    const licenseKeyRaw = (req.body?.licenseKey || '').trim();
+    if (!emailRaw && !licenseKeyRaw) {
+      return res.json({ tier: 'free', isPaid: false });
+    }
+
+    let row = null;
+
+    // prefer key lookup
+    if (licenseKeyRaw) {
+      const byKey = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, status, created_at')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      row = byKey.data || null;
+    }
+
+    // fallback to latest by email
+    if (!row && emailRaw) {
+      const byEmail = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, status, created_at')
+        .eq('email', emailRaw)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row = byEmail.data || null;
+    }
+
+    if (!row) return res.json({ tier: 'free', isPaid: false });
+
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? (expiresAt > new Date()) : (row.status === 'active' || row.status === 'paid'));
+
+    return res.json({ tier, isPaid: active && tier !== 'free' });
+  } catch (e) {
+    console.error('/api/imap/tier error:', e?.message || e);
+    return res.json({ tier: 'free', isPaid: false });
+  }
+});
+
 app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 // ---------- START ----------
