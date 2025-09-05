@@ -1552,7 +1552,7 @@ async function checkTier() {
     const email = ($("email")?.value || localStorage.getItem("userEmail") || "").trim();
     const licenseKey = ($("licenseKey")?.value || localStorage.getItem("smartemail.licenseKey") || localStorage.getItem("licenseKey") || "").trim();
     if (!email && !licenseKey) { setTierUI("free", false); return; }
-    const resp = await fetch("/api/imap/tier", {
+    const resp = await fetch("/api/license/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, licenseKey })
