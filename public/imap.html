@@ -2333,33 +2333,21 @@ if (!_restored) {
   }
 }
 
-// expose for render()
+// expose for render
 window.__imapHydrateNow = hydrateNow;
-   
-  function schedule() {
-    if (timer) return;
-    timer = setTimeout(hydrateNow, 120);
-  }
 
-  window.addEventListener('load', schedule);
+function schedule() {
+  if (timer) return;
+  timer = setTimeout(hydrateNow, 120);
+}
 
-  const mo = new MutationObserver((muts) => {
-    for (const m of muts) {
-      if (m.addedNodes && m.addedNodes.length) { schedule(); break; }
-    }
-  });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+// (auto-hydration hooks removed:
+//  - window.addEventListener('load', schedule)
+//  - MutationObserver that called schedule()
+//  - renderEmails() wrapper that called schedule()
+)
 
-  if (typeof window.renderEmails === 'function') {
-    const orig = window.renderEmails;
-    window.renderEmails = function () {
-      const r = orig.apply(this, arguments);
-      schedule();
-      return r;
-    };
-  }
 })();
 </script>
-
 </body>
 </html>
