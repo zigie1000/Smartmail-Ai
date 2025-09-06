@@ -1222,12 +1222,26 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
       byId[id] = { ...it, text: t, html: h };
     }
 
-    for (let i = 0; i < list.length; i++) {
-      const k = String(list[i].id);
-      const got = byId[k];
-      if (!got) continue;
-      if (got.text) list[i].text = got.text;
-      if (got.html) list[i].html = got.html;
+
+// inside ensureBodiesLoadedFor(), in the merge loop:
+for (let i = 0; i < list.length; i++) {
+  const k   = String(list[i].id);
+  const got = byId[k];
+  if (!got) continue;
+
+  if (got.text) list[i].text = got.text;
+  if (got.html) list[i].html = got.html;
+
+  // OPTIONAL CLEANUP: fill snippet if missing (safe, trimmed)
+  if (!list[i].snippet) {
+    const raw = (got.text || got.html || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (raw) list[i].snippet = raw.slice(0, 300);
+  }
+}
+       
       if (!list[i].snippet) {
         const raw = (got.text || got.html || '')
           .replace(/<[^>]+>/g, ' ')
