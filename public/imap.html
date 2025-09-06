@@ -2319,14 +2319,6 @@ if (!_restored) {
         .find(x => String(x.id) === String(id));
       if (!email) continue;
 
-      // Only inject iframe when the preview is actually visible (open).
-      // This avoids big blank gaps in Safari when <details> is closed.
-      const detailsEl = document.querySelector(`details.preview[data-id="${id}"]`);
-      if (detailsEl && detailsEl.open) {
-        renderFullPreview(email);
-        const pv = document.getElementById(`pv-${id}`);
-        if (pv) pv.dataset.full = '1';
-      }
 
       // After bodies arrive, promote real body text into the collapsed summary ONCE
 {
