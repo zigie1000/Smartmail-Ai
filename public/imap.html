@@ -2305,12 +2305,15 @@ if (!_restored) {
   }
 
   async function hydrateNow() {
+  // reset throttle timer
   timer = 0;
+
+  // collect up to N preview mounts that aren't hydrated yet
   const ids = collectIds(20);
   if (!ids.length) return;
 
   try {
-    // pull full bodies for the cards currently on screen
+    // always fetch full bodies
     await ensureBodiesLoadedFor(ids, { force: true });
 
     // render / refresh each card
@@ -2318,35 +2321,29 @@ if (!_restored) {
       const email = (window.emailList || state.emails || [])
         .find(x => String(x.id) === String(id));
       if (!email) continue;
-// Always inject full body (iframe/text) — safe because CSS hides it until opened
-renderFullPreview(email);
-const pv = document.getElementById(`pv-${id}`);
-if (pv) pv.dataset.full = '1';
+
+      // Always inject full body (iframe/text) — hidden by CSS until opened
+      renderFullPreview(email);
+      const pv = document.getElementById(`pv-${id}`);
+      if (pv) pv.dataset.full = "1";
 
       // After bodies arrive, promote real body text into the collapsed summary ONCE
-{
-  const raw =
-        (email.text && email.text.trim())
-     ||  stripAndTrim(email.html, 20000)  // convert HTML → text if needed
-     ||  (email.snippet || '');
+      const raw =
+            (email.text && email.text.trim())
+         || stripAndTrim(email.html, 20000)  // convert HTML → text if needed
+         || (email.snippet || "");
 
-  // Upgrade summary text whenever we fetch a better body
-const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
-if (det) {
-  const raw =
-        (email.text && email.text.trim()) ||
-        stripAndTrim(email.html, 20000)    ||
-        (email.snippet || "");
-  const nextText = `Preview — ${stripAndTrim(raw, 20000) || "(no preview available)"}`;
-  const currText = det.textContent || "";
-  // Only replace if it’s meaningfully longer than before
-  if (nextText.length > currText.length + 10) {
-    det.textContent = nextText;
-  }
-  // Store length so future passes can still upgrade
-  det.dataset.hydrated = String(nextText.length);
-}
-}
+      const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
+      if (det) {
+        const nextText = `Preview — ${stripAndTrim(raw, 20000) || "(no preview available)"}`;
+        const currText = det.textContent || "";
+        // Only replace if it’s meaningfully longer than before
+        if (nextText.length > currText.length + 10) {
+          det.textContent = nextText;
+        }
+        // Store length so future passes can still upgrade
+        det.dataset.hydrated = String(nextText.length);
+      }
     }
 
     // mark as seen only after success
