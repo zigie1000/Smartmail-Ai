@@ -1222,16 +1222,6 @@ async function ensureBodiesLoadedFor(ids, { force = false } = {}) {
       byId[id] = { ...it, text: t, html: h };
     }
 
-
-// inside ensureBodiesLoadedFor(), in the merge loop:
-for (let i = 0; i < list.length; i++) {
-  const k   = String(list[i].id);
-  const got = byId[k];
-  if (!got) continue;
-
-  if (got.text) list[i].text = got.text;
-  if (got.html) list[i].html = got.html;
-
 // merge normalized bodies into list, and (optionally) fill snippet
 for (let i = 0; i < list.length; i++) {
   const k   = String(list[i].id);
