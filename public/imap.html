@@ -2318,7 +2318,10 @@ if (!_restored) {
       const email = (window.emailList || state.emails || [])
         .find(x => String(x.id) === String(id));
       if (!email) continue;
-
+// Always inject full body (iframe/text) — safe because CSS hides it until opened
+renderFullPreview(email);
+const pv = document.getElementById(`pv-${id}`);
+if (pv) pv.dataset.full = '1';
 
       // After bodies arrive, promote real body text into the collapsed summary ONCE
 {
