@@ -1232,11 +1232,16 @@ for (let i = 0; i < list.length; i++) {
   if (got.text) list[i].text = got.text;
   if (got.html) list[i].html = got.html;
 
-  // OPTIONAL CLEANUP: fill snippet if missing (safe, trimmed)
- for (let i = 0; i < list.length; i++) {
-  const got = byId[String(list[i].id)];
+// merge normalized bodies into list, and (optionally) fill snippet
+for (let i = 0; i < list.length; i++) {
+  const k   = String(list[i].id);
+  const got = byId[k];
   if (!got) continue;
 
+  if (got.text) list[i].text = got.text;
+  if (got.html) list[i].html = got.html;
+
+  // OPTIONAL CLEANUP: fill snippet if missing (safe, trimmed)
   if (!list[i].snippet) {
     const raw = (got.text || got.html || '')
       .replace(/<[^>]+>/g, ' ')
@@ -1246,9 +1251,9 @@ for (let i = 0; i < list.length; i++) {
   }
 }
 
-    const merged = ids
-      .map(id => list.find(x => String(x.id) === String(id)))
-      .filter(Boolean);
+const merged = ids
+  .map(id => list.find(x => String(x.id) === String(id)))
+  .filter(Boolean);
 
     console.warn('[ensureBodiesLoadedFor] merged ready for render:', merged.map(x => x.id));
     return merged;
