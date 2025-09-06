@@ -1004,7 +1004,7 @@ const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
         <span class="actions">${actionsMenu}</span>
       </div>
     </div>
-    <details class="preview" data-id="${id}">
+    <details class="preview" data-id="${id}" open>
   <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
   <div class="preview-body" id="pv-${id}" style="margin-top:6px">
   ${snippetSafe}
