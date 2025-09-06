@@ -146,7 +146,15 @@ details.preview .preview-body iframe {
   border: 0;
   background: #fff;
 }  
-summary{cursor:pointer;color:#374151}
+/* allow long, multi-line summary text with no clipping */
+summary{
+  cursor:pointer;
+  color:#374151;
+  white-space: normal;
+  overflow: visible;
+  display: block;   /* keeps toggle behavior but removes inline constraints */
+  line-height: 1.35;
+}
 .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .sel{margin-right:6px}
 
