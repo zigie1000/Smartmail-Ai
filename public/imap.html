@@ -1233,6 +1233,10 @@ for (let i = 0; i < list.length; i++) {
   if (got.html) list[i].html = got.html;
 
   // OPTIONAL CLEANUP: fill snippet if missing (safe, trimmed)
+ for (let i = 0; i < list.length; i++) {
+  const got = byId[String(list[i].id)];
+  if (!got) continue;
+
   if (!list[i].snippet) {
     const raw = (got.text || got.html || '')
       .replace(/<[^>]+>/g, ' ')
@@ -1241,15 +1245,6 @@ for (let i = 0; i < list.length; i++) {
     if (raw) list[i].snippet = raw.slice(0, 300);
   }
 }
-       
-      if (!list[i].snippet) {
-        const raw = (got.text || got.html || '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (raw) list[i].snippet = raw.slice(0, 300);
-      }
-    }
 
     const merged = ids
       .map(id => list.find(x => String(x.id) === String(id)))
