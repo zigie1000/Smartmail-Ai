@@ -2318,12 +2318,12 @@ if (!_restored) {
         if (pv) pv.dataset.full = '1';
       }
 
-      // refresh the collapsed summary text
-      const raw = (email.text && email.text.trim())
-               || stripAndTrim(email.html, 180)
-               || (email.snippet || '');
-      const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
-      if (det) det.textContent = `Preview — ${stripAndTrim(raw, 120) || "(no preview available)"}`;
+      // 🔒 Disabled duplicate summary injection to prevent doubled/truncated previews
+// const raw = (email.text && email.text.trim())
+//          || stripAndTrim(email.html, 180)
+//          || (email.snippet || '');
+// const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
+// if (det) det.textContent = `Preview — ${stripAndTrim(raw, 120) || "(no preview available)"}`;
     }
 
     // mark as seen only after success
