@@ -2144,6 +2144,7 @@ list.addEventListener('click', async (ev) => {
 
 // Lazy full-body on PREVIEW open
 list.addEventListener('toggle', async (ev) => {
+}, true);
   const d = ev.target;
   if (!(d instanceof HTMLElement)) return;
   if (!d.matches('details.preview')) return;
