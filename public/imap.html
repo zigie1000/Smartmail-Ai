@@ -980,7 +980,7 @@ if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
 }
 
 // short version for collapsed UI, long for expanded mount
-const snippetShort = stripAndTrim(rawSnippet, 120);
+const snippetShort = stripAndTrim(rawSnippet, 10000);
 const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
 
  return `
