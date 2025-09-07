@@ -1880,7 +1880,8 @@ state.emails = emails.map((e, i) => ({
     $("prev").disabled = !(state.cursorStack.length > 1);
     {
   const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
-  $("#pageInfo").textContent = `Page ${state.page} of ${totalPages} (${state.view.length} emails)`;
+  const info = document.getElementById("pageInfo");
+if (info) info.textContent = `Page ${state.page} of ${totalPages} (${state.view.length} emails)`;
 }
 
     if (typeof data.tier === "string") setTierUI(data.tier, data.tier !== "free");
