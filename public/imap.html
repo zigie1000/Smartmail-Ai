@@ -1436,78 +1436,81 @@ iframe.addEventListener("load", onLoad, { once:true });
 }
 
    
-// ---- Send Selected → Generator (always full body) ----
-async function sendSelected(){
+// ---- Send Selected → Generator (ALWAYS full content) ----
+async function sendSelected() {
   const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
-  if (!ids.length){ setMessage("err","Select at least one email."); return; }
+  if (!ids.length) { setMessage("err", "Select at least one email."); return; }
 
-  // First selected message from the list
-  let first = state.emails.find(e => ids.includes(String(e.id||""))) || {};
+  // Use the first selected message for prefill
+  let first = (window.emailList || state.emails || []).find(e => ids.includes(String(e.id || ""))) || {};
 
-  // Try to upgrade to full within 3s; otherwise fall back
+  // 1) Ensure we have full body for the first selected message.
+  //    Try to hydrate; if it takes too long, we still fall back safely.
   try {
     first = await Promise.race([
-      ensureFullById(first.id),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 3000))
+      ensureFullById(first.id),                             // pulls full HTML/text
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000))
     ]);
-  } catch (_) { /* keep lightweight */ }
+  } catch (_) {
+    // keep whatever we already had in `first`
+  }
 
-  // Prefer true plain text; otherwise convert HTML to text.
-// As a last resort, sanitize the snippet too (never send raw HTML/CSS).
-const plain =
-      first.text
-   || first.textPlain
-   || first.plain
-   || first.bodyText
-   || "";
+  // 2) Build the best possible plain-text body.
+  //    Prefer true plain text; else convert HTML → text; else sanitize snippet-like fields.
+  const htmlToPlain = (s) => (s && String(s).trim()) ? htmlToText(String(s)) : "";
 
-const html =
-      first.html
-   || first.htmlBody
-   || first.textHtml
-   || "";
+  const plain =
+        first.text
+     || first.textPlain
+     || first.plain
+     || first.bodyText
+     || "";
 
-const snippetLike =
-      first.snippet
-   || first.preview
-   || first.bodySnippet
-   || first.summary
-   || "";
+  const html =
+        first.html
+     || first.htmlBody
+     || first.textHtml
+     || "";
 
-// helper: robust sanitize -> plain text
-const toPlain = (s) => (s && String(s).trim()) ? htmlToText(String(s)) : "";
+  const snippetLike =
+        first.snippet
+     || first.preview
+     || first.bodySnippet
+     || first.summary
+     || "";
 
-let bodyText = "";
-if (plain && /\S/.test(plain)) {
-  bodyText = String(plain);
-} else if (html && /\S/.test(html)) {
-  bodyText = toPlain(html);
-} else if (snippetLike) {
-  bodyText = toPlain(snippetLike);  // sanitize fallback too
-}
+  let bodyText = "";
+  if (plain && /\S/.test(plain)) {
+    bodyText = String(plain);
+  } else if (html && /\S/.test(html)) {
+    bodyText = htmlToPlain(html);
+  } else if (snippetLike) {
+    bodyText = htmlToPlain(snippetLike);
+  }
 
-// normalize spaces
-bodyText = bodyText.replace(/\u00A0/g, " ").trim();
+  // Normalize whitespace and nbsp
+  bodyText = bodyText.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
 
-  // Use YOUR login address for the Generator
-  let userEmail = $("email")?.value || "";
+  // 3) Use the IMAP login email for the Generator context
+  let userEmail = document.getElementById("email")?.value || "";
   if (!userEmail) {
-    userEmail = localStorage.getItem('imap.email')
-             || localStorage.getItem('smartemail.imapEmail')
+    userEmail = localStorage.getItem("imap.email")
+             || localStorage.getItem("smartemail.imapEmail")
              || "";
   }
 
   const payload = {
     subject: first.subject || "",
     body: bodyText || "",
-    snippet: snippetLike || "",
+    snippet: htmlToPlain(snippetLike) || "",
     userEmail
   };
 
-  try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch(e){}
-try { saveImapState(); } catch(e){}
+  try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch {}
+  try { if (typeof saveImapState === "function") saveImapState(); } catch {}
 
-setTimeout(()=>{ window.location.href = "index.html#generator"; }, 15);
+  // 4) Navigate to the Generator
+  setTimeout(() => { window.location.href = "index.html#generator"; }, 15);
 }
 // ---- Overrides helpers (persist locally / optionally to server) ----
 async function sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label }) {
