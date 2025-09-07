@@ -1028,33 +1028,36 @@ const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
    
 // ---- Render ----
 function render() {
-  // totals & clamp
-  const totalItems = state.view.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / state.perPage));
+  const listEl = document.getElementById('list');
+  const infoEl = document.getElementById('pageInfo');
+  const prevEl = document.getElementById('prev');
+  const nextEl = document.getElementById('next');
+
+  const total = state.view.length;
+  const per = Math.max(1, Number(state.perPage) || 20);
+
+  // Clamp page so we never start on 5, etc.
+  const totalPages = Math.max(1, Math.ceil(total / per));
   if (!Number.isFinite(state.page)) state.page = 1;
   state.page = Math.min(Math.max(1, state.page), totalPages);
 
-  // slice for current page
-  const start = (state.page - 1) * state.perPage;
-  const items = state.view.slice(start, start + state.perPage);
+  // Slice current page
+  const start = (state.page - 1) * per;
+  const items = state.view.slice(start, start + per);
 
-  // list
-  const list = document.getElementById("list");
+  // Render list
   if (!items.length) {
-    list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
+    listEl.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
   } else {
-    list.innerHTML = items.map(cardHtml).join("");
+    listEl.innerHTML = items.map(cardHtml).join('');
   }
 
-  // footer label
-  const info = document.getElementById("pageInfo");
-  if (info) info.textContent = `Page ${state.page} of ${totalPages} (${totalItems} emails)`;
+  // Keep the old-style label
+  if (infoEl) infoEl.textContent = `Page ${state.page}`;
 
-  // prev/next enabled state
-  const prevBtn = document.getElementById("prev");
-  const nextBtn = document.getElementById("next");
-  if (prevBtn) prevBtn.disabled = (state.page <= 1);
-  if (nextBtn) nextBtn.disabled = (state.page >= totalPages);
+  // Prev/Next enablement (client-side)
+  if (prevEl) prevEl.disabled = (state.page <= 1);
+  if (nextEl) nextEl.disabled = (state.page >= totalPages);
 }
 
 // ---- Filters ----
