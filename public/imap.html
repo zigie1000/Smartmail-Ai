@@ -2092,10 +2092,11 @@ on("searchBox","input", ()=>{
 
 // Cursor paging
 on("prev","click", ()=>{
-  if (state.cursorStack.length > 1) fetchAndClassify(false, true);
+  if (state.page > 1) { state.page--; render(); }
 });
 on("next","click", ()=>{
-  if (state.nextCursor) fetchAndClassify(true, false);
+  const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
+  if (state.page < totalPages) { state.page++; render(); }
 });
 
 // Filters & Smart View
