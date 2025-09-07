@@ -2152,7 +2152,6 @@ list.addEventListener('click', async (ev) => {
 
 // Lazy full-body on PREVIEW open
 list.addEventListener('toggle', async (ev) => {
-}, true);
   const d = ev.target;
   if (!(d instanceof HTMLElement)) return;
   if (!d.matches('details.preview')) return;
@@ -2161,40 +2160,38 @@ list.addEventListener('toggle', async (ev) => {
   const id = d.dataset.id;
   const container = d.querySelector('.preview-body');
   if (!id || !container) return;
+
+  // If already hydrated, just re-measure the iframe now that it’s visible.
   if (container.dataset.full === "1") {
-  // It was hydrated while <details> was closed → re-measure now that it's visible.
-  requestAnimationFrame(() => {
-    try {
-      const ifr = container.querySelector('iframe');
-      if (!ifr) return;
-      const doc = ifr.contentDocument || ifr.contentWindow.document;
-      const measure = () => {
-        try {
-          const h = Math.max(
-            doc?.body?.scrollHeight || 0,
-            doc?.documentElement?.scrollHeight || 0
-          );
-          if (h) ifr.style.height = h + "px";
-        } catch {}
-      };
-      measure();
-      setTimeout(measure, 250);   // late paints
-      setTimeout(measure, 800);   // images/fonts
-      setTimeout(measure, 1600);  // extra nudge on iPad Safari
-    } catch {}
-  });
-  return;
-}
+    requestAnimationFrame(() => {
+      try {
+        const ifr = container.querySelector('iframe');
+        if (!ifr) return;
+        const doc = ifr.contentDocument || ifr.contentWindow.document;
+        const measure = () => {
+          try {
+            const h = Math.max(
+              doc?.body?.scrollHeight || 0,
+              doc?.documentElement?.scrollHeight || 0
+            );
+            if (h) ifr.style.height = h + "px";
+          } catch {}
+        };
+        measure();
+        setTimeout(measure, 250);
+        setTimeout(measure, 800);
+        setTimeout(measure, 1600);
+      } catch {}
+    });
+    return;
+  }
 
   try {
-    // force ensures we always pull full body, even if text/html already exists
     await ensureBodiesLoadedFor([id], { force: true });
-
     const email = (window.emailList || state.emails || [])
       .find(x => String(x.id) === String(id));
-
     if (email) {
-      renderFullPreview(email);        // inject full HTML or full text
+      renderFullPreview(email);
       container.dataset.full = "1";
     }
   } catch (e) {
@@ -2206,7 +2203,7 @@ list.addEventListener('toggle', async (ev) => {
       container.dataset.full = "1";
     }
   }
-});
+}, true);
 
 
 // Save on tab close / backgrounding / link navigation
