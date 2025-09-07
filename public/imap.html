@@ -1052,8 +1052,12 @@ function render() {
     listEl.innerHTML = items.map(cardHtml).join('');
   }
 
-  // Keep the old-style label
-  if (infoEl) infoEl.textContent = `Page ${state.page}`;
+ // Keep the old-style label with page and total emails
+if (infoEl) {
+  const totalItems = state.view.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / per));
+  infoEl.textContent = `Page ${state.page} of ${totalPages} (${totalItems} emails)`;
+}
 
   // Prev/Next enablement (client-side)
   if (prevEl) prevEl.disabled = (state.page <= 1);
