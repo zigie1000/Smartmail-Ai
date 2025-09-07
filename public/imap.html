@@ -830,7 +830,11 @@ if (sb2) sb2.value = "";
 setTimeout(() => { try{ window.scrollTo(0, s.scrollTop||0); }catch(_){ } }, 0);
 
     const info = document.getElementById("pageInfo");
-    if (info) info.textContent = `Restored • Page ${state.page} (${state.view.length} emails)`;
+if (info) {
+  const totalItems = state.view.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.perPage));
+  info.textContent = `Restored • Page ${state.page} of ${totalPages} • ${totalItems} emails`;
+}
     return true;
   } catch (_) { return false; }
 }
