@@ -804,39 +804,40 @@ function saveImapState() {
   } catch (_) {}
 }
 
+// ---- Save/restore IMAP view state ----
 function restoreImapState() {
   try {
     const s = JSON.parse(sessionStorage.getItem("imap.lastState") || "null");
     if (!s || !Array.isArray(s.view)) return false;
 
-    // Restore the raw list too (fallback to view if missing)
-    state.emails = Array.isArray(s.emails) ? s.emails : (Array.isArray(s.view) ? s.view.slice() : []); // <— NEW
+    // Restore raw list (fallback to view if missing)
+    state.emails      = Array.isArray(s.emails) ? s.emails : (Array.isArray(s.view) ? s.view.slice() : []);
+    state.view        = s.view.slice();
+    state.page        = Number(s.page) || 1;
+    state.perPage     = Number(s.perPage) || state.perPage || 20;
+    state.nextCursor  = (s.nextCursor ?? state.nextCursor ?? null);
+    state.cursorStack = Array.isArray(s.cursorStack) && s.cursorStack.length ? s.cursorStack.slice() : [null];
 
-    state.view = s.view;
-    state.page = s.page || 1;
-    state.perPage = s.perPage || state.perPage || 20;
-    state.nextCursor = (s.nextCursor ?? state.nextCursor);
-    state.cursorStack = Array.isArray(s.cursorStack) ? s.cursorStack : [null];
+    // Clear quick-filter/search UI on restore
+    state.__quickFilter = null;
+    const sb = document.getElementById("searchBox");
+    if (sb) sb.value = "";
 
-    
-
+    // Repaint and restore scroll
     render();
+    setTimeout(() => { try { window.scrollTo(0, Number(s.scrollTop) || 0); } catch(_) {} }, 0);
 
-// ensure UI starts clean when user later clicks "Show All"
-state.__quickFilter = null;
-const sb2 = document.getElementById("searchBox");
-if (sb2) sb2.value = "";
-
-setTimeout(() => { try{ window.scrollTo(0, s.scrollTop||0); }catch(_){ } }, 0);
-
+    // Nice “restored” label
     const info = document.getElementById("pageInfo");
-if (info) {
-  const totalItems = state.view.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / state.perPage));
-  info.textContent = `Restored • Page ${state.page} of ${totalPages} • ${totalItems} emails`;
-}
+    if (info) {
+      const totalItems = state.view.length;
+      const totalPages = Math.max(1, Math.ceil(totalItems / state.perPage));
+      info.textContent = `Restored • Page ${state.page} of ${totalPages} • ${totalItems} emails`;
+    }
     return true;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
   
 // Full body cache to avoid repeat fetches
