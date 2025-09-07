@@ -1873,7 +1873,10 @@ state.emails = emails.map((e, i) => ({
     }
     $("next").disabled = !state.nextCursor;
     $("prev").disabled = !(state.cursorStack.length > 1);
-    $("pageInfo").textContent = `Page ${state.cursorStack.length}`;
+    {
+  const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
+  $("#pageInfo").textContent = `Page ${state.page} of ${totalPages} (${state.view.length} emails)`;
+}
 
     if (typeof data.tier === "string") setTierUI(data.tier, data.tier !== "free");
     if (data.notice) setMessage("ok", data.notice);
