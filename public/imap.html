@@ -1026,27 +1026,31 @@ const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
 }
    
 function render(){
-  const start = (state.page - 1) * state.perPage;
+  // page math
   const totalItems  = state.view.length;
   const totalPages  = Math.max(1, Math.ceil(totalItems / state.perPage));
   const pageClamped = Math.min(Math.max(1, state.page), totalPages);
-
   if (pageClamped !== state.page) state.page = pageClamped;
 
-  const items = state.view.slice((state.page-1)*state.perPage, state.page*state.perPage);
+  // slice for current page
+  const start = (state.page - 1) * state.perPage;
+  const items = state.view.slice(start, start + state.perPage);
 
-  const list = document.getElementById("list");
+  // render list
+  const list = document.getElementById('list');
   if (!items.length) {
     list.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
   } else {
     list.innerHTML = items.map(cardHtml).join("");
   }
 
-  const info = document.getElementById("pageInfo");
-  if (info) info.textContent = `Page ${state.page} of ${totalPages} • ${totalItems} emails`;
+  // page label: Page X of Y (Z emails)
+  const info = document.getElementById('pageInfo');
+  if (info) info.textContent = `Page ${state.page} of ${totalPages} (${totalItems} emails)`;
 
-  const prevBtn = document.getElementById("prev");
-  const nextBtn = document.getElementById("next");
+  // enable/disable Prev/Next based on page number
+  const prevBtn = document.getElementById('prev');
+  const nextBtn = document.getElementById('next');
   if (prevBtn) prevBtn.disabled = (state.page <= 1);
   if (nextBtn) nextBtn.disabled = (state.page >= totalPages);
 }
