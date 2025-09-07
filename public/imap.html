@@ -1055,10 +1055,6 @@ function render(){
   if (nextBtn) nextBtn.disabled = (state.page >= totalPages);
 }
 
-const total = state.view.length;
-$("pageInfo").textContent = `${total} emails`;
-}
-
 // ---- Filters ----
 function applyFilters(){
   let filtered = [...state.emails];
