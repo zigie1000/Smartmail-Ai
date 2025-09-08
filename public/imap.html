@@ -2432,10 +2432,12 @@ if (!_restored) {
       if (pv) pv.dataset.full = "1";
 
       // After bodies arrive, promote real body text into the collapsed summary ONCE
-      const raw =
-            (email.text && email.text.trim())
-         || stripAndTrim(email.html, 20000)  // convert HTML → text if needed
-         || (email.snippet || "");
+      let raw =
+      (email.text && email.text.trim())
+   || stripAndTrim(email.html, 20000)   // convert HTML → text if needed
+   || (email.snippet || "");
+
+raw = stripLeadingUrls(raw);            // <-- remove naked leading “http…” lines
 
       const det = document.querySelector(`details.preview[data-id="${id}"] > summary`);
       if (det) {
