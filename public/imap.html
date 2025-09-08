@@ -1033,35 +1033,37 @@ function render() {
   const prevEl = document.getElementById('prev');
   const nextEl = document.getElementById('next');
 
-  const total = state.view.length;
+  // Local paging math
+  const totalLocal = state.view.length;
   const per = Math.max(1, Number(state.perPage) || 20);
+  const totalPagesLocal = Math.max(1, Math.ceil(totalLocal / per));
 
-  // Clamp page so we never start on 5, etc.
-  const totalPages = Math.max(1, Math.ceil(total / per));
   if (!Number.isFinite(state.page)) state.page = 1;
-  state.page = Math.min(Math.max(1, state.page), totalPages);
+  state.page = Math.min(Math.max(1, state.page), totalPagesLocal);
 
-  // Slice current page
   const start = (state.page - 1) * per;
   const items = state.view.slice(start, start + per);
 
-  // Render list
-  if (!items.length) {
+  // Render cards
+  if (items.length === 0) {
     listEl.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
   } else {
     listEl.innerHTML = items.map(cardHtml).join('');
   }
 
- // Keep the old-style label with page and total emails
-if (infoEl) {
-  const totalItems = state.view.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / per));
-  infoEl.textContent = `Page ${state.page} of ${totalPages} (${totalItems} emails)`;
-}
+  // Do we have server-side pages?
+  const hasPrevServer = !!(state.cursorStack && state.cursorStack.length > 1);
+  const hasNextServer = !!state.nextCursor;
 
-  // Prev/Next enablement (client-side)
-  if (prevEl) prevEl.disabled = (state.page <= 1 && (!state.cursorStack || state.cursorStack.length <= 1));
-if (nextEl) nextEl.disabled = (state.page >= totalPages && !state.nextCursor);
+  // Label: "Page X of Y (Z emails) • more on server"
+  if (infoEl) {
+    const serverHint = hasNextServer ? ' • more on server' : '';
+    infoEl.textContent = `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)${serverHint}`;
+  }
+
+  // Button enablement considers BOTH local & server paging
+  if (prevEl) prevEl.disabled = (state.page <= 1) && !hasPrevServer;
+  if (nextEl) nextEl.disabled = (state.page >= totalPagesLocal) && !hasNextServer;
 }
 
 // ---- Filters ----
