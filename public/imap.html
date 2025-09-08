@@ -1876,8 +1876,8 @@ render();
     } else if (!prev) {
       state.cursorStack = [null];
     }
-    $("next").disabled = !state.nextCursor;
-    $("prev").disabled = !(state.cursorStack.length > 1);
+  //  $("next").disabled = !state.nextCursor;
+  //  $("prev").disabled = !(state.cursorStack.length > 1);
     {
   const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
   const info = document.getElementById("pageInfo");
