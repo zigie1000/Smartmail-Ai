@@ -1054,10 +1054,15 @@ function render() {
   const hasNextServer = !!state.nextCursor;
 
   // Label: "Page X of Y (Z emails) • more on server"
-  if (infoEl) {
-    const serverHint = hasNextServer ? ' • more on server' : '';
-    infoEl.textContent = `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)${serverHint}`;
+  // Label
+if (infoEl) {
+  const serverPaging = hasPrevServer || hasNextServer;
+  if (serverPaging) {
+    infoEl.textContent = `Page ${state.page} • more on server`;
+  } else {
+    infoEl.textContent = `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)`;
   }
+}
 
   // Buttons: enabled if either local page exists OR server page exists
   if (prevEl) prevEl.disabled = (state.page <= 1) && !hasPrevServer;
