@@ -7,7 +7,17 @@ import { fetchEmails, fetchBodiesByUid, testLogin } from "./imapService.js";
 // add this:
 import { classifyEmails } from "../emailClassifier.js";
 
+
 export const imapRouter = express.Router();
+
+const CLASSIFIER_LISTS = {
+  vip: new Set(["vip@yourdomain.com","dealbrut.com"]),
+  legal: new Set(["lawfirm.co.za","justice.gov.za"]),
+  government: new Set(["gov.za","sars.gov.za"]),
+  bulk: new Set([]),
+  weights: { email:new Map(), domain:new Map() }
+};
+
 
 // Utility: normalize auth block from request body
 function readAuth(body) {
