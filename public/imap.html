@@ -1004,7 +1004,6 @@ function stripLeadingUrls(s) {
 }
    
 // ---- Render ----
-// ---- Render card (drop-in replacement) ----
 function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
   const category   = e.category || e.intent || '';
@@ -1042,72 +1041,58 @@ function cardHtml(e) {
 
   const id = escapeHtml(e.id || '');
 
-  // ---------- PREVIEW TEXT PIPELINE (only change) ----------
-  // Pick the best source for the collapsed summary
-  let raw =
-        e.html            || e.htmlBody || e.bodyHtml || e.textHtml ||
-        e.text            || e.bodyText || e.textPlain ||
-        e.snippet         || e.preview  || e.bodySnippet || e.summary || e.previewText ||
-        e.body            ||
-        "";
+// unify more snippet-style sources
+let rawSnippet =
+      e.snippet
+   || e.preview
+   || e.bodySnippet
+   || e.summary
+   || e.previewText
+   || e.body
+   || e.text
+   || "";
 
-  // If it looks like HTML, convert to plain text
-  if (raw && /<[^>]+>/.test(raw)) {
-    raw = htmlToText(raw);
-  }
+// if HTML-ish, strip to text
+if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
+  const stripped = htmlToText(rawSnippet).trim();
+  rawSnippet = stripped || rawSnippet;
+}
 
-  // Remove “view in browser / unsubscribe / url-only” from the very top
-  raw = stripLeadingUrls(raw);
+   // NEW: remove naked leading URLs (tracking/unsubscribe lines)
+rawSnippet = stripLeadingUrls(rawSnippet);
 
-  // De-markdown: [link text](url) → link text; **bold** → bold
-  const deMarkdown = (s) => String(s)
-    // links: keep text, drop url
-    .replace(/\[([^\]]{1,200})\]\((?:https?:\/\/|mailto:)[^)]+\)/gi, '$1')
-    // images: ![alt](url) → alt
-    .replace(/!\[([^\]]{0,200})\]\((?:https?:\/\/|data:)[^)]+\)/gi, '$1')
-    // bold/italic markers
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/_([^_]+)_/g, '$1');
+// short version for collapsed UI, long for expanded mount
+const snippetShort = stripAndTrim(rawSnippet, 10000);
+const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
 
-  raw = deMarkdown(raw);
-
-  // Normalize whitespace & trim
-  raw = raw.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
-
-  // Build summary text and safe body echo (collapsed body stays text; full body hydrates via renderFullPreview)
-  const snippetShort = stripAndTrim(raw, 10000);
-  const snippetSafe  = escapeHtml(raw || "(no preview available)");
-  // ---------- END PREVIEW TEXT PIPELINE ----------
-
-  return `
-    <div class="email">
-      <div class="email-header">
-        <div class="meta">
-          <input type="checkbox" class="sel" data-id="${id}" />
-          <span class="from">${escapeHtml(from)}</span>
-        </div>
-        <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
-        <div class="chips">
-          ${vipChip}${priorityChip}${catChip}${urgencyChip}
-          <span class="actions">${actionsMenu}</span>
-        </div>
+ return `
+  <div class="email">
+    <div class="email-header">
+      <div class="meta">
+        <input type="checkbox" class="sel" data-id="${id}" />
+        <span class="from">${escapeHtml(from)}</span>
       </div>
-
-      <details class="preview" data-id="${id}">
-        <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
-        <div class="preview-body" id="pv-${id}" style="margin-top:6px; white-space:pre-wrap;">
-          ${snippetSafe}
-        </div>
-      </details>
-
-      <div class="meta" style="margin-top:6px">
-        <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
-        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
+      <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+      <div class="chips">
+        ${vipChip}${priorityChip}${catChip}${urgencyChip}
+        <span class="actions">${actionsMenu}</span>
       </div>
     </div>
-  `;
+    <details class="preview" data-id="${id}">
+  <!-- Summary: keep a safe short line -->
+  <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
+  
+  <!-- Full preview body -->
+  <div class="preview-body" id="pv-${id}" style="margin-top:6px; white-space:pre-wrap;">
+    ${escapeHtml(rawSnippet || "(no preview available)")}
+  </div>
+</details>
+    <div class="meta" style="margin-top:6px">
+      <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
+      ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
+    </div>
+  </div>
+`;
 }
    
 // ---- Render (local pagination + server-cursor awareness) ----
