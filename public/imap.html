@@ -1026,7 +1026,7 @@ const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
 `;
 }
    
-// ---- Render ----
+// ---- Render (local pagination + server-cursor awareness) ----
 function render() {
   const listEl = document.getElementById('list');
   const infoEl = document.getElementById('pageInfo');
@@ -1045,13 +1045,11 @@ function render() {
   const items = state.view.slice(start, start + per);
 
   // Render cards
-  if (items.length === 0) {
-    listEl.innerHTML = '<div class="hint" style="padding:18px">No emails to display.</div>';
-  } else {
-    listEl.innerHTML = items.map(cardHtml).join('');
-  }
+  listEl.innerHTML = items.length
+    ? items.map(cardHtml).join('')
+    : '<div class="hint" style="padding:18px">No emails to display.</div>';
 
-  // Do we have server-side pages?
+  // Server-cursor availability
   const hasPrevServer = !!(state.cursorStack && state.cursorStack.length > 1);
   const hasNextServer = !!state.nextCursor;
 
@@ -1061,7 +1059,7 @@ function render() {
     infoEl.textContent = `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)${serverHint}`;
   }
 
-  // Button enablement considers BOTH local & server paging
+  // Buttons: enabled if either local page exists OR server page exists
   if (prevEl) prevEl.disabled = (state.page <= 1) && !hasPrevServer;
   if (nextEl) nextEl.disabled = (state.page >= totalPagesLocal) && !hasNextServer;
 }
