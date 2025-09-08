@@ -1103,16 +1103,28 @@ function render() {
   const hasNextServer = !!state.nextCursor;
 
   // Label: "Page X of Y (Z emails) • more on server"
-  // Label
+ // Label — real server totals when available
 if (infoEl) {
   const serverPaging = hasPrevServer || hasNextServer;
-  if (serverPaging) {
+
+  // local totals (already computed above)
+  const totalPagesLocal = Math.max(1, Math.ceil(totalLocal / per));
+
+  // server totals (set in fetchAndClassify -> state.serverTotal / serverPage)
+  const totalPagesServer = (Number.isFinite(state.serverTotal) && state.serverTotal >= 0)
+    ? Math.max(1, Math.ceil(state.serverTotal / per))
+    : null;
+
+  if (totalPagesServer) {
+    infoEl.textContent =
+      `Page ${state.serverPage || 1} of ${totalPagesServer} (${state.serverTotal} emails)`;
+  } else if (serverPaging) {
     infoEl.textContent = `Page ${state.page} • more on server`;
   } else {
-    infoEl.textContent = `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)`;
+    infoEl.textContent =
+      `Page ${state.page} of ${totalPagesLocal} (${totalLocal} emails)`;
   }
 }
-
   // Buttons: enabled if either local page exists OR server page exists
   if (prevEl) prevEl.disabled = (state.page <= 1) && !hasPrevServer;
   if (nextEl) nextEl.disabled = (state.page >= totalPagesLocal) && !hasNextServer;
