@@ -1002,6 +1002,17 @@ function stripLeadingUrls(s) {
 
   return lines.join('\n').trim();
 }
+
+// remove "(http...)" blocks and any remaining naked URLs from preview text
+function _removeInlineUrls(s){
+  if (!s) return s;
+  // (https://example.com/long?utm=...) -> ''
+  s = s.replace(/\(\s*https?:\/\/[^\s)]+?\s*\)/gi, '');
+  // bare URLs -> ''
+  s = s.replace(/https?:\/\/\S+/gi, '');
+  return s;
+}
+
    
 // ---- Render card (drop-in replacement) ----
 function cardHtml(e) {
