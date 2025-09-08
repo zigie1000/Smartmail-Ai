@@ -963,13 +963,24 @@ function setTierUI(tier, isPaid){
 
 function stripLeadingUrls(s) {
   if (!s) return s;
-  const lines = String(s).split(/\r?\n/);
-  // Remove up to the first 2 lines if they are just a URL-ish thing
-  while (lines.length && /^https?:\/\/\S+$/i.test(lines[0].trim())) {
-    lines.shift();
-    if (lines.length === 0) break;
+  const lines = String(s).replace(/\r/g,'').split('\n');
+
+  let removed = 0;
+  while (lines.length && removed < 3) {
+    const ln = lines[0].trim();
+
+    // naked url-only line
+    const isUrlOnly = /^https?:\/\/\S+$/i.test(ln);
+
+    // common “view online / unsubscribe / privacy” linky headers
+    const isHeaderLink =
+      /view( this)? (email|message|in browser)/i.test(ln) ||
+      /(unsubscribe|privacy policy|manage preferences)/i.test(ln);
+
+    if (isUrlOnly || isHeaderLink) { lines.shift(); removed++; continue; }
+    break;
   }
-  return lines.join("\n").trim();
+  return lines.join('\n').trim();
 }
    
 // ---- Render ----
