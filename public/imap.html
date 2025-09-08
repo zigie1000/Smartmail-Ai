@@ -1013,6 +1013,21 @@ function _removeInlineUrls(s){
   return s;
 }
 
+   // convert Markdown-style formatting to plain text
+function deMarkdown(s) {
+  if (!s) return "";
+  return String(s)
+    // links: [text](url) -> text
+    .replace(/\[([^\]]{1,200})\]\((?:https?:\/\/|mailto:)[^)]+\)/gi, '$1')
+    // images: ![alt](url) -> alt
+    .replace(/!\[([^\]]{0,200})\]\((?:https?:\/\/|data:)[^)]+\)/gi, '$1')
+    // bold: **text** or __text__ -> text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    // italics: *text* or _text_ -> text
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1');
+}
    
 // ---- Render card (drop-in replacement) ----
 function cardHtml(e) {
