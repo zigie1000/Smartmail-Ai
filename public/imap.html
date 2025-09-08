@@ -1860,9 +1860,9 @@ state.emails = emails.map((e, i) => ({
 
     // ---- Render
     state.view   = state.emails.slice();
-    state.perPage = Math.max(1, Number($("limit").value || 20));
-    state.page    = 1;
-    render();
+state.perPage = 20;             // page size (independent of Limit)
+state.page    = 1;
+render();
 
     // Lazy hydrate visible previews
     if (typeof window.__imapHydrateNow === "function") {
