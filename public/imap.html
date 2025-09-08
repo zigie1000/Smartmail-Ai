@@ -245,15 +245,39 @@ html.theme-dark input::placeholder{color:#6b7280}
 <body>
 <style>
 /* === Mode toolbar (device-friendly) === */
-#modeBar{position:sticky;top:0;z-index:1000;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-  padding:10px 12px;margin:8px 0;background:rgba(0,0,0,.06);border-radius:10px}
-#modeBar .seg{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-#modeBar .seg>*{font-size:14px}
-#modeBanner{margin:6px 0 0 0;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.08);
-  font-size:13px}
-#modeBar select,#modeBar input[type="number"],#modeBar button{padding:6px 10px;border-radius:8px;border:0}
-#modeBar small{opacity:.8}
-@media (max-width:640px){#modeBar{gap:8px}}
+#modeBar{
+  position: sticky;
+  top: 0;
+  z-index: 1100;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: var(--surface);      /* ← solid surface (theme-aware) */
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+  -webkit-backdrop-filter: none;    /* ensure no blur/transparency on iOS */
+  backdrop-filter: none;
+}
+#modeBar .seg{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#modeBar .seg>*{ font-size:14px; }
+
+#modeBanner{
+  margin: 6px 0 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);    /* clearer chip-like banner */
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+#modeBar select,
+#modeBar input[type="number"],
+#modeBar button{ padding:6px 10px; border-radius:8px; border:0; }
+
+@media (max-width:640px){ #modeBar{ gap:8px; } }
 
 /* Prominent Fetch & Classify button */
 .primary-cta{
