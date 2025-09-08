@@ -1028,6 +1028,22 @@ function deMarkdown(s) {
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/_([^_]+)_/g, '$1');
 }
+
+// Clean any email-ish string into readable plain text (shared by preview + generator)
+function cleanPreviewText(raw){
+  if (!raw) return "";
+  // HTML → text
+  if (/<[^>]+>/.test(raw)) raw = htmlToText(raw);
+  // drop top "view in browser / unsubscribe / url-only" lines
+  raw = stripLeadingUrls(raw);
+  // markdown → text (links/bold/italics)
+  raw = deMarkdown(raw);
+  // remove inline naked URLs "(http...)" and bare http(s)://...
+  raw = _removeInlineUrls(raw);
+  // normalize spaces
+  return String(raw).replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+}
+   
    
 // ---- Render card (drop-in replacement) ----
 function cardHtml(e) {
