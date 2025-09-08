@@ -34,17 +34,15 @@ async function connectClient({ host, port = 993, tls = true, authType = "passwor
 }
 
 /**
- * Build an ImapFlow search object for month/range windows.
- * - If monthStart/monthEnd provided → use since/before (end+1d)
- * - Else if rangeDays > 0 → since end-of-today - (rangeDays-1)
- * - Else (0 or invalid) → no date filter (unbounded)
+ * Build a date window from the UI's search payload.
+ * Supports:
+ *   - { monthStart, monthEnd } in YYYY-MM-DD (month mode)
+ *   - { rangeDays } number of days back from today (range mode)
  */
-function buildSearchWindow({ monthStart, monthEnd, rangeDays }) {
+function buildWindow({ monthStart, monthEnd, rangeDays } = {}) {
   const out = {};
-  const endOfTodayUTC = (() => {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-  })();
+  const now = new Date();
+  const endOfTodayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
 
   if (monthStart && monthEnd) {
     // since = monthStartT00:00Z, before = (monthEnd + 1d)T00:00Z
@@ -76,42 +74,43 @@ function buildSearchWindow({ monthStart, monthEnd, rangeDays }) {
  * Supports:
  *  - range mode (rangeDays)
  *  - month mode (monthStart, monthEnd)
- *  - simple cursor (base64 JSON { offset })
- *  - fullBodies: when true, parse text/html; otherwise lightweight ENVELOPE/FLAGS
+ *  - cursor paging (opaque base64 offset)
+ *  - fullBodies (controls body parsing cost)
  */
-export async function fetchEmails({
-  auth = {},
-  search = {},
-  limit = 20,
-  cursor = null,
-  fullBodies = true,
-}) {
+export async function fetchEmails({ auth = {}, search = {}, limit = 20, cursor = null, fullBodies = true } = {}) {
   const client = await connectClient(auth);
 
   try {
-    // 1) Find matching UIDs (ascending by spec); turn into newest-first list
-    const window = buildSearchWindow(search);
-    // ImapFlow can take an object with { since, before }
-    const uidsAsc = await client.search(window); // returns numeric UIDs ascending
-    const uids = Array.isArray(uidsAsc) ? uidsAsc.slice().reverse() : []; // newest first
+    // 1) Build criteria and list UIDs within window
+    const win = buildWindow(search);
+    const criteria = {};
+    if (win.since) criteria.since = win.since;
+    if (win.before) criteria.before = win.before;
 
-    // 2) Cursor math
-    const lim = Math.max(1, Number(limit || 20));
-    let offset = 0;
-    if (cursor) {
+    // Pull the UIDs in the window (ascending), then sort desc for newest-first UI
+    let uids = await client.search(criteria);
+    // Ensure array of numbers
+    uids = (Array.isArray(uids) ? uids : []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+    uids.sort((a, b) => b - a); // newest first
+
+    // 2) Cursor paging based on offset
+    const offset = (() => {
+      if (!cursor) return 0;
       try {
-        const decoded = JSON.parse(Buffer.from(String(cursor), "base64").toString("utf8"));
-        if (decoded && Number.isFinite(decoded.offset)) offset = decoded.offset;
+        const obj = JSON.parse(Buffer.from(String(cursor), "base64").toString("utf8"));
+        const off = Number(obj?.offset);
+        return Number.isFinite(off) && off >= 0 ? off : 0;
       } catch {
-        // ignore bad cursor
+        return 0;
       }
-    }
+    })();
 
-    const pageUids = uids.slice(offset, offset + lim);
+    const pageUids = uids.slice(offset, offset + Math.max(1, Number(limit) || 20));
     const nextOffset = offset + pageUids.length;
-    const nextCursor = nextOffset < uids.length
-      ? Buffer.from(JSON.stringify({ offset: nextOffset }), "utf8").toString("base64")
-      : null;
+    const nextCursor =
+      nextOffset < uids.length
+        ? Buffer.from(JSON.stringify({ offset: nextOffset }), "utf8").toString("base64")
+        : null;
 
     // 3) Fetch metadata/bodies for the page
     const items = [];
@@ -150,7 +149,7 @@ export async function fetchEmails({
         subject,
         from: [fromAddr.name, fromAddr.address].filter(Boolean).join(" <") + (fromAddr.address ? ">" : ""),
         fromEmail: fromAddr.address || "",
-        fromDomain: domainOf(fromAddr.address || ""),   // ← NEW
+        fromDomain: domainOf(fromAddr.address || ""),  // ← NEW: domain field used by classifier
         to: [toAddr.name, toAddr.address].filter(Boolean).join(" <") + (toAddr.address ? ">" : ""),
         toEmail: toAddr.address || "",
         date: msg.internalDate || envelope.date || null,
