@@ -963,21 +963,41 @@ function setTierUI(tier, isPaid){
 
 function stripLeadingUrls(s) {
   if (!s) return s;
-  const lines = String(s).replace(/\r/g,'').split('\n');
+  const lines = String(s).replace(/\r/g, '').split('\n');
+
+  // phrases we consider “linky headers” (keep it broad but safe)
+  const headerRe = new RegExp(
+    [
+      // “view this … in/on the web/browser/site”
+      String.raw`^ *(view|read)\b.*\b(web|browser|site)\b`,
+      // “view online / read online / open online”
+      String.raw`^ *\b(view|read|open)\b.*\bonline\b`,
+      // typical newsletter cruft
+      String.raw`(unsubscribe|manage preferences|privacy policy|update.*preferences)`,
+      // “forwarded this email? subscribe …”
+      String.raw`forwarded this email\??|subscribe\b`,
+      // “see this post/email on the web”
+      String.raw`\b(this (post|email).*\bweb)\b`,
+    ].join('|'),
+    'i'
+  );
+
+  const urlOnlyRe = /^https?:\/\/\S+$/i;
 
   let removed = 0;
-  while (lines.length && removed < 3) {
+  while (lines.length && removed < 4) {
     const ln = lines[0].trim();
 
-    // naked url-only line
-    const isUrlOnly = /^https?:\/\/\S+$/i.test(ln);
+    const isUrlOnly = urlOnlyRe.test(ln);
+    const hasUrl = /https?:\/\/\S+/i.test(ln);
+    const looksHeader = headerRe.test(ln);
 
-    // common “view online / unsubscribe / privacy” linky headers
-    const isHeaderLink =
-      /view( this)? (email|message|in browser)/i.test(ln) ||
-      /(unsubscribe|privacy policy|manage preferences)/i.test(ln);
-
-    if (isUrlOnly || isHeaderLink) { lines.shift(); removed++; continue; }
+    // remove if it's just a URL, or a short “linky header” line that contains a URL
+    if (isUrlOnly || (looksHeader && (ln.length <= 220 || hasUrl))) {
+      lines.shift();
+      removed++;
+      continue;
+    }
     break;
   }
   return lines.join('\n').trim();
