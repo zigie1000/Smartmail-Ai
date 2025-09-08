@@ -963,23 +963,43 @@ function setTierUI(tier, isPaid){
 
 function stripLeadingUrls(s) {
   if (!s) return s;
-  const lines = String(s).replace(/\r/g,'').split('\n');
+  const lines = String(s).replace(/\r/g, '').split('\n');
+
+  // phrases like "view in browser", "unsubscribe", etc.
+  const headerRe = new RegExp(
+    [
+      String.raw`\bview( this)? (email|message|in (the )?(web|browser|site))\b`,
+      String.raw`\b(read|open)\b.*\b(on|read)\s+online\b`,
+      String.raw`\b(unsubscribe|manage preferences|privacy policy|update.*preferences)\b`,
+      String.raw`\bforward(ed)? this email\??\b|\bsubscribe\b`,
+      String.raw`\b(see this (post|email) on the web)\b`,
+      String.raw`\bweb\b` // generic but safe with length checks below
+    ].join('|'),
+    'i'
+  );
+
+  // url-only (bare / bracketed / angled)
+  const urlBareRe      = /^\s*https?:\/\/\S+\s*$/i;
+  const urlBracketRe   = /^\s*\[\s*https?:\/\/[^\]\s]+\s*\]\s*$/i;
+  const urlAngleRe     = /^\s*<\s*https?:\/\/[^>\s]+\s*>\s*$/i;
+  const urlishOnlyRe   = /^\s*[\[\(<]*\s*https?:\/\/\S+\s*[\)\]>]*\s*$/i;
 
   let removed = 0;
-  while (lines.length && removed < 3) {
+  while (lines.length && removed < 4) {
     const ln = lines[0].trim();
+    const hasUrl    = /https?:\/\/\S+/i.test(ln);
+    const urlOnly   = urlBareRe.test(ln) || urlBracketRe.test(ln) || urlAngleRe.test(ln) || urlishOnlyRe.test(ln);
+    const looksHead = headerRe.test(ln);
 
-    // naked url-only line
-    const isUrlOnly = /^https?:\/\/\S+$/i.test(ln);
+    // If it’s just a link (possibly wrapped), drop it.
+    if (urlOnly) { lines.shift(); removed++; continue; }
 
-    // common “view online / unsubscribe / privacy” linky headers
-    const isHeaderLink =
-      /view( this)? (email|message|in browser)/i.test(ln) ||
-      /(unsubscribe|privacy policy|manage preferences)/i.test(ln);
+    // If it’s a short “linky header” line that contains a URL, drop it.
+    if (looksHead && hasUrl && ln.length <= 220) { lines.shift(); removed++; continue; }
 
-    if (isUrlOnly || isHeaderLink) { lines.shift(); removed++; continue; }
     break;
   }
+
   return lines.join('\n').trim();
 }
    
