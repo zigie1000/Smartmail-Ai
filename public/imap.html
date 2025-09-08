@@ -2107,19 +2107,29 @@ on("searchBox","input", ()=>{
   if (b) b.click();
 });
 
-// Cursor paging
-on("prev","click", () => {
+// Cursor paging (local pages first, then server cursors)
+on("prev","click", async () => {
   if (state.page > 1) {
     state.page--;
     render();
+    return;
+  }
+  // no more local pages → go back a server page if we have history
+  if (state.cursorStack && state.cursorStack.length > 1) {
+    await fetchAndClassify(false, true);  // prev=true
   }
 });
 
-on("next","click", () => {
+on("next","click", async () => {
   const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
   if (state.page < totalPages) {
     state.page++;
     render();
+    return;
+  }
+  // no more local pages → ask server for the next batch
+  if (state.nextCursor) {
+    await fetchAndClassify(true, false);  // next=true
   }
 });
 
