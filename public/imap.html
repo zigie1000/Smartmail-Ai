@@ -937,6 +937,17 @@ function setTierUI(tier, isPaid){
   if (!state.isPaid) setMessage("ok","Free plan: up to 20 emails from the last 7 days.");
 }
 
+function stripLeadingUrls(s) {
+  if (!s) return s;
+  const lines = String(s).split(/\r?\n/);
+  // Remove up to the first 2 lines if they are just a URL-ish thing
+  while (lines.length && /^https?:\/\/\S+$/i.test(lines[0].trim())) {
+    lines.shift();
+    if (lines.length === 0) break;
+  }
+  return lines.join("\n").trim();
+}
+   
 // ---- Render ----
 function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
@@ -991,6 +1002,9 @@ if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
   const stripped = htmlToText(rawSnippet).trim();
   rawSnippet = stripped || rawSnippet;
 }
+
+   // NEW: remove naked leading URLs (tracking/unsubscribe lines)
+rawSnippet = stripLeadingUrls(rawSnippet);
 
 // short version for collapsed UI, long for expanded mount
 const snippetShort = stripAndTrim(rawSnippet, 10000);
