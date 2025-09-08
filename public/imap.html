@@ -1003,7 +1003,7 @@ function stripLeadingUrls(s) {
   return lines.join('\n').trim();
 }
    
-// ---- Render ----
+// ---- Render card (drop-in replacement) ----
 function cardHtml(e) {
   const importance = String(e.importance || '').toLowerCase();
   const category   = e.category || e.intent || '';
@@ -1041,58 +1041,49 @@ function cardHtml(e) {
 
   const id = escapeHtml(e.id || '');
 
-// unify more snippet-style sources
-let rawSnippet =
-      e.snippet
-   || e.preview
-   || e.bodySnippet
-   || e.summary
-   || e.previewText
-   || e.body
-   || e.text
-   || "";
+  // ---------- Collapsed preview line (summary only) ----------
+  // Pick a good source → strip HTML → drop linky headers → normalize
+  let raw =
+        e.text || e.bodyText || e.textPlain ||
+        e.snippet || e.preview || e.bodySnippet || e.summary || e.previewText ||
+        e.html || e.htmlBody || e.bodyHtml || e.textHtml ||
+        e.body || "";
 
-// if HTML-ish, strip to text
-if (rawSnippet && /<[^>]+>/.test(rawSnippet)) {
-  const stripped = htmlToText(rawSnippet).trim();
-  rawSnippet = stripped || rawSnippet;
-}
+  if (raw && /<[^>]+>/.test(raw)) raw = htmlToText(raw);
+  raw = stripLeadingUrls(raw);
+  raw = raw.replace(/\u00A0/g,' ').replace(/\s+/g,' ').trim();
 
-   // NEW: remove naked leading URLs (tracking/unsubscribe lines)
-rawSnippet = stripLeadingUrls(rawSnippet);
+  const snippetShort = stripAndTrim(raw, 400); // just for the summary line
+  // ---------- END summary ----------
 
-// short version for collapsed UI, long for expanded mount
-const snippetShort = stripAndTrim(rawSnippet, 10000);
-const snippetSafe  = escapeHtml(rawSnippet || "(no preview available)");
-
- return `
-  <div class="email">
-    <div class="email-header">
-      <div class="meta">
-        <input type="checkbox" class="sel" data-id="${id}" />
-        <span class="from">${escapeHtml(from)}</span>
+  return `
+    <div class="email">
+      <div class="email-header">
+        <div class="meta">
+          <input type="checkbox" class="sel" data-id="${id}" />
+          <span class="from">${escapeHtml(from)}</span>
+        </div>
+        <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
+        <div class="chips">
+          ${vipChip}${priorityChip}${catChip}${urgencyChip}
+          <span class="actions">${actionsMenu}</span>
+        </div>
       </div>
-      <div class="subject">${escapeHtml(e.subject || '(no subject)')}</div>
-      <div class="chips">
-        ${vipChip}${priorityChip}${catChip}${urgencyChip}
-        <span class="actions">${actionsMenu}</span>
+
+      <!-- Full email will be injected as an iframe when opened (renderFullPreview) -->
+      <details class="preview" data-id="${id}">
+        <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
+        <div class="preview-body" id="pv-${id}" style="margin-top:6px;">
+          <div class="hint">Loading full preview…</div>
+        </div>
+      </details>
+
+      <div class="meta" style="margin-top:6px">
+        <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
+        ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
       </div>
     </div>
-    <details class="preview" data-id="${id}">
-  <!-- Summary: keep a safe short line -->
-  <summary>Preview — ${escapeHtml(snippetShort || "(no preview available)")}</summary>
-  
-  <!-- Full preview body -->
-  <div class="preview-body" id="pv-${id}" style="margin-top:6px; white-space:pre-wrap;">
-    ${escapeHtml(rawSnippet || "(no preview available)")}
-  </div>
-</details>
-    <div class="meta" style="margin-top:6px">
-      <span class="hint">${escapeHtml(new Date(e.date || Date.now()).toLocaleString())}</span>
-      ${e.to ? `<span class="hint">→ ${escapeHtml(e.to)}</span>` : ''}
-    </div>
-  </div>
-`;
+  `;
 }
    
 // ---- Render (local pagination + server-cursor awareness) ----
