@@ -5,7 +5,7 @@ import express from "express";
 import { fetchEmails, fetchBodiesByUid, testLogin } from "./imapService.js";
 
 // add this:
-import { classifyEmails } from "../imapClassifier.js";
+import { classifyEmails } from "./imapClassifier.js";
 
 
 export const imapRouter = express.Router();
