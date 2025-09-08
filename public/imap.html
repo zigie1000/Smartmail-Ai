@@ -1061,8 +1061,16 @@ function cardHtml(e) {
         e.body || "";
 
   if (raw && /<[^>]+>/.test(raw)) raw = htmlToText(raw);
-  raw = stripLeadingUrls(raw);
-  raw = raw.replace(/\u00A0/g,' ').replace(/\s+/g,' ').trim();
+raw = stripLeadingUrls(raw);
+
+// de-markdown
+raw = deMarkdown(raw);
+
+// remove inline URLs (only for preview)
+raw = _removeInlineUrls(raw);
+
+// normalize whitespace
+raw = raw.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
 
   const snippetShort = stripAndTrim(raw, 400); // just for the summary line
   // ---------- END summary ----------
