@@ -1060,8 +1060,8 @@ if (infoEl) {
 }
 
   // Prev/Next enablement (client-side)
-  if (prevEl) prevEl.disabled = (state.page <= 1);
-  if (nextEl) nextEl.disabled = (state.page >= totalPages);
+  if (prevEl) prevEl.disabled = (state.page <= 1 && (!state.cursorStack || state.cursorStack.length <= 1));
+if (nextEl) nextEl.disabled = (state.page >= totalPages && !state.nextCursor);
 }
 
 // ---- Filters ----
