@@ -4,6 +4,12 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
+// helper: extract domain from an email address
+function domainOf(addr = "") {
+  const i = String(addr).indexOf("@");
+  return i > -1 ? String(addr).slice(i + 1).toLowerCase().trim() : "";
+}
+
 /**
  * Create a connected ImapFlow client.
  */
