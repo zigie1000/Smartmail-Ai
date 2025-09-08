@@ -109,6 +109,14 @@ imapRouter.post("/fetch", async (req, res) => {
       fullBodies,
     });
 
+    // run classifier before sending to client
+try {
+  const labeled = await classifyEmails(page.emails || [], { lists: CLASSIFIER_LISTS });
+  page.emails = labeled;
+} catch (e) {
+  console.warn("[FETCH] classifyEmails failed:", e?.message || e);
+}
+
     const ms = Date.now() - started;
     console.log(
       "[FETCH] OUT",
