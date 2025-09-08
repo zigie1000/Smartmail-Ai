@@ -1860,7 +1860,7 @@ state.emails = emails.map((e, i) => ({
 
     // ---- Render
     state.view   = state.emails.slice();
-state.perPage = 20;             // page size (independent of Limit)
+state.perPage = Math.max(1, Number(document.getElementById("limit")?.value || state.perPage || 20));
 state.page    = 1;
 render();
 
