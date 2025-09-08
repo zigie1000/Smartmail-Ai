@@ -1695,8 +1695,9 @@ function bestTimestampMs(e){
 }  
    
 // === fetch + classify (with double-click guard + month/range patch) ===
+// === fetch + classify (with double-click guard + month/range patch) ===
 async function fetchAndClassify(next = false, prev = false) {
-  // ---- Anti double-click guard (exact placement: first lines of function) ----
+  // ---- Anti double-click guard
   if (window._fetchRunning) {
     console.warn("Fetch already running — ignoring duplicate click");
     return;
@@ -1737,23 +1738,20 @@ async function fetchAndClassify(next = false, prev = false) {
     };
 
     // ---- Month/Range payload patch (authoritative window) ----
-const mStart = window._monthStartISO;
-const mEnd   = window._monthEndISO;
+    const mStart = window._monthStartISO;
+    const mEnd   = window._monthEndISO;
 
-if (mStart && mEnd) {
-  // Month mode → explicit window; force full bodies on server
-  payload.monthStart = mStart;
-  payload.monthEnd   = mEnd;
-  payload.fullBodies = true;     // <— keep
-  delete payload.rangeDays;
-} else {
-  // Range mode → guarantee a number AND force full bodies
-  payload.rangeDays  = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
-  payload.fullBodies = true;     // <— ADD THIS
-}
-
-    // Optional: show exactly what we send
-    console.log("[IMAP] Final payload going to server:", payload);
+    if (mStart && mEnd) {
+      // Month mode → explicit window; force full bodies on server
+      payload.monthStart = mStart;
+      payload.monthEnd   = mEnd;
+      payload.fullBodies = true;
+      delete payload.rangeDays;
+    } else {
+      // Range mode → guarantee a number AND force full bodies
+      payload.rangeDays  = Number(window._rangeDaysActive || document.getElementById("range")?.value || 30);
+      payload.fullBodies = true;
+    }
 
     // include the IMAP login account email for the generator
     const userEmail = $("email")?.value || "";
@@ -1806,13 +1804,12 @@ if (mStart && mEnd) {
 
     // ---- Parse + normalize
     const emails = Array.isArray(data.emails) ? data.emails : [];
-    // Force cards to use the IMAP UID as their id
-state.emails = emails.map((e, i) => ({
-  ...e,
-  uid: e.uid ?? e.id,
-  id: String(e.uid ?? e.id ?? i + 1),   // <— card id is UID
-  _ts: bestTimestampMs(e)
-}));
+    state.emails = emails.map((e, i) => ({
+      ...e,
+      uid: e.uid ?? e.id,
+      id: String(e.uid ?? e.id ?? i + 1),   // card id is UID
+      _ts: bestTimestampMs(e)
+    }));
 
     // ---- Client-side clamp to Mode bar window (safety)
     const mStartFilter = window._monthStartISO;
@@ -1860,31 +1857,24 @@ state.emails = emails.map((e, i) => ({
     // Re-apply any saved local overrides
     state.emails = applySavedOverridesTo(state.emails);
 
-    // ---- Render
-    state.view   = state.emails.slice();
-state.perPage = Math.max(1, Number(document.getElementById("limit")?.value || state.perPage || 20));
-state.page    = 1;
-render();
-
-    // Lazy hydrate visible previews
-    if (typeof window.__imapHydrateNow === "function") {
-      setTimeout(() => window.__imapHydrateNow(), 0);
-    }
-
-    // ---- Paging cursors & UI
+    // ---- Paging cursors & stack (SET BEFORE RENDER)
     state.nextCursor = data?.nextCursor || null;
     if (next) {
       state.cursorStack.push(payload.cursor || null);
     } else if (!prev) {
       state.cursorStack = [null];
     }
-  //  $("next").disabled = !state.nextCursor;
-  //  $("prev").disabled = !(state.cursorStack.length > 1);
-    {
-  const totalPages = Math.max(1, Math.ceil(state.view.length / state.perPage));
-  const info = document.getElementById("pageInfo");
-if (info) info.textContent = `Page ${state.page} of ${totalPages} (${state.view.length} emails)`;
-}
+
+    // ---- Render
+    state.view    = state.emails.slice();
+    state.perPage = Math.max(1, Number(document.getElementById("limit")?.value || state.perPage || 20));
+    state.page    = 1;
+    render(); // render now sees state.nextCursor and enables "Next"
+
+    // Lazy hydrate visible previews
+    if (typeof window.__imapHydrateNow === "function") {
+      setTimeout(() => window.__imapHydrateNow(), 0);
+    }
 
     if (typeof data.tier === "string") setTierUI(data.tier, data.tier !== "free");
     if (data.notice) setMessage("ok", data.notice);
@@ -1898,8 +1888,7 @@ if (info) info.textContent = `Page ${state.page} of ${totalPages} (${state.view.
       : (err.message || "Could not fetch/classify emails.");
     setMessage("err", m);
   } finally {
-    // ---- Always release the guard (even on error)
-    window._fetchRunning = false;
+    window._fetchRunning = false; // always release guard
   }
 }
 
