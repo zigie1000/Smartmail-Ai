@@ -150,6 +150,7 @@ export async function fetchEmails({
         subject,
         from: [fromAddr.name, fromAddr.address].filter(Boolean).join(" <") + (fromAddr.address ? ">" : ""),
         fromEmail: fromAddr.address || "",
+        fromDomain: domainOf(fromAddr.address || ""),   // ← NEW
         to: [toAddr.name, toAddr.address].filter(Boolean).join(" <") + (toAddr.address ? ">" : ""),
         toEmail: toAddr.address || "",
         date: msg.internalDate || envelope.date || null,
