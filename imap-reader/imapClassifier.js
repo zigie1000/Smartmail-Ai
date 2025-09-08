@@ -1,4 +1,4 @@
-// emailClassifier.js — heuristic-first classifier with expanded filters
+// imapClassifier.js — heuristic-first classifier with expanded filters
 // Exports: classifyEmails(items, { userId, lists })
 //
 // Output per item:
