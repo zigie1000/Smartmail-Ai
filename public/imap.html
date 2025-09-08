@@ -1530,16 +1530,23 @@ async function sendSelected() {
      || "";
 
   let bodyText = "";
-  if (plain && /\S/.test(plain)) {
-    bodyText = String(plain);
-  } else if (html && /\S/.test(html)) {
-    bodyText = htmlToPlain(html);
-  } else if (snippetLike) {
-    bodyText = htmlToPlain(snippetLike);
-  }
+if (plain && /\S/.test(plain)) {
+  bodyText = String(plain);
+} else if (html && /<[^>]/.test(html)) {
+  bodyText = htmlToPlain(html);
+} else if (snippetLike) {
+  bodyText = htmlToPlain(snippetLike);
+} else {
+  bodyText = "";
+}
 
-  // Normalize whitespace and nbsp
-  bodyText = bodyText.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+// ✅ NEW cleanup
+bodyText = stripLeadingUrls(bodyText);
+
+// Normalize whitespace and nbsp
+bodyText = bodyText.replace(/\u00A0/g, " ")
+                   .replace(/\s+/g, " ")
+                   .trim();
 
   // 3) Use the IMAP login email for the Generator context
   let userEmail = document.getElementById("email")?.value || "";
