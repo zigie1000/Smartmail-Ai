@@ -1963,8 +1963,6 @@ if (next) {
   state.cursorStack = [null];
 }
 
-    // Re-apply any saved local overrides
-    state.emails = applySavedOverridesTo(state.emails);
 
     // ---- Paging cursors & stack (SET BEFORE RENDER)
     state.nextCursor = data?.nextCursor || null;
