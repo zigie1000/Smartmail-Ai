@@ -3,21 +3,9 @@
 
 import express from "express";
 import { fetchEmails, fetchBodiesByUid, testLogin } from "./imapService.js";
-
-// add this:
-import { classifyEmails } from "./imapClassifier.js";
-
+import { classifyEmails } from "./imapClassifier.js";   // ✅ fixed local import
 
 export const imapRouter = express.Router();
-
-const CLASSIFIER_LISTS = {
-  vip: new Set(["vip@yourdomain.com","dealbrut.com"]),
-  legal: new Set(["lawfirm.co.za","justice.gov.za"]),
-  government: new Set(["gov.za","sars.gov.za"]),
-  bulk: new Set([]),
-  weights: { email:new Map(), domain:new Map() }
-};
-
 
 // Utility: normalize auth block from request body
 function readAuth(body) {
@@ -53,11 +41,7 @@ function readSearch(body) {
   }
 
   // else range mode
-  const n = Number(
-    body?.rangeDays ??
-      body?.range ??
-      30
-  );
+  const n = Number(body?.rangeDays ?? body?.range ?? 30);
   return { rangeDays: Number.isFinite(n) ? n : 30 };
 }
 
@@ -109,13 +93,13 @@ imapRouter.post("/fetch", async (req, res) => {
       fullBodies,
     });
 
-    // run classifier before sending to client
-try {
-  const labeled = await classifyEmails(page.emails || [], { lists: CLASSIFIER_LISTS });
-  page.emails = labeled;
-} catch (e) {
-  console.warn("[FETCH] classifyEmails failed:", e?.message || e);
-}
+    // ✅ Classification with merge instead of overwrite
+    try {
+      const labeled = await classifyEmails(page.emails || [], { lists: CLASSIFIER_LISTS });
+      page.emails = (page.emails || []).map((e, i) => Object.assign({}, e, labeled[i] || {}));
+    } catch (e) {
+      console.warn("[FETCH] classifyEmails failed:", e?.message || e);
+    }
 
     const ms = Date.now() - started;
     console.log(
@@ -155,7 +139,6 @@ imapRouter.post("/bodyBatch", async (req, res) => {
 });
 
 // (Optional) /tier and /feedback endpoints — stubbed to keep the shape your UI expects.
-// Hook your DB/logic here if needed.
 imapRouter.post("/tier", async (req, res) => {
   try {
     // Minimal: treat everyone as free unless you have license checks
@@ -177,5 +160,14 @@ function maskEmail(e) {
   if (i <= 1) return `*${e.slice(i)}`;
   return `${e[0]}***${e.slice(i)}`;
 }
+
+// ✅ Classifier lists seeded here (edit to taste)
+const CLASSIFIER_LISTS = {
+  vip: new Set(["vip@yourdomain.com", "dealbrut.com"]),
+  legal: new Set(["lawfirm.co.za", "justice.gov.za"]),
+  government: new Set(["gov.za", "sars.gov.za"]),
+  bulk: new Set([]),
+  weights: { email: new Map(), domain: new Map() },
+};
 
 export default imapRouter;
