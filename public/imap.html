@@ -1955,15 +1955,6 @@ state.emails.sort((a, b) => {
   return tb - ta; // newest first
 });
 
-// ----- Paging cursors & stack (SET BEFORE RENDER)
-state.nextCursor = data?.nextCursor || null;
-if (next) {
-  state.cursorStack.push(payload.cursor || null);
-} else if (!prev) {
-  state.cursorStack = [null];
-}
-
-
     // ---- Paging cursors & stack (SET BEFORE RENDER)
     state.nextCursor = data?.nextCursor || null;
     if (next) {
