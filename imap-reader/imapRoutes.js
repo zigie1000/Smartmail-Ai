@@ -4,6 +4,9 @@
 import express from "express";
 import { fetchEmails, fetchBodiesByUid, testLogin } from "./imapService.js";
 
+// add this:
+import { classifyEmails } from "../emailClassifier.js";
+
 export const imapRouter = express.Router();
 
 // Utility: normalize auth block from request body
