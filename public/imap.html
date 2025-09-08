@@ -1945,6 +1945,24 @@ async function fetchAndClassify(next = false, prev = false) {
     });
     console.log(`Filtered emails: ${beforeCount} → ${state.emails.length}`);
 
+     // Re-apply any saved local overrides
+state.emails = applySavedOverridesTo(state.emails);
+
+// 👇 NEW: force newest-first by timestamp
+state.emails.sort((a, b) => {
+  const ta = Number(a._ts ?? bestTimestampMs(a) ?? 0);
+  const tb = Number(b._ts ?? bestTimestampMs(b) ?? 0);
+  return tb - ta; // newest first
+});
+
+// ----- Paging cursors & stack (SET BEFORE RENDER)
+state.nextCursor = data?.nextCursor || null;
+if (next) {
+  state.cursorStack.push(payload.cursor || null);
+} else if (!prev) {
+  state.cursorStack = [null];
+}
+
     // Re-apply any saved local overrides
     state.emails = applySavedOverridesTo(state.emails);
 
