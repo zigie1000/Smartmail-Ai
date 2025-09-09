@@ -317,107 +317,31 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
   }
 });
 
-// ---------- ENHANCE (tier-gated) ----------
-app.post('/enhance', async (req, res) => {
-  try {
-    const { email, enhance_request, enhance_content } = req.body || {};
-    if (!email || !enhance_request || !enhance_content) {
-      return res.status(400).json({ error: 'Missing required fields.' });
-    }
-
-    const lic = await checkLicense(email, req.body?.licenseKey);
-    if ((lic.tier || 'free').toLowerCase() === 'free') {
-      return res.status(403).json({ error: 'Enhancement is Pro/Premium only.' });
-    }
-
-    const enhancePrompt = `
-Rewrite the email based on the user's request. Keep it professional.
-
-Original:
-${enhance_content}
-
-User request:
-${enhance_request}`.trim();
-
-    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: process.env.OPENAI_ENHANCE_MODEL || 'gpt-4o-mini',
-        messages: [{ role: 'user', content: enhancePrompt }],
-        max_tokens: 500,
-        temperature: 0.4
-      })
-    });
-
-    const result = await aiResp.json();
-    const reply = (result?.choices?.[0]?.message?.content || '').trim();
-    if (!aiResp.ok || !reply) {
-      console.error('Enhance error:', result?.error || result);
-      return res.status(502).json({ error: 'AI enhancement failed.' });
-    }
-
-    try {
-      await supabase.from('enhancements').insert([{
-        email, original_text: enhance_content, enhancement_prompt: enhance_request, enhanced_result: reply, product: 'SmartEmail'
-      }]);
-    } catch {}
-
-    res.status(200).json({ generatedEmail: reply, tier: lic.tier || 'free' });
-  } catch (err) {
-    console.error('Enhance route error:', err?.message || err);
-    res.status(500).json({ error: 'Something went wrong while enhancing.' });
-  }
-});
-
-// ---------- FREE USER REG (email-only) & CONFIG ----------
-app.post('/api/register-free-user', async (req, res) => {
-  try {
-    const email = (req.body?.email || '').trim().toLowerCase();
-    if (!email) return res.status(400).json({ error: 'Email required' });
-
-    const { data: existing, error: selErr } = await supabase
-      .from('licenses')
-      .select('email, smartemail_tier, smartemail_expires, status, created_at')
-      .eq('email', email)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (selErr) return res.status(500).json({ error: 'DB error', detail: selErr.message });
-
-    if (existing) return res.json({ status: 'exists' });
-
-    const { data, error: insErr } = await supabase
-      .from('licenses')
-      .insert({ email, smartemail_tier: 'free', smartemail_expires: null })
-      .select()
-      .maybeSingle();
-
-    if (insErr) return res.status(500).json({ error: 'DB error', detail: insErr.message });
-    return res.json({ status: data ? 'inserted' : 'exists' });
-  } catch (e) {
-    return res.status(500).json({ error: e.message || 'Unknown error' });
-  }
-});
-
-app.get('/config', (req, res) => {
-  res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
-});
-
 // ---------- LICENSE VALIDATION (email-first; key fallback) ----------
 app.get('/validate-license', async (req, res) => {
   try {
-    const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
-    const licenseKeyRaw = typeof req.query.licenseKey === 'string' ? req.query.licenseKey.trim() : '';
-    if (!email && !licenseKeyRaw) return res.status(400).json({ error: 'Missing email or licenseKey' });
+    const email =
+      typeof req.query.email === 'string'
+        ? req.query.email.trim().toLowerCase()
+        : '';
+    const licenseKeyRaw =
+      typeof req.query.licenseKey === 'string'
+        ? req.query.licenseKey.trim()
+        : '';
+
+    if (!email && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Missing email or licenseKey' });
+    }
 
     let row = null;
 
+    // 1) Prefer explicit email lookup
     if (email) {
       const byEmail = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, status, created_at')
+        .select(
+          'email, license_key, smartemail_tier, smartemail_expires, status, created_at'
+        )
         .eq('email', email)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -425,38 +349,58 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
+    // 2) If no email row, try by license key
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
-        .select('email, license_key, smartemail_tier, smartemail_expires, status')
+        .select(
+          'email, license_key, smartemail_tier, smartemail_expires, status'
+        )
         .eq('license_key', licenseKeyRaw)
         .maybeSingle();
       row = byKey.data || null;
     }
 
+    // 3) If an email was provided but no record exists, insert a FREE record
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
         .from('licenses')
-        .insert([{ email, license_key: newLicenseKey, smartemail_tier: 'free', smartemail_expires: null }])
+        .insert([
+          {
+            email,
+            license_key: newLicenseKey,
+            smartemail_tier: 'free',
+            smartemail_expires: null,
+          },
+        ])
         .select()
         .maybeSingle();
-      row = ins.data;
+      row = ins.data || null;
     }
 
     const now = new Date();
-    const tier      = (row?.smartemail_tier || 'free').toLowerCase();
+    const tier = String(row?.smartemail_tier || 'free').toLowerCase();
     const expiresAt = row?.smartemail_expires || null;
-    const active    = (tier === 'free')
-      ? true
-      : !!(expiresAt ? new Date(expiresAt) >= now : (row?.status === 'active' || row?.status === 'paid'));
+
+    // ✅ IMPORTANT CHANGE:
+    // Free is only "active" if we actually found/created a row for the user
+    // (i.e., they provided an email or key so they’ve registered).
+    const active =
+      tier === 'free'
+        ? !!row?.email
+        : !!(
+            expiresAt
+              ? new Date(expiresAt) >= now
+              : row?.status === 'active' || row?.status === 'paid'
+          );
 
     return res.status(200).json({
       status: active ? 'active' : 'expired',
       tier,
       email: row?.email || null,
       licenseKey: row?.license_key || null,
-      expiresAt
+      expiresAt,
     });
   } catch (err) {
     console.error('validate-license error:', err?.message || err);
