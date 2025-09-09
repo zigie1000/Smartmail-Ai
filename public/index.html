@@ -600,10 +600,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 🔧 NEW: pull any saved tier before first paint
   const stored =
-    (localStorage.getItem("smartemail_tier") ||
-     localStorage.getItem("smartemail.tier")  ||
-     localStorage.getItem("license_tier")     ||
-     window.userTier || "free");
+  localStorage.getItem("smartemail_tier") ||
+  localStorage.getItem("smartemail.tier") ||
+  localStorage.getItem("license_tier") ||
+  window.userTier || "free";
 
   setTier(stored);          // normalize + paint badge
   updateFeatureAccess();    // enable/disable buttons accordingly
