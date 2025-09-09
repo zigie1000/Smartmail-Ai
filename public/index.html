@@ -475,6 +475,25 @@ document.addEventListener("DOMContentLoaded",()=>{
     <div id="legalContent"></div>
   </div>
 </div>
+<!-- SMTP Settings Modal -->
+<div id="smtpModal" class="modal-bg" style="display:none;">
+  <div class="modal-card" style="max-width:420px;">
+    <h3 style="margin-top:0;">SMTP Settings</h3>
+    <p style="color:#666;margin-top:6px;">Use an app password if your provider requires one.</p>
+    <div class="form-row"><label>Host</label><input id="smtp_host" type="text" placeholder="smtp.gmail.com"/></div>
+    <div class="form-row"><label>Port</label><input id="smtp_port" type="number" value="465"/></div>
+    <div class="form-row"><label>Secure (TLS)</label><select id="smtp_secure"><option value="true" selected>Yes (465)</option><option value="false">No (587)</option></select></div>
+    <div class="form-row"><label>Auth Type</label><select id="smtp_authType"><option value="password" selected>Password</option><option value="xoauth2">OAuth2 (Token)</option></select></div>
+    <div class="form-row"><label>Email (From)</label><input id="smtp_email" type="email" placeholder="you@example.com"/></div>
+    <div class="form-row"><label>Password / App Password</label><input id="smtp_pass" type="password"/></div>
+    <div class="form-row"><label>Access Token (OAuth2)</label><input id="smtp_token" type="text" placeholder="Optional for OAuth2"/></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button id="smtpSaveBtn" style="background:#1976d2;color:#fff;">Save</button>
+      <button id="smtpCancelBtn" style="background:#aaa;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const legalTexts={
     privacy:`<h3 style="margin-top:0">Privacy Policy</h3>
@@ -491,6 +510,10 @@ document.addEventListener("DOMContentLoaded",()=>{
   function hideLegal(){ document.getElementById('legalModal').style.display='none'; document.body.style.overflow=''; }
 </script>
 
+
+
+
+  
 <script>
 // === Runtime Advanced wrapper (dedupe-safe) ===
 (function(){
