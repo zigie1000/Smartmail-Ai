@@ -318,93 +318,59 @@ ${finalAgent ? '**Sender Info:**\n' + finalAgent : ''}`.trim();
 });
 
 // ---------- LICENSE VALIDATION (email-first; key fallback) ----------
-app.get('/validate-license', async (req, res) => {
+// --- alias for legacy front-end call used by imap.html ---
+app.post('/api/imap/tier', async (req, res) => {
   try {
-    const email =
-      typeof req.query.email === 'string'
-        ? req.query.email.trim().toLowerCase()
-        : '';
-    const licenseKeyRaw =
-      typeof req.query.licenseKey === 'string'
-        ? req.query.licenseKey.trim()
-        : '';
-
-    if (!email && !licenseKeyRaw) {
-      return res.status(400).json({ error: 'Missing email or licenseKey' });
+    const emailRaw = (req.body?.email || '').trim().toLowerCase();
+    const licenseKeyRaw = (req.body?.licenseKey || '').trim();
+    if (!emailRaw && !licenseKeyRaw) {
+      return res.json({ tier: 'free', isPaid: false });
     }
 
     let row = null;
 
-    // 1) Prefer explicit email lookup
-    if (email) {
+    if (licenseKeyRaw) {
+      const byKey = await supabase
+        .from('licenses')
+        .select('smartemail_tier, smartemail_expires, status, created_at')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      row = byKey.data || null;
+    }
+
+    if (!row && emailRaw) {
       const byEmail = await supabase
         .from('licenses')
-        .select(
-          'email, license_key, smartemail_tier, smartemail_expires, status, created_at'
-        )
-        .eq('email', email)
+        .select('smartemail_tier, smartemail_expires, status, created_at')
+        .eq('email', emailRaw)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       row = byEmail.data || null;
     }
 
-    // 2) If no email row, try by license key
-    if (!row && licenseKeyRaw) {
-      const byKey = await supabase
-        .from('licenses')
-        .select(
-          'email, license_key, smartemail_tier, smartemail_expires, status'
-        )
-        .eq('license_key', licenseKeyRaw)
-        .maybeSingle();
-      row = byKey.data || null;
+    if (!row) {
+      // No record found at all → still return "free" but mark inactive
+      return res.json({ tier: 'free', isPaid: false });
     }
 
-    // 3) If an email was provided but no record exists, insert a FREE record
-    if (!row && email) {
-      const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
-      const ins = await supabase
-        .from('licenses')
-        .insert([
-          {
-            email,
-            license_key: newLicenseKey,
-            smartemail_tier: 'free',
-            smartemail_expires: null,
-          },
-        ])
-        .select()
-        .maybeSingle();
-      row = ins.data || null;
-    }
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
 
-    const now = new Date();
-    const tier = String(row?.smartemail_tier || 'free').toLowerCase();
-    const expiresAt = row?.smartemail_expires || null;
-
-    // ✅ IMPORTANT CHANGE:
-    // Free is only "active" if we actually found/created a row for the user
-    // (i.e., they provided an email or key so they’ve registered).
+    // ✅ free is only active if we have a stored row
     const active =
       tier === 'free'
-        ? !!row?.email
+        ? !!row
         : !!(
             expiresAt
-              ? new Date(expiresAt) >= now
-              : row?.status === 'active' || row?.status === 'paid'
+              ? expiresAt > new Date()
+              : row.status === 'active' || row.status === 'paid'
           );
 
-    return res.status(200).json({
-      status: active ? 'active' : 'expired',
-      tier,
-      email: row?.email || null,
-      licenseKey: row?.license_key || null,
-      expiresAt,
-    });
-  } catch (err) {
-    console.error('validate-license error:', err?.message || err);
-    return res.status(500).json({ error: 'Validation failed' });
+    return res.json({ tier, isPaid: active && tier !== 'free' });
+  } catch (e) {
+    console.error('/api/imap/tier error:', e?.message || e);
+    return res.json({ tier: 'free', isPaid: false });
   }
 });
 
