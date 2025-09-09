@@ -448,7 +448,83 @@ function getTimestampFilename(base,ext){ const ts=new Date().toISOString().repla
     // NOTE: per your instruction, DO NOT auto-fill "sender_details" from incoming sender.
   }catch(e){ console.warn('Prefill skipped:',e); }
 })();
+<!-- ========== Reply Logic & SMTP Wiring (Patch C) ========== -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const replyBtn = document.getElementById("replyGeneratedBtn");
+  if (!replyBtn) return;
 
+  replyBtn.addEventListener("click", async () => {
+    const smtpHost = localStorage.getItem("smtp_host");
+    const smtpPort = localStorage.getItem("smtp_port");
+    const smtpSecure = localStorage.getItem("smtp_secure");
+    const smtpUser = localStorage.getItem("smtp_user");
+    const smtpPassword = localStorage.getItem("smtp_password");
+    const smtpAccessToken = localStorage.getItem("smtp_accessToken");
+    const smtpAuthType = localStorage.getItem("smtp_authType");
+
+    // If no saved SMTP config, open modal
+    if (!smtpHost || !smtpUser) {
+      document.getElementById("smtpModal").style.display = "block";
+      return;
+    }
+
+    const generated = document.getElementById("result").textContent.trim();
+    if (!generated) {
+      alert("No generated email to reply with.");
+      return;
+    }
+
+    // Get original IMAP context if available
+    let payload = {};
+    try { payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
+    if (!payload.to && payload.from) payload.to = payload.from;
+
+    const body = {
+      smtp: { host: smtpHost, port: smtpPort, secure: smtpSecure === "true",
+              user: smtpUser, pass: smtpPassword, accessToken: smtpAccessToken,
+              authType: smtpAuthType || "password" },
+      replyTo: payload.from || "",
+      to: payload.to || payload.from || "",
+      subject: "Re: " + (payload.subject || document.getElementById("subject").value || ""),
+      body: generated
+    };
+
+    try {
+      const r = await fetch("/api/imap/reply", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if (r.ok) {
+        alert("✅ Reply sent successfully");
+        console.log("Reply response:", d);
+      } else {
+        alert("❌ Failed to send reply: " + (d.error || r.statusText));
+      }
+    } catch (e) {
+      alert("❌ Error sending reply: " + e.message);
+    }
+  });
+
+  // Wire modal save
+  const saveBtn = document.getElementById("smtpSaveBtn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", () => {
+      localStorage.setItem("smtp_host", document.getElementById("smtp_host").value);
+      localStorage.setItem("smtp_port", document.getElementById("smtp_port").value);
+      localStorage.setItem("smtp_secure", document.getElementById("smtp_secure").value);
+      localStorage.setItem("smtp_user", document.getElementById("smtp_user").value);
+      localStorage.setItem("smtp_password", document.getElementById("smtp_password").value);
+      localStorage.setItem("smtp_accessToken", document.getElementById("smtp_accessToken").value);
+      localStorage.setItem("smtp_authType", document.getElementById("smtp_authType").value);
+      document.getElementById("smtpModal").style.display = "none";
+      alert("✅ SMTP settings saved. Try sending again.");
+    });
+  }
+});
+</script>
+<!-- ========== End Patch C ========== -->
 /* =========== Attach listeners once =========== */
 document.addEventListener("DOMContentLoaded",()=>{
   const generateBtn=document.getElementById("generateBtn");
