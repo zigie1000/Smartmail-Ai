@@ -11,10 +11,11 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import Stripe from 'stripe';
-import stripeWebHook from './stripeWebhook.js';
+import stripeWebHook from './stripeWebhook.js'; // ESM default export
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';            // ✅ NEW: SMTP
 
 // ✅ IMAP REST routes
 import imapRoutes from './imap-reader/imapRoutes.js';
@@ -34,7 +35,7 @@ const __dirname  = path.dirname(__filename);
 app.set('trust proxy', 1);
 app.use(cors());
 
-// ⚠️ Stripe webhook BEFORE json/urlencoded so req.body is raw (Buffer)
+// ⚠️ Mount Stripe webhook BEFORE json/urlencoded so req.body is raw (Buffer)
 const WEBHOOK_PATH = process.env.STRIPE_WEBHOOK_PATH || '/stripe/webhook';
 app.post(WEBHOOK_PATH, express.raw({ type: 'application/json' }), stripeWebHook);
 
@@ -195,11 +196,11 @@ app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', googleLogin: USE_GOOGLE_AUTH, microsoftLogin: USE_MS_AUTH, mode: 'SmartEmail' });
 });
 
-// ---------- LICENSE HELPERS ----------
+// ---------- LICENSE HELPERS (email-first) ----------
 async function checkLicense(email, licenseKey) {
   const e = String(email || '').trim().toLowerCase();
 
-  // prefer key if provided
+  // Prefer license key if provided
   if (licenseKey) {
     const byKey = await supabase
       .from('licenses')
@@ -216,6 +217,7 @@ async function checkLicense(email, licenseKey) {
     }
   }
 
+  // Latest by email
   const r = await supabase
     .from('licenses')
     .select('smartemail_tier, smartemail_expires, status, created_at')
@@ -225,7 +227,6 @@ async function checkLicense(email, licenseKey) {
     .maybeSingle();
 
   if (!r.data) {
-    // Bootstrap a free row for first-time emails
     await supabase
       .from('licenses')
       .upsert({ email: e, smartemail_tier: 'free', smartemail_expires: null }, { onConflict: 'email' });
@@ -239,7 +240,7 @@ async function checkLicense(email, licenseKey) {
   };
 }
 
-// ---------- GENERATE ----------
+// ---------- GENERATE (always available; returns tier for badge) ----------
 app.post('/generate', async (req, res) => {
   try {
     const {
@@ -371,12 +372,13 @@ ${enhance_request}`.trim();
   }
 });
 
-// ---------- FREE USER REG (email-only) ----------
+// ---------- FREE USER REG (email-only) & CONFIG ----------
 app.post('/api/register-free-user', async (req, res) => {
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
 
+    // If the user already has ANY license row, do not overwrite it.
     const { data: existing, error: selErr } = await supabase
       .from('licenses')
       .select('email, smartemail_tier, smartemail_expires, status, created_at')
@@ -387,8 +389,11 @@ app.post('/api/register-free-user', async (req, res) => {
 
     if (selErr) return res.status(500).json({ error: 'DB error', detail: selErr.message });
 
-    if (existing) return res.json({ status: 'exists' });
+    if (existing) {
+      return res.json({ status: 'exists' });
+    }
 
+    // Create a brand-new free stub
     const { data, error: insErr } = await supabase
       .from('licenses')
       .insert({ email, smartemail_tier: 'free', smartemail_expires: null })
@@ -402,7 +407,6 @@ app.post('/api/register-free-user', async (req, res) => {
   }
 });
 
-// ---------- PURCHASE LINKS CONFIG ----------
 app.get('/config', (req, res) => {
   res.json({ PRO_URL: process.env.PRO_URL || '', PREMIUM_URL: process.env.PREMIUM_URL || '' });
 });
@@ -416,6 +420,7 @@ app.get('/validate-license', async (req, res) => {
 
     let row = null;
 
+    // Email first (latest)
     if (email) {
       const byEmail = await supabase
         .from('licenses')
@@ -427,6 +432,7 @@ app.get('/validate-license', async (req, res) => {
       row = byEmail.data || null;
     }
 
+    // Key fallback
     if (!row && licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -436,7 +442,7 @@ app.get('/validate-license', async (req, res) => {
       row = byKey.data || null;
     }
 
-    // Bootstrap a free row for first-time emails
+    // Create free stub if still nothing and we have email
     if (!row && email) {
       const newLicenseKey = `free_${email.replace(/[^a-z0-9]/gi, '')}_${Date.now()}`;
       const ins = await supabase
@@ -447,7 +453,7 @@ app.get('/validate-license', async (req, res) => {
       row = ins.data;
     }
 
-    const now       = new Date();
+    const now = new Date();
     const tier      = (row?.smartemail_tier || 'free').toLowerCase();
     const expiresAt = row?.smartemail_expires || null;
     const active    = (tier === 'free')
@@ -473,7 +479,59 @@ app.get('/imap', (req, res) => {
 });
 app.use('/api/imap', imapRoutes);
 
-// --- legacy helper used by older imap.html builds (kept, single definition) ---
+// ---------- SQL-backed email/key tier check (front-end badge) ----------
+app.post('/api/license/check', async (req, res) => {
+  try {
+    const emailRaw = (req.body?.email || '').trim().toLowerCase();
+    const licenseKeyRaw = (req.body?.licenseKey || '').trim();
+
+    if (!emailRaw && !licenseKeyRaw) {
+      return res.status(400).json({ error: 'Email or licenseKey required' });
+    }
+
+    let row = null;
+
+    // Prefer lookup by license key if provided
+    if (licenseKeyRaw) {
+      const byKey = await supabase
+        .from('licenses')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
+        .eq('license_key', licenseKeyRaw)
+        .maybeSingle();
+      row = byKey.data || null;
+    }
+
+    // Fallback to latest by email
+    if (!row && emailRaw) {
+      const byEmail = await supabase
+        .from('licenses')
+        .select('email, smartemail_tier, smartemail_expires, status, license_key, created_at')
+        .eq('email', emailRaw)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row = byEmail.data || null;
+    }
+
+    if (!row) return res.json({ found: false, active: false, tier: 'free' });
+
+    const tier = String(row.smartemail_tier || 'free').toLowerCase();
+    const expiresAt = row.smartemail_expires ? new Date(row.smartemail_expires) : null;
+
+    // Free is always "active" for UI; paid must be unexpired or status=active/paid
+    const active = tier === 'free'
+      ? true
+      : !!(expiresAt ? expiresAt > new Date() : (row.status === 'active' || row.status === 'paid'));
+
+    return res.json({ found: true, active, tier });
+  } catch (e) {
+    console.error('/api/license/check error:', e?.message || e);
+    // Fail-open to free so UI doesn’t break
+    return res.json({ found: false, active: false, tier: 'free' });
+  }
+});
+
+// ---------- Legacy IMAP tier alias (kept for imap.html) ----------
 app.post('/api/imap/tier', async (req, res) => {
   try {
     const emailRaw = (req.body?.email || '').trim().toLowerCase();
@@ -484,6 +542,7 @@ app.post('/api/imap/tier', async (req, res) => {
 
     let row = null;
 
+    // prefer key lookup
     if (licenseKeyRaw) {
       const byKey = await supabase
         .from('licenses')
@@ -493,6 +552,7 @@ app.post('/api/imap/tier', async (req, res) => {
       row = byKey.data || null;
     }
 
+    // fallback to latest by email
     if (!row && emailRaw) {
       const byEmail = await supabase
         .from('licenses')
@@ -519,6 +579,102 @@ app.post('/api/imap/tier', async (req, res) => {
   }
 });
 
+// ---------- SMTP SEND / REPLY (inline, no extra files) ----------
+function buildTransport({ host, port, secure, authType, email, password, accessToken }) {
+  const opts = {
+    host,
+    port: Number(port || 465),
+    secure: String(secure) === 'true' || secure === true || Number(port) === 465,
+  };
+
+  if ((authType || 'password') === 'xoauth2') {
+    opts.auth = {
+      type: 'OAuth2',
+      user: email,
+      accessToken: accessToken,
+    };
+  } else {
+    opts.auth = {
+      user: email,
+      pass: password,
+    };
+  }
+
+  return nodemailer.createTransport(opts);
+}
+
+// POST /api/imap/send  — plain send (used when there is no original Message-ID)
+app.post('/api/imap/send', async (req, res) => {
+  try {
+    const {
+      host, port, secure, authType, email, password, accessToken,
+      from, to, subject, text, html, attachments
+    } = req.body || {};
+
+    if (!host || !email || !to || !subject) {
+      return res.status(400).json({ error: 'Missing required fields (host, email, to, subject).' });
+    }
+
+    const transporter = buildTransport({ host, port, secure, authType, email, password, accessToken });
+
+    const info = await transporter.sendMail({
+      from: from || email,
+      to,
+      subject,
+      text: text || undefined,
+      html: html || undefined,
+      attachments: Array.isArray(attachments) ? attachments : undefined,
+    });
+
+    return res.json({ ok: true, messageId: info.messageId, envelope: info.envelope });
+  } catch (e) {
+    console.error('[SMTP SEND] error:', e);
+    return res.status(500).json({ ok: false, error: e?.message || 'Send failed' });
+  }
+});
+
+// POST /api/imap/reply — reply in-thread (adds In-Reply-To / References)
+app.post('/api/imap/reply', async (req, res) => {
+  try {
+    const {
+      host, port, secure, authType, email, password, accessToken,
+      to, subject, text, html,
+      orig
+    } = req.body || {};
+
+    if (!host || !email || !to || !subject) {
+      return res.status(400).json({ error: 'Missing required fields (host, email, to, subject).' });
+    }
+
+    // Threading headers
+    const origMsgId = orig?.messageId || '';
+    const refs      = Array.isArray(orig?.references) ? orig.references : [];
+    const headers = {};
+    if (origMsgId) headers['In-Reply-To'] = origMsgId;
+    if (origMsgId || refs.length) {
+      const chain = [...refs, origMsgId].filter(Boolean);
+      if (chain.length) headers['References'] = chain.join(' ');
+    }
+
+    const transporter = buildTransport({ host, port, secure, authType, email, password, accessToken });
+
+    const info = await transporter.sendMail({
+      from: email,
+      to,
+      subject,
+      text: text || undefined,
+      html: html || undefined,
+      headers,
+    });
+
+    return res.json({ ok: true, messageId: info.messageId, envelope: info.envelope });
+  } catch (e) {
+    console.error('[SMTP REPLY] error:', e);
+    return res.status(500).json({ ok: false, error: e?.message || 'Reply failed' });
+  }
+});
+
+// ---------- HEALTH ----------
 app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 // ---------- START ----------
