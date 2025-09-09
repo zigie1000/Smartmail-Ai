@@ -1672,23 +1672,32 @@ const payload = {
   userEmail
 };
 
-// 🔽 ADD THIS — precise & compatible with both old/new readers
+// --- add directly after:  const payload = { subject: ..., body: ..., snippet: ..., userEmail } ---
+
+// derive "fromEmail" (original sender of the selected message)
 const fromEmail =
-  (first.fromEmail) ||
+  (first.fromEmail && String(first.fromEmail)) ||
   (first.from && first.from.email) ||
-  extractEmail(first.from) ||
+  extractEmail(first.from) || "";
+
+// derive "toEmail" (the mailbox owner we’re replying **as**)
+const toEmail =
+  (document.getElementById("email")?.value || "").trim() ||
+  localStorage.getItem("imap.email") ||
+  localStorage.getItem("smartemail.imapEmail") ||
   "";
 
-const messageId  = first.messageId || first["message-id"] || null;
+// message-id + references for threading
+const messageId = first.messageId || first["message-id"] || null;
 const references = Array.isArray(first.references)
   ? first.references
   : (first["references"] ? String(first["references"]).split(/\s+/) : []);
 
-// write both keys for max compatibility (Generator checks fromEmail OR from)
-payload.fromEmail  = fromEmail.trim();
-payload.from       = payload.fromEmail;
-payload.messageId  = messageId;
-payload.references = references;
+// attach to the payload the generator reads later
+payload.fromEmail   = String(fromEmail).trim();
+payload.toEmail     = String(toEmail).trim();
+payload.messageId   = messageId;
+payload.references  = references;
 
 function extractEmail(v) {
   if (!v) return "";
