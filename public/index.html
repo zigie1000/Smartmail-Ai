@@ -712,7 +712,13 @@ document.addEventListener("DOMContentLoaded", () => {
   if (payload.subject) document.getElementById("subject").value = payload.subject;
   if (payload.body && payload.body.trim()) document.getElementById("email_content").value = payload.body;
   else if (payload.snippet && payload.snippet.trim()) document.getElementById("email_content").value = payload.snippet;
-  if (payload.from) document.getElementById("email").value = payload.from;
+ const emailEl   = document.getElementById("email");
+const imapLogin =
+  localStorage.getItem("imap.email") ||
+  localStorage.getItem("smartemail.imapEmail") ||
+  "";
+const userEmail = payload.userEmail || imapLogin;
+if (emailEl && userEmail) emailEl.value = userEmail;
 
   const log = document.getElementById("debugLog");
   if (log) log.value += `${new Date().toISOString()} — 📥 Loaded email from IMAP selection\n`;
