@@ -1690,6 +1690,18 @@ payload.from       = payload.fromEmail;
 payload.messageId  = messageId;
 payload.references = references;
 
+function extractEmail(v) {
+  if (!v) return "";
+  if (typeof v === "string") {
+    const m = v.match(/<([^>]+)>/);   // "Name <user@domain>"
+    return (m && m[1]) || v.trim();
+  }
+  if (v && typeof v === "object" && v.email) return v.email;
+  return "";
+}
+   
+
+
 // Preload SMTP settings for the Generator (auto-fill on index.html)
 (function preloadSmtpForGenerator(){
   // try both name= and id= selectors to match your current form fields
