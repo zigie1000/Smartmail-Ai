@@ -470,20 +470,26 @@ document.addEventListener("DOMContentLoaded", () => {
     console.warn("▲ No SMTP preload:", e);
   }
 
-  const replyBtn = document.getElementById("replyGeneratedBtn");
+    const replyBtn = document.getElementById("replyGeneratedBtn");
   if (!replyBtn) return;
 
-
   replyBtn.addEventListener("click", async () => {
-    const smtpHost        = localStorage.getItem("smtp_host");
+    // Pull settings (add defaults)
+    let smtpHost        = (localStorage.getItem("smtp_host") || "").trim();
+    if (!smtpHost) {                         // ← default host if empty
+      smtpHost = "smtp.gmail.com";
+      localStorage.setItem("smtp_host", smtpHost);
+    }
     const smtpPort        = Number(localStorage.getItem("smtp_port") || 465);
     const smtpSecure      = (localStorage.getItem("smtp_secure") || "true") === "true";
-    const smtpEmail       = localStorage.getItem("smtp_email");
-    const smtpPassword    = localStorage.getItem("smtp_password");
-    const smtpAccessToken = localStorage.getItem("smtp_accessToken");
-    const smtpAuthType    = (localStorage.getItem("smtp_authType") || "password");
+    const smtpEmail       = (localStorage.getItem("smtp_email") || "").trim();
+    const smtpPassword    = (localStorage.getItem("smtp_password") || "");
+    const smtpAccessToken = (localStorage.getItem("smtp_accessToken") || "");
+    const smtpAuthType    = (localStorage.getItem("smtp_authType") ||
+                            (smtpAccessToken ? "xoauth2" : "password")).toLowerCase();
 
-    if (!smtpHost || !smtpEmail || (!smtpPassword && !smtpAccessToken)) {
+    // ✅ Only require email and (password OR token)
+    if (!smtpEmail || (!smtpPassword && !smtpAccessToken)) {
       const m = document.getElementById("smtpModal");
       if (m) m.style.display = "block";
       return;
