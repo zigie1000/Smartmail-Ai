@@ -1671,6 +1671,23 @@ bodyText = bodyText.replace(/\u00A0/g, " ")
     userEmail
   };
 
+// ---- Preload SMTP settings for Generator ----
+(function preloadSmtpForGenerator(){
+  const get = (sel) => document.querySelector(sel)?.value;
+
+  const host = get('#host') || get('input[name="host"]') || '';
+  const port = Number(get('#port') || get('input[name="port"]') || 465);
+  const tlsRaw = String(get('#tls') || get('select[name="tls"]') || 'on').toLowerCase();
+  const secure = (tlsRaw === 'on' || tlsRaw === 'true' || tlsRaw === 'yes');
+  const authType = get('#auth') || get('#authType') || get('select[name="auth"]') || 'password';
+  const emailFrom = get('#email') || get('input[name="email"]') || '';
+
+  const smtpPreload = { host, port, secure, authType, email: emailFrom };
+  sessionStorage.setItem('imap.smtpPreload', JSON.stringify(smtpPreload));
+})();
+   
+
+
   try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch {}
   try { if (typeof saveImapState === "function") saveImapState(); } catch {}
 
