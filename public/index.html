@@ -235,7 +235,19 @@ async function detectAndSyncLicense(showPromptIfFree=true){
 }
     else{ localStorage.removeItem("licenseKey"); triedEmail=true; log("❌ Bad/expired key."); } }catch(e){ hideModal(); log("❌ License check failed: "+e.message); } }
   if(userEmail&&!triedEmail){ showCheckingModal("Checking for license linked to your email..."); try{ const r=await fetch(`/validate-license?email=${encodeURIComponent(userEmail)}`); const d=await r.json(); hideModal();
-    if(d.tier&&d.status==="active"){ setTier(d.tier); updateFeatureAccess(); if(d.licenseKey) localStorage.setItem("licenseKey",d.licenseKey); if(d.email) localStorage.setItem("userEmail",d.email); log("✅ Loaded license via email."); return; }
+    if (d.tier && d.status === "active") {
+  setTier(d.tier);
+  updateFeatureAccess();
+  if (d.licenseKey) localStorage.setItem("licenseKey", d.licenseKey);
+  if (d.email)      localStorage.setItem("userEmail",  d.email);
+  log("✅ Loaded license via email.");
+
+  // Force prompt if still on FREE tier
+  if (String(d.tier).toLowerCase() === "free" && showPromptIfFree) {
+    showEmailPrompt();
+  }
+  return;
+}
     else{ localStorage.removeItem("userEmail"); log("❌ Email not licensed."); } }catch(e){ hideModal(); log("❌ Email license check failed: "+e.message); } }
   setTier("free"); updateFeatureAccess(); log("👤 No license found; set free."); if(showPromptIfFree) showEmailPrompt();
 }
