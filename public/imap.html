@@ -1671,6 +1671,37 @@ bodyText = bodyText.replace(/\u00A0/g, " ")
     userEmail
   };
 
+// Preload SMTP settings for the Generator (auto-fill on index.html)
+(function preloadSmtpForGenerator(){
+  // try both name= and id= selectors to match your current form fields
+  const q = (sel) =>
+    document.querySelector(sel) ||
+    document.getElementById(sel.replace(/^[\[#]/, '').replace(/[\]]$/,''));
+
+  const host       = (q('input[name="host"]')?.value || q('#host')?.value || '').trim();
+  const portVal    = (q('input[name="port"]')?.value || q('#port')?.value || '').trim();
+  const tlsVal     = (q('select[name="tls"]')?.value || q('#tls')?.value || 'on').toString().toLowerCase();
+  const authVal    = (q('select[name="auth"]')?.value || q('#auth')?.value || 'password').toString().toLowerCase();
+  const emailFrom  = (q('#email')?.value || '').trim();
+  const password   = (q('input[name="password"]')?.value || q('#password')?.value || '');
+  const accessTok  = (q('#accessToken')?.value || '');
+
+  const preload = {
+    host: host || 'smtp.gmail.com',
+    port: Number(portVal || 465),
+    secure: tlsVal !== 'off' && tlsVal !== 'false',
+    authType: authVal || 'password',
+    email: emailFrom,
+    password,
+    accessToken: accessTok
+  };
+
+  try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); }
+  catch (e) { /* ignore storage errors */ }
+})();
+
+   
+
 // ---- Preload SMTP settings for Generator ----
 (function preloadSmtpForGenerator(){
   const get = (sel) => document.querySelector(sel)?.value;
