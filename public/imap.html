@@ -1664,12 +1664,27 @@ bodyText = bodyText.replace(/\u00A0/g, " ")
              || "";
   }
 
-  const payload = {
-    subject: first.subject || "",
-    body: bodyText || "",
-    snippet: htmlToPlain(snippetLike) || "",
-    userEmail
-  };
+ // existing
+const payload = {
+  subject: first.subject || "",
+  body:    bodyText || "",
+  snippet: htmlToPlain(snippetLike) || "",
+  userEmail
+};
+
+// 🔽 ADD THIS BLOCK — right after the payload is created
+const fromEmail =
+  (first.fromEmail) ||
+  (first.from && first.from.email) ||
+  extractEmail(first.from) || "";           // helper below
+
+const messageId  = first.messageId || first["message-id"] || null;
+const references = Array.isArray(first.references) ? first.references
+                  : (first["references"] ? String(first["references"]).split(/\s+/) : []);
+
+payload.fromEmail  = (fromEmail || "").trim();
+payload.messageId  = messageId;
+payload.references = references;
 
 // Preload SMTP settings for the Generator (auto-fill on index.html)
 (function preloadSmtpForGenerator(){
