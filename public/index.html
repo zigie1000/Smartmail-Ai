@@ -568,14 +568,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
 <script>
 /* =========== Attach listeners once =========== */
-document.addEventListener("DOMContentLoaded",()=>{
-  const generateBtn=document.getElementById("generateBtn");
-  const enhanceBtn=document.getElementById("enhanceBtn");
-  if(generateBtn) generateBtn.addEventListener("click", generate, { once:false });
-  if(enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement, { once:false });
-  // Reflect current tier on first paint
-  const tier=(window.userTier||"free"); const badge=document.getElementById("tierBadge");
-  if(badge) badge.textContent=(tier.charAt(0).toUpperCase()+tier.slice(1))+" Tier";
+document.addEventListener("DOMContentLoaded", () => {
+  const generateBtn = document.getElementById("generateBtn");
+  const enhanceBtn  = document.getElementById("enhanceBtn");
+  if (generateBtn) generateBtn.addEventListener("click", generate, { once:false });
+  if (enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement, { once:false });
+
+  // 🔧 NEW: pull any saved tier before first paint
+  const stored =
+    (localStorage.getItem("smartemail_tier") ||
+     localStorage.getItem("smartemail.tier")  ||
+     localStorage.getItem("license_tier")     ||
+     window.userTier || "free");
+
+  setTier(stored);          // normalize + paint badge
+  updateFeatureAccess();    // enable/disable buttons accordingly
 });
 </script>
 
