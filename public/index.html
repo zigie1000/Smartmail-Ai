@@ -591,22 +591,30 @@ document.addEventListener("DOMContentLoaded", () => {
 <!-- ========= End Patch C ========= -->
 
 <script>
-/* =========== Attach listeners once =========== */
+/* =========== Attach listeners once (fixed) =========== */
 document.addEventListener("DOMContentLoaded", () => {
   const generateBtn = document.getElementById("generateBtn");
   const enhanceBtn  = document.getElementById("enhanceBtn");
-  if (generateBtn) generateBtn.addEventListener("click", generate, { once:false });
-  if (enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement, { once:false });
+  if (generateBtn) generateBtn.addEventListener("click", generate);
+  if (enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement);
 
-  // 🔧 NEW: pull any saved tier before first paint
-  const stored =
-  localStorage.getItem("smartemail_tier") ||
-  localStorage.getItem("smartemail.tier") ||
-  localStorage.getItem("license_tier") ||
-  window.userTier || "free";
+  // Only trust a stored tier if an email or license key also exists
+  const hasCred = !!(localStorage.getItem("userEmail") || localStorage.getItem("licenseKey"));
+  const stored  = hasCred && (
+    localStorage.getItem("smartemail_tier") ||
+    localStorage.getItem("smartemail.tier") ||   // legacy support
+    localStorage.getItem("license_tier")         // legacy support
+  );
 
-  setTier(stored);          // normalize + paint badge
-  updateFeatureAccess();    // enable/disable buttons accordingly
+  if (stored) {
+    setTier(stored);
+    updateFeatureAccess();
+  } else {
+    // First visit (no email/key) → force Free + show email prompt
+    setTier("free");
+    updateFeatureAccess();
+    showEmailPrompt();
+  }
 });
 </script>
 
