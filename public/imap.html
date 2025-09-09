@@ -1664,7 +1664,7 @@ bodyText = bodyText.replace(/\u00A0/g, " ")
              || "";
   }
 
- // existing
+// existing
 const payload = {
   subject: first.subject || "",
   body:    bodyText || "",
@@ -1672,17 +1672,21 @@ const payload = {
   userEmail
 };
 
-// 🔽 ADD THIS BLOCK — right after the payload is created
+// 🔽 ADD THIS — precise & compatible with both old/new readers
 const fromEmail =
   (first.fromEmail) ||
   (first.from && first.from.email) ||
-  extractEmail(first.from) || "";           // helper below
+  extractEmail(first.from) ||
+  "";
 
 const messageId  = first.messageId || first["message-id"] || null;
-const references = Array.isArray(first.references) ? first.references
-                  : (first["references"] ? String(first["references"]).split(/\s+/) : []);
+const references = Array.isArray(first.references)
+  ? first.references
+  : (first["references"] ? String(first["references"]).split(/\s+/) : []);
 
-payload.fromEmail  = (fromEmail || "").trim();
+// write both keys for max compatibility (Generator checks fromEmail OR from)
+payload.fromEmail  = fromEmail.trim();
+payload.from       = payload.fromEmail;
 payload.messageId  = messageId;
 payload.references = references;
 
