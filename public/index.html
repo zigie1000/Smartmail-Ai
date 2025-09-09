@@ -453,19 +453,21 @@ function getTimestampFilename(base,ext){ const ts=new Date().toISOString().repla
   <script>
 document.addEventListener("DOMContentLoaded", () => {
 
-  // ⬇️ Auto-preload SMTP from IMAP sessionStorage
+   // Auto-preload SMTP from IMAP sessionStorage
   try {
     const preload = JSON.parse(sessionStorage.getItem("imap.smtpPreload") || "null");
-    if (preload) {
-      localStorage.setItem("smtp_host", preload.host || "");
-      localStorage.setItem("smtp_port", preload.port || "465");
-      localStorage.setItem("smtp_secure", String(preload.secure));
-      localStorage.setItem("smtp_authType", preload.authType || "password");
-      localStorage.setItem("smtp_email", preload.email || "");
+    if (preload && (preload.host || preload.email)) {
+      localStorage.setItem("smtp_host",       (preload.host || "smtp.gmail.com").trim());
+      localStorage.setItem("smtp_port",       String(preload.port ?? 465));
+      localStorage.setItem("smtp_secure",     preload.secure ? "true" : "false");
+      localStorage.setItem("smtp_authType",   (preload.authType || "password").trim());
+      localStorage.setItem("smtp_email",      (preload.email || "").trim());
+      if (preload.password)    localStorage.setItem("smtp_password", preload.password);
+      if (preload.accessToken) localStorage.setItem("smtp_accessToken", preload.accessToken);
       console.log("✅ Preloaded SMTP from IMAP:", preload);
     }
   } catch (e) {
-    console.warn("⚠️ No SMTP preload:", e);
+    console.warn("▲ No SMTP preload:", e);
   }
 
   const replyBtn = document.getElementById("replyGeneratedBtn");
