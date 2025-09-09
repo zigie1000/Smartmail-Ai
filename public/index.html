@@ -508,7 +508,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const uiSubject = (document.getElementById("subject")?.value || "").trim();
     const subjectBase = uiSubject || origSubject || "";
     const subject = /^re:\s/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`.trim();
-    const to = ctx.toEmail || ctx.to || "";  // prefer recipient, not sender
+    // recipient = original sender (fromEmail), fallback to ctx.toEmail/ctx.to
+const to = fromEmail || ctx.toEmail || ctx.to || "";
 if (!to) {
   alert("❌ Missing original recipient. Open the generator from the IMAP page so threading works.");
   return;
