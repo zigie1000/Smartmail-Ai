@@ -129,30 +129,29 @@
     <label for="subject">Subject (optional)</label>
     <input id="subject" type="text" placeholder="Subject of your reply" />
   </div>
-    <!-- Minimal additions -->
-    <div class="form-row">
-      <label for="formality">Formality</label>
-      <select id="formality">
-        <option value="">Select</option>
-        <option>Casual</option><option>Neutral</option><option>Formal</option>
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="length">Preferred Length</label>
-      <select id="length">
-        <option value="">Select</option>
-        <option>Under 75 words</option><option>~150 words</option><option>~300 words</option>
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="audience_role">Audience Role</label>
-      <select id="audience_role">
-        <option value="">Select</option>
-        <option>Founder</option><option>CFO</option><option>Procurement</option><option>HR</option><option>IT</option><option>Sales</option>
-        <option>New customer</option><option>Returning customer</option><option>VIP</option>
-      </select>
-    </div>
 
+  <div class="form-row">
+    <label for="formality">Formality</label>
+    <select id="formality">
+      <option value="">Select</option>
+      <option>Casual</option><option>Neutral</option><option>Formal</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="length">Preferred Length</label>
+    <select id="length">
+      <option value="">Select</option>
+      <option>Under 75 words</option><option>~150 words</option><option>~300 words</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="audience_role">Audience Role</label>
+    <select id="audience_role">
+      <option value="">Select</option>
+      <option>Founder</option><option>CFO</option><option>Procurement</option><option>HR</option><option>IT</option><option>Sales</option>
+      <option>New customer</option><option>Returning customer</option><option>VIP</option>
+    </select>
+  </div>
 
   <div class="form-row">
     <label for="email_content">Email Content</label>
@@ -197,8 +196,8 @@
       <button onclick="clearAll()">Clear</button>
     </div>
     <div style="display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 4px;">
-  <button id="replyGeneratedBtn" style="background:#1976d2;color:#fff;">Reply to Sender (with Generated)</button>
-</div>
+      <button id="replyGeneratedBtn" style="background:#1976d2;color:#fff;">Reply to Sender (with Generated)</button>
+    </div>
     <label>Enhance or Correct Listing (Optional)</label>
     <textarea id="enhance" placeholder="e.g. Fix spelling, add more detail about garden..." rows="5" style="width:100%; font-size:16px; min-height:90px;"></textarea>
     <button id="enhanceBtn" class="proOnly" style="background:#4CAF50;color:white;font-size:17px;font-weight:bold;padding:14px 30px;border-radius:9px;margin-top:8px;width:100%;">Enhance Listing</button>
@@ -221,34 +220,24 @@ async function detectAndSyncLicense(showPromptIfFree=true){
   let licenseKey=localStorage.getItem("licenseKey"); let userEmail=localStorage.getItem("userEmail"); let triedEmail=false;
   if(licenseKey){ showCheckingModal("Checking license key..."); try{ const r=await fetch(`/validate-license?licenseKey=${encodeURIComponent(licenseKey)}`); const d=await r.json(); hideModal();
     if (d.tier && d.status === "active") {
-  setTier(d.tier);
-  updateFeatureAccess();
-  if (d.licenseKey) localStorage.setItem("licenseKey", d.licenseKey);
-  if (d.email)      localStorage.setItem("userEmail",  d.email);
-  log("✅ Loaded license via key.");
-
-  // Force prompt if still on FREE tier
-  if (String(d.tier).toLowerCase() === "free" && showPromptIfFree) {
-    showEmailPrompt();
-  }
-  return;
-}
-    else{ localStorage.removeItem("licenseKey"); triedEmail=true; log("❌ Bad/expired key."); } }catch(e){ hideModal(); log("❌ License check failed: "+e.message); } }
+      setTier(d.tier);
+      updateFeatureAccess();
+      if (d.licenseKey) localStorage.setItem("licenseKey", d.licenseKey);
+      if (d.email)      localStorage.setItem("userEmail",  d.email);
+      log("✅ Loaded license via key.");
+      if (String(d.tier).toLowerCase() === "free" && showPromptIfFree) { showEmailPrompt(); }
+      return;
+    } else { localStorage.removeItem("licenseKey"); triedEmail=true; log("❌ Bad/expired key."); } }catch(e){ hideModal(); log("❌ License check failed: "+e.message); } }
   if(userEmail&&!triedEmail){ showCheckingModal("Checking for license linked to your email..."); try{ const r=await fetch(`/validate-license?email=${encodeURIComponent(userEmail)}`); const d=await r.json(); hideModal();
     if (d.tier && d.status === "active") {
-  setTier(d.tier);
-  updateFeatureAccess();
-  if (d.licenseKey) localStorage.setItem("licenseKey", d.licenseKey);
-  if (d.email)      localStorage.setItem("userEmail",  d.email);
-  log("✅ Loaded license via email.");
-
-  // Force prompt if still on FREE tier
-  if (String(d.tier).toLowerCase() === "free" && showPromptIfFree) {
-    showEmailPrompt();
-  }
-  return;
-}
-    else{ localStorage.removeItem("userEmail"); log("❌ Email not licensed."); } }catch(e){ hideModal(); log("❌ Email license check failed: "+e.message); } }
+      setTier(d.tier);
+      updateFeatureAccess();
+      if (d.licenseKey) localStorage.setItem("licenseKey", d.licenseKey);
+      if (d.email)      localStorage.setItem("userEmail",  d.email);
+      log("✅ Loaded license via email.");
+      if (String(d.tier).toLowerCase() === "free" && showPromptIfFree) { showEmailPrompt(); }
+      return;
+    } else { localStorage.removeItem("userEmail"); log("❌ Email not licensed."); } }catch(e){ hideModal(); log("❌ Email license check failed: "+e.message); } }
   setTier("free"); updateFeatureAccess(); log("👤 No license found; set free."); if(showPromptIfFree) showEmailPrompt();
 }
 function showEmailPrompt(){ document.getElementById('modalBg').style.display='block'; }
@@ -263,23 +252,18 @@ const emailInput=document.getElementById("emailInput"); const hiddenEmailField=d
   localStorage.setItem("userEmail",email); if(hiddenEmailField) hiddenEmailField.value=email;
   try{ await syncTierFromSQL(email); }catch(_){}
   try {
-  const res = await fetch("/api/register-free-user", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email })
-  });
-  await res.json().catch(() => ({}));  // tolerate empty/invalid JSON
-} catch (e) {
-  const msg = String(e?.message || '').toLowerCase();
-  if (
-    !msg.includes("duplicate") &&
-    !msg.includes("pattern") &&
-    !msg.includes("did not match")
-  ) {
-    alert("Something went wrong while saving your email. Please try again.");
+    const res = await fetch("/api/register-free-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    await res.json().catch(() => ({}));
+  } catch (e) {
+    const msg = String(e?.message || '').toLowerCase();
+    if (!msg.includes("duplicate") && !msg.includes("pattern") && !msg.includes("did not match")) {
+      alert("Something went wrong while saving your email. Please try again.");
+    }
   }
-}
-  
   hideEmailPrompt();
   setTimeout(()=>{ if(statusMsg) statusMsg.innerText="🔍 Checking license (post-registration)..."; log("📡 Post-reg license check."); detectAndSyncLicense(false); },700);
   btn.disabled=false; btn.innerText="Continue";
@@ -306,35 +290,29 @@ window.onload=function(){ detectAndSyncLicense(); try{ const e=localStorage.getI
 function recheckLicense(){ detectAndSyncLicense(false); alert("🔄 License rechecked and access updated."); }
 function log(m){ const a=document.getElementById("debugLog"); if(!a) return; a.value+=`${new Date().toISOString()} — ${m}\n`; a.scrollTop=a.value.length; if(a.value.length>12000) a.value=a.value.slice(-9000); console.log(m); }
 
-// === SQL-Tier helpers (added, non-blocking; UI unchanged) ===
+// === SQL-Tier helpers (non-blocking) ===
 async function sqlCheckEmail(email) {
   const licenseKey = (localStorage.getItem('licenseKey') || '').trim();
   const res = await fetch('/api/license/check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, licenseKey })   // <-- include key
+    body: JSON.stringify({ email, licenseKey })
   });
   if (!res.ok) throw new Error('Lookup failed');
-  return await res.json(); // {found, active, tier}
+  return await res.json();
 }
 async function syncTierFromSQL(email){
   try{
     const d = await sqlCheckEmail(email);
     const tier = (d && d.active && d.tier) ? d.tier : 'free';
     localStorage.setItem('smartemail_tier', tier);
-
-    // ⬇️ Apply the tier to the UI immediately
     setTier(tier);
     updateFeatureAccess();
-
     log && log(`🔄 SQL tier sync: ${tier} for ${email}`);
   }catch(e){
     log && log('⚠️ SQL sync failed: '+(e?.message||'error'));
   }
 }
-/* === END SQL-Tier helpers === */
-
-
 /* ================= END LICENSE ================= */
 
 /* ================= GENERATE / ENHANCE ================= */
@@ -352,7 +330,6 @@ async function generate(){
   if(!email||!emailType||!tone||!language||!audience||!content){ alert("Please complete all required fields including your email and content."); return; }
   log("📧 Generating email for: "+email+" | Purpose: "+emailType);
 
-  // Optional refinements (if these fields exist)
   const formalityEl     = document.getElementById('formality');
   const lengthEl        = document.getElementById('length');
   const audienceRoleEl  = document.getElementById('audience_role');
@@ -468,53 +445,110 @@ function getTimestampFilename(base,ext){ const ts=new Date().toISOString().repla
       const prefix=(header.length?header.join('\n')+'\n\n':'')+(subject?`Subject: ${subject}\n\n`:'' );
       bodyEl.value=prefix+(body||''); bodyEl.dispatchEvent(new Event('input',{bubbles:true})); bodyEl.dispatchEvent(new Event('change',{bubbles:true}));
     }
-
-    // NOTE: per your instruction, DO NOT auto-fill "sender_details" from incoming sender.
   }catch(e){ console.warn('Prefill skipped:',e); }
 })();
+</script>
+
 <!-- ========= Reply Logic & SMTP Wiring (Corrected Patch C) ========= -->
-<script>
+  <script>
 document.addEventListener("DOMContentLoaded", () => {
-  const replyBtn = document.getElementById("replyGeneratedBtn");
+
+   // Auto-preload SMTP from IMAP sessionStorage
+  try {
+    const preload = JSON.parse(sessionStorage.getItem("imap.smtpPreload") || "null");
+    if (preload && (preload.host || preload.email)) {
+      localStorage.setItem("smtp_host",       (preload.host || "smtp.gmail.com").trim());
+      localStorage.setItem("smtp_port",       String(preload.port ?? 465));
+      localStorage.setItem("smtp_secure",     preload.secure ? "true" : "false");
+      localStorage.setItem("smtp_authType",   (preload.authType || "password").trim());
+      localStorage.setItem("smtp_email",      (preload.email || "").trim());
+      if (preload.password)    localStorage.setItem("smtp_password", preload.password);
+      if (preload.accessToken) localStorage.setItem("smtp_accessToken", preload.accessToken);
+      console.log("✅ Preloaded SMTP from IMAP:", preload);
+    }
+  } catch (e) {
+    console.warn("▲ No SMTP preload:", e);
+  }
+
+    const replyBtn = document.getElementById("replyGeneratedBtn");
   if (!replyBtn) return;
 
   replyBtn.addEventListener("click", async () => {
-    // 1) Load SMTP settings (saved by the modal)
-    const smtpHost        = localStorage.getItem("smtp_host");
+    // Pull settings (add defaults)
+    let smtpHost        = (localStorage.getItem("smtp_host") || "").trim();
+    if (!smtpHost) {                         // ← default host if empty
+      smtpHost = "smtp.gmail.com";
+      localStorage.setItem("smtp_host", smtpHost);
+    }
     const smtpPort        = Number(localStorage.getItem("smtp_port") || 465);
     const smtpSecure      = (localStorage.getItem("smtp_secure") || "true") === "true";
-    const smtpEmail       = localStorage.getItem("smtp_email");          // <-- use smtp_email (NOT smtp_user)
-    const smtpPassword    = localStorage.getItem("smtp_password");
-    const smtpAccessToken = localStorage.getItem("smtp_accessToken");
-    const smtpAuthType    = (localStorage.getItem("smtp_authType") || "password");
+    const smtpEmail       = (localStorage.getItem("smtp_email") || "").trim();
+    const smtpPassword    = (localStorage.getItem("smtp_password") || "");
+    const smtpAccessToken = (localStorage.getItem("smtp_accessToken") || "");
+    const smtpAuthType    = (localStorage.getItem("smtp_authType") ||
+                            (smtpAccessToken ? "xoauth2" : "password")).toLowerCase();
 
-    if (!smtpHost || !smtpEmail || (!smtpPassword && !smtpAccessToken)) {
-      // Open modal to collect SMTP details
+    // ✅ Only require email and (password OR token)
+    if (!smtpEmail || (!smtpPassword && !smtpAccessToken)) {
       const m = document.getElementById("smtpModal");
       if (m) m.style.display = "block";
       return;
     }
 
-    // 2) Get the generated reply text
     const generated = (document.getElementById("result")?.textContent || "").trim();
     if (!generated) { alert("❌ No generated email to reply with."); return; }
 
-    // 3) Read original IMAP context (if generator was opened from IMAP UI)
-    let ctx = {};
-    try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
-    const fromEmail   = (ctx.fromEmail || ctx.from || "").trim();
-    const messageId   = ctx.messageId || null;
-    const references  = Array.isArray(ctx.references) ? ctx.references : [];
-    const origSubject = ctx.subject || "";
+    // ==== BEGIN FIX: prefer recipient (toEmail) for reply target ====
+function parseHashKV() {
+  // supports index.html#generator?fromEmail=a@b.com&toEmail=x@y.com&messageId=<...>
+  const h = String(location.hash || "");
+  const qIndex = h.indexOf("?");
+  if (qIndex < 0) return {};
+  const params = new URLSearchParams(h.slice(qIndex + 1));
+  const out = {};
+  for (const [k, v] of params.entries()) out[k] = v;
+  return out;
+}
 
-    // 4) Compute subject + recipient
-    const uiSubject = (document.getElementById("subject")?.value || "").trim();
-    const subjectBase = uiSubject || origSubject || "";
-    const subject = /^re:\s/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`.trim();
-    const to = fromEmail || ""; // reply to original sender if available
-    if (!to) { alert("❌ Missing original sender. Open the generator from the IMAP page so threading works."); return; }
+function loadGeneratorContext() {
+  let ctx = {};
+  try {
+    ctx =
+      JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null") ||
+      JSON.parse(localStorage.getItem("imap.generatorPayload") || "null") ||
+      JSON.parse(localStorage.getItem("generatorPayload") || "null") || // legacy
+      {};
+  } catch (_) { ctx = {}; }
 
-    // 5) Build request for /api/imap/reply (threaded) OR fall back to /send
+  // merge any #…?k=v fields (last write wins)
+  const fromHash = parseHashKV();
+  return { ...ctx, ...fromHash };
+}
+
+// later, where you need it:
+let ctx = loadGeneratorContext();
+const fromEmail  = (ctx.fromEmail || ctx.from || "").trim();
+const messageId  = ctx.messageId || null;
+const references = Array.isArray(ctx.references) ? ctx.references : [];
+
+const fromEmail  = (ctx.fromEmail || ctx.from || "").trim();   // original sender
+const toEmail    = (ctx.toEmail   || ctx.to   || "").trim();   // mailbox owner / recipient
+const messageId  = ctx.messageId || null;
+const references = Array.isArray(ctx.references) ? ctx.references : [];
+const origSubject = ctx.subject || "";
+
+const uiSubject   = (document.getElementById("subject")?.value || "").trim();
+const subjectBase = uiSubject || origSubject || "";
+const subject     = /^re:\s/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`.trim();
+
+// reply target: prefer the original *recipient* (you), else fall back to sender
+const to = toEmail || fromEmail || "";
+if (!to) {
+  alert("❌ Missing original recipient. Open the generator from the IMAP page so threading works.");
+  return;
+}
+// ==== END FIX ====
+
     const commonSmtp = {
       host: smtpHost,
       port: smtpPort,
@@ -527,31 +561,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const endpoint = messageId ? "/api/imap/reply" : "/api/imap/send";
     const payload = messageId
-      ? {
-          ...commonSmtp,
-          to,
-          subject,
-          text: generated,
-          html: "",
-          orig: { messageId, references }
-        }
-      : {
-          ...commonSmtp,
-          from: smtpEmail,
-          to,
-          subject,
-          text: generated,
-          html: "",
-          attachments: []
-        };
+      ? { ...commonSmtp, to, subject, text: generated, html: "", orig: { messageId, references } }
+      : { ...commonSmtp, from: smtpEmail, to, subject, text: generated, html: "", attachments: [] };
 
-    // 6) Send
     try {
-      const r = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
+      const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok || j.ok === false) throw new Error(j.error || "Send failed");
       alert(messageId ? "✅ Reply sent in thread." : "✅ Email sent.");
@@ -562,7 +576,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // 7) Wire modal save (IDs must match your modal)
   const saveBtn = document.getElementById("smtpSaveBtn");
   if (saveBtn && !saveBtn.__wired) {
     saveBtn.__wired = true;
@@ -571,7 +584,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.setItem("smtp_port",        document.getElementById("smtp_port").value.trim());
       localStorage.setItem("smtp_secure",      document.getElementById("smtp_secure").value);
       localStorage.setItem("smtp_authType",    document.getElementById("smtp_authType").value);
-      localStorage.setItem("smtp_email",       document.getElementById("smtp_email").value.trim());      // <-- save smtp_email
+      localStorage.setItem("smtp_email",       document.getElementById("smtp_email").value.trim());
       localStorage.setItem("smtp_password",    document.getElementById("smtp_password").value);
       localStorage.setItem("smtp_accessToken", document.getElementById("smtp_accessToken").value);
       const m = document.getElementById("smtpModal"); if (m) m.style.display = "none";
@@ -587,7 +600,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
-  </script>
+</script>
 <!-- ========= End Patch C ========= -->
 
 <script>
@@ -598,19 +611,17 @@ document.addEventListener("DOMContentLoaded", () => {
   if (generateBtn) generateBtn.addEventListener("click", generate);
   if (enhanceBtn)  enhanceBtn.addEventListener("click", applyEnhancement);
 
-  // Only trust a stored tier if an email or license key also exists
   const hasCred = !!(localStorage.getItem("userEmail") || localStorage.getItem("licenseKey"));
   const stored  = hasCred && (
     localStorage.getItem("smartemail_tier") ||
-    localStorage.getItem("smartemail.tier") ||   // legacy support
-    localStorage.getItem("license_tier")         // legacy support
+    localStorage.getItem("smartemail.tier") ||
+    localStorage.getItem("license_tier")
   );
 
   if (stored) {
     setTier(stored);
     updateFeatureAccess();
   } else {
-    // First visit (no email/key) → force Free + show email prompt
     setTier("free");
     updateFeatureAccess();
     showEmailPrompt();
@@ -667,24 +678,16 @@ document.addEventListener("DOMContentLoaded", () => {
   function hideLegal(){ document.getElementById('legalModal').style.display='none'; document.body.style.overflow=''; }
 </script>
 
-
-
-
-  
 <script>
 // === Runtime Advanced wrapper (dedupe-safe) ===
 (function(){
   try{
-    // Remove any stray duplicate Advanced blocks that might exist
     document.querySelectorAll('details#advancedRefinements').forEach(el => el.remove());
-
-    // Find existing refinement fields (by IDs already in the page)
     const f = document.getElementById('formality');
     const l = document.getElementById('length');
     const a = document.getElementById('audience_role');
-    if(!f && !l && !a) return; // nothing to wrap
+    if(!f && !l && !a) return;
 
-    // Build the <details> container
     const details = document.createElement('details');
     details.id = 'advancedRefinements';
     details.style.margin = '12px 0';
@@ -701,13 +704,10 @@ document.addEventListener("DOMContentLoaded", () => {
     inner.style.marginTop = '8px';
     details.appendChild(inner);
 
-    // Helper to move a label+field pair into the details in the RIGHT order they appear on page
     function moveFieldById(id, labelText){
       const el = document.getElementById(id);
       if(!el) return;
-      // Try to capture a surrounding label or form-group container to keep styling
       let container = el.closest('label, .form-group, .row, .col, div') || el;
-      // If the label is separate, create a new wrapper label for clarity
       if(container === el && !el.closest('label')){
         const wrap = document.createElement('label');
         wrap.style.flex = '1 1 220px';
@@ -717,21 +717,16 @@ document.addEventListener("DOMContentLoaded", () => {
         wrap.appendChild(el);
         container = wrap;
       } else {
-        // Ensure min sizing for grid feel
         container.style.flex = '1 1 220px';
         container.style.minWidth = '220px';
       }
       inner.appendChild(container);
     }
-
-    // Maintain visual order: Formality, Length, Audience Role
     moveFieldById('formality','Formality');
     moveFieldById('length','Preferred Length');
     moveFieldById('audience_role','Audience Role');
 
-    // Insert the Advanced details just before the primary generate button (or at end of main)
-    const insertBeforeBtn = Array.from(document.querySelectorAll('button'))
-      .find(b => /generate/i.test(b.textContent||''));
+    const insertBeforeBtn = Array.from(document.querySelectorAll('button')).find(b => /generate/i.test(b.textContent||''));
     if(insertBeforeBtn && insertBeforeBtn.parentNode){
       insertBeforeBtn.parentNode.parentNode.insertBefore(details, insertBeforeBtn.parentNode);
     } else {
@@ -740,133 +735,31 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }catch(e){ console.warn('Advanced wrapper init failed:', e); }
 })();
-// === End runtime Advanced wrapper ===
 </script>
 
 <script>
 // === Prefill from IMAP sessionStorage (full body support) ===
 (function(){
   let payload = null;
-  try {
-    payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null");
-  } catch {}
+  try { payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null"); } catch {}
   if (!payload) return;
 
-  // Map values to your existing fields
   if (payload.subject) document.getElementById("subject").value = payload.subject;
-  if (payload.body && payload.body.trim()) document.getElementById("email_content").value = payload.body; else if (payload.snippet && payload.snippet.trim()) document.getElementById("email_content").value = payload.snippet;
-  if (payload.from) document.getElementById("email").value = payload.from;
+  if (payload.body && payload.body.trim()) document.getElementById("email_content").value = payload.body;
+  else if (payload.snippet && payload.snippet.trim()) document.getElementById("email_content").value = payload.snippet;
+ const emailEl   = document.getElementById("email");
+const imapLogin =
+  localStorage.getItem("imap.email") ||
+  localStorage.getItem("smartemail.imapEmail") ||
+  "";
+const userEmail = payload.userEmail || imapLogin;
+if (emailEl && userEmail) emailEl.value = userEmail;
 
-  // optional: mark loaded
   const log = document.getElementById("debugLog");
   if (log) log.value += `${new Date().toISOString()} — 📥 Loaded email from IMAP selection\n`;
-
-  // clear after use
   try { sessionStorage.removeItem("imap.generatorPayload"); } catch {}
 })();
 </script>
-  
 
-<!-- =========================
-     Reply Confirmation Modal
-     (non-refactor add-on)
-     ========================= -->
-<div id="replyConfirmModal" class="modal-bg" style="display:none;position:fixed;inset:0;z-index:4000;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:blur(2px)">
-  <div class="modal-card" style="width:calc(100% - 32px);max-width:560px;background:#fff;color:#111;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:16px;">
-    <h3 style="margin:0 0 12px 0;font-size:18px;">Confirm Reply</h3>
-
-    <label for="rc_from" style="display:block;font-size:12px;color:#6b7280;margin:8px 2px 4px;">From</label>
-    <input id="rc_from" type="email" readonly style="width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-
-    <label for="rc_to" style="display:block;font-size:12px;color:#6b7280;margin:10px 2px 4px;">To</label>
-    <input id="rc_to" type="email" readonly style="width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-
-    <label for="rc_subject" style="display:block;font-size:12px;color:#6b7280;margin:10px 2px 4px;">Subject</label>
-    <input id="rc_subject" type="text" style="width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
-
-    <label for="rc_body" style="display:block;font-size:12px;color:#6b7280;margin:10px 2px 4px;">Body</label>
-    <textarea id="rc_body" style="width:100%;min-height:200px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;white-space:pre-wrap;"></textarea>
-
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
-      <button id="rc_cancel" style="padding:10px 14px;border-radius:10px;background:#e5e7eb;border:1px solid #e5e7eb;cursor:pointer;">Cancel</button>
-      <button id="rc_send" style="padding:10px 14px;border-radius:10px;background:#1976d2;color:#fff;border:1px solid #1976d2;cursor:pointer;">Send Reply</button>
-    </div>
-    <div id="rc_status" class="hint" style="margin-top:8px;font-size:12px;color:#6b7280;"></div>
-  </div>
-</div>
-
-<script>
-// --- Reply Confirmation logic (non-refactor add-on) ---
-(function(){
-  function get(id){ return document.getElementById(id); }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    var replyBtn = document.getElementById("replyGeneratedBtn");
-    var modal    = document.getElementById("replyConfirmModal");
-    if (!replyBtn || !modal) return;
-
-    replyBtn.addEventListener("click", function(){
-      var ctx = {};
-      try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload")||"{}"); } catch {}
-
-      var from = (localStorage.getItem("userEmail") || ctx.toEmail || "").trim();
-      var to   = (ctx.fromEmail || "").trim();
-      var subj = (ctx.subject || "").trim();
-      var body = (document.getElementById("result")?.textContent || "").trim();
-
-      get("rc_from").value    = from;
-      get("rc_to").value      = to;
-      get("rc_subject").value = subj;
-      get("rc_body").value    = body;
-
-      // show modal
-      modal.style.display = "flex";
-    });
-
-    get("rc_cancel").addEventListener("click", function(){
-      get("rc_status").textContent = "";
-      modal.style.display = "none";
-    });
-
-    get("rc_send").addEventListener("click", async function(){
-      var from = get("rc_from").value.trim();
-      var to   = get("rc_to").value.trim();
-      var subj = get("rc_subject").value.trim();
-      var body = get("rc_body").value.trim();
-      var status = get("rc_status");
-
-      if (!from || !to || !body) {
-        status.textContent = "❌ Missing From / To / Body";
-        return;
-      }
-
-      status.textContent = "📡 Sending…";
-      try {
-        var r = await fetch("/api/imap/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from: from,
-            to: to,
-            subject: subj,
-            text: body,
-            // If available in context, pass threading headers along:
-            messageId: (JSON.parse(sessionStorage.getItem("imap.generatorPayload")||"{}").messageId || null),
-            references: (JSON.parse(sessionStorage.getItem("imap.generatorPayload")||"{}").references || [])
-          })
-        });
-        var j = {};
-        try { j = await r.json(); } catch(_){}
-        if (!r.ok || j.ok === false) throw new Error(j.error || "Send failed");
-
-        status.textContent = "✅ Reply sent!";
-        setTimeout(function(){ modal.style.display = "none"; status.textContent=""; }, 600);
-      } catch(e) {
-        status.textContent = "❌ Error: " + (e && e.message ? e.message : e);
-      }
-    });
-  });
-})();
-</script>
 </body>
 </html>
