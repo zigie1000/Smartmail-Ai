@@ -1595,7 +1595,6 @@ iframe.addEventListener("load", onLoad, { once:true });
 
    
 <!-- ---- Send Selected → Generator (ALWAYS full content) ---- -->
-<script>
 async function sendSelected() {
   const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
   if (!ids.length) { setMessage("err", "Select at least one email."); return; }
@@ -1709,7 +1708,6 @@ async function sendSelected() {
   // Go to generator
   setTimeout(() => { window.location.href = "index.html#generator"; }, 15);
 }
-</script>
 // ---- Overrides helpers (persist locally / optionally to server) ----
 async function sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label }) {
   try {
