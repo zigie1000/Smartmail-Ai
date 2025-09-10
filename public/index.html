@@ -223,30 +223,38 @@
     <div style="display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 4px;">
       <button id="replyGeneratedBtn" style="background:#1976d2;color:#fff;">Reply to Sender (with Generated)</button>
     </div>
-    <!-- =========================
+   <!-- =========================
      Reply Confirmation Modal
      ========================= -->
 <div id="replyConfirmModal" class="modal-bg" style="display:none;">
-  <div class="modal-card" style="max-width:520px;">
-    <h3 style="margin-top:0;">Confirm Reply</h3>
-    <label for="rc_from">From</label>
-    <input id="rc_from" type="email" readonly />
-
-    <label for="rc_to">To</label>
-    <input id="rc_to" type="email" readonly />
-
-    <label for="rc_subject">Subject</label>
-    <input id="rc_subject" type="text" />
-
-    <label for="rc_body">Body</label>
-    <textarea id="rc_body" style="min-height:180px"></textarea>
-
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
-      <button id="rc_cancel" style="background:#aaa;">Cancel</button>
-      <button id="rc_send" style="background:#1976d2;color:#fff;">Send Reply</button>
+  <div class="modal-card rc-card" role="dialog" aria-modal="true" aria-labelledby="rc_title">
+    <div class="rc-head">
+      <h3 id="rc_title">Confirm Reply</h3>
     </div>
-    <div id="rc_status" class="hint" style="margin-top:8px;"></div>
+
+    <div class="rc-grid">
+      <label for="rc_from">From</label>
+      <input id="rc_from" type="email" readonly class="rc-input rc-readonly"/>
+
+      <label for="rc_to">To</label>
+      <input id="rc_to" type="email" readonly class="rc-input rc-readonly"/>
+
+      <label for="rc_subject">Subject</label>
+      <input id="rc_subject" type="text" class="rc-input"/>
+
+      <label for="rc_body">Body</label>
+      <textarea id="rc_body" class="rc-textarea" rows="12" spellcheck="false"></textarea>
+    </div>
+
+    <div class="rc-footer">
+      <div id="rc_status" class="rc-status" aria-live="polite"></div>
+      <div class="rc-actions">
+        <button id="rc_cancel" class="rc-btn rc-btn-ghost" type="button">Cancel</button>
+        <button id="rc_send" class="rc-btn rc-btn-primary" type="button">Send Reply</button>
+      </div>
+    </div>
   </div>
+</div>
 </div>
     <label>Enhance or Correct Listing (Optional)</label>
     <textarea id="enhance" placeholder="e.g. Fix spelling, add more detail about garden..." rows="5" style="width:100%; font-size:16px; min-height:90px;"></textarea>
