@@ -790,6 +790,7 @@ if (emailEl && userEmail) emailEl.value = userEmail;
 document.addEventListener("DOMContentLoaded", () => {
   const replyBtn = document.getElementById("replyGeneratedBtn");
   const modal    = document.getElementById("replyConfirmModal");
+  const getEl = id => /** @type {HTMLInputElement|HTMLTextAreaElement} */(document.getElementById(id));
 
   if (replyBtn && modal) {
     replyBtn.addEventListener("click", () => {
@@ -797,10 +798,24 @@ document.addEventListener("DOMContentLoaded", () => {
       let ctx = {};
       try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload")||"{}"); } catch {}
 
-      document.getElementById("rc_from").value    = localStorage.getItem("userEmail") || ctx.toEmail || "";
-      document.getElementById("rc_to").value      = ctx.fromEmail || "";
-      document.getElementById("rc_subject").value = ctx.subject || "";
-      document.getElementById("rc_body").value    = document.getElementById("result")?.textContent || "";
+      // robust owner email fallback chain
+      const owner =
+        (localStorage.getItem("userEmail") || "") ||
+        (localStorage.getItem("imap.email") || "") ||
+        (localStorage.getItem("smartemail.imapEmail") || "") ||
+        (document.getElementById("email")?.value || "") ||
+        (ctx.toEmail || "");
+
+      getEl("rc_from").value    = owner;
+      getEl("rc_to").value      = (ctx.fromEmail || "");
+      getEl("rc_subject").value = (ctx.subject || "");
+      getEl("rc_body").value    = (document.getElementById("result")?.textContent || "").trim();
+
+      // stash ctx for send step (messageId/references)
+      modal.dataset.ctx = JSON.stringify({
+        messageId:  ctx.messageId || null,
+        references: Array.isArray(ctx.references) ? ctx.references : []
+      });
 
       modal.style.display = "flex";
     });
@@ -811,27 +826,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Send
   document.getElementById("rc_send").onclick = async () => {
-    const from = document.getElementById("rc_from").value.trim();
-    const to   = document.getElementById("rc_to").value.trim();
-    const subj = document.getElementById("rc_subject").value.trim();
-    const body = document.getElementById("rc_body").value.trim();
+    const from   = getEl("rc_from").value.trim();
+    const to     = getEl("rc_to").value.trim();
+    const subj   = getEl("rc_subject").value.trim();
+    const body   = getEl("rc_body").value.trim();
     const status = document.getElementById("rc_status");
 
     if (!from || !to || !body) { status.textContent="❌ Missing From/To/Body"; return; }
+
+    // pull threading bits
+    let extra = {};
+    try { extra = JSON.parse(document.getElementById("replyConfirmModal").dataset.ctx || "{}"); } catch {}
 
     status.textContent = "📡 Sending...";
     try {
       const r = await fetch("/api/imap/send", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ from, to, subject:subj, text:body })
+        body: JSON.stringify({
+          from, to, subject: subj, text: body,
+          // help the server thread correctly:
+          inReplyTo: extra.messageId || null,
+          references: extra.references || []
+        })
       });
-      const j = await r.json();
-      if (!r.ok || j.ok===false) throw new Error(j.error||"Send failed");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || `Send failed (${r.status})`);
       status.textContent = "✅ Reply sent!";
       modal.style.display="none";
     } catch(e) {
-      status.textContent = "❌ Error: " + (e?.message||e);
+      status.textContent = "❌ Error: " + (e?.message || e);
     }
   };
 });
