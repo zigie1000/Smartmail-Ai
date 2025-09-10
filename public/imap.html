@@ -1594,25 +1594,35 @@ iframe.addEventListener("load", onLoad, { once:true });
 }
 
    
-// ---- Send Selected → Generator (ALWAYS full content) ----
+<!-- ---- Send Selected → Generator (ALWAYS full content) ---- -->
+<script>
 async function sendSelected() {
   const ids = Array.from(document.querySelectorAll(".sel:checked")).map(cb => cb.dataset.id);
   if (!ids.length) { setMessage("err", "Select at least one email."); return; }
 
+  // Helper we need below (hoisted)
+  function extractEmail(v) {
+    if (!v) return "";
+    if (typeof v === "string") {
+      const m = v.match(/<([^>]+)>/);   // "Name <user@domain>"
+      return (m && m[1]) || v.trim();
+    }
+    if (v && typeof v === "object" && v.email) return v.email;
+    return "";
+  }
+
   // Use the first selected message for prefill
   let first = (window.emailList || state.emails || []).find(e => ids.includes(String(e.id || ""))) || {};
 
-  // 1) Ensure we have full body for the first selected message.
+  // Ensure we have full body for the first selected message (best effort)
   try {
     first = await Promise.race([
       ensureFullById(first.id),                             // pulls full HTML/text
       new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000))
     ]);
-  } catch (_) {
-    // keep whatever we already had in `first`
-  }
+  } catch (_) {/* keep whatever we already had */}
 
-  // 2) Build the best possible plain-text body.
+  // Build the best possible plain-text body
   const htmlToPlain = (s) => (s && String(s).trim()) ? htmlToText(String(s)) : "";
 
   const plain =
@@ -1636,107 +1646,70 @@ async function sendSelected() {
      || "";
 
   let bodyText = "";
-  if (plain && /\S/.test(plain)) {
-    bodyText = String(plain);
-  } else if (html && /<[^>]/.test(html)) {
-    bodyText = htmlToPlain(html);
-  } else if (snippetLike) {
-    bodyText = htmlToPlain(snippetLike);
-  } else {
-    bodyText = "";
-  }
+  if (plain && /\S/.test(plain)) bodyText = String(plain);
+  else if (html && /<[^>]/.test(html)) bodyText = htmlToPlain(html);
+  else if (snippetLike) bodyText = htmlToPlain(snippetLike);
 
-  // Cleanup: drop leading “view in browser / unsubscribe” linky lines and normalize spaces
-  bodyText = stripLeadingUrls(bodyText)
-              .replace(/\u00A0/g, " ")
-              .replace(/\s+/g, " ")
-              .trim();
+  bodyText = stripLeadingUrls(bodyText || "")
+               .replace(/\u00A0/g, " ")
+               .replace(/\s+/g, " ")
+               .trim();
 
-  // 3) Use the IMAP login email for the Generator context
-  let userEmail = document.getElementById("email")?.value || "";
-  if (!userEmail) {
-    userEmail = localStorage.getItem("imap.email")
-           ||  localStorage.getItem("smartemail.imapEmail")
-           ||  "";
-  }
-
-  // Base payload the Generator page will read
-  const payload = {
-    subject: first.subject || "",
-    body:    bodyText || "",
-    snippet: htmlToPlain(snippetLike) || "",
-    userEmail
-  };
-
-  // Include threading + addressing context
-  const fromEmail =
-    (first.fromEmail && String(first.fromEmail)) ||
-    (first.from && first.from.email) ||
-    extractEmail(first.from) ||
-    "";
-
-  const toEmail =
+  // Mailbox owner (you) becomes the reply sender; this is our "toEmail" for threading
+  const ownerEmail =
     (document.getElementById("email")?.value || "").trim() ||
     localStorage.getItem("imap.email") ||
     localStorage.getItem("smartemail.imapEmail") ||
     "";
 
+  // Original sender becomes fromEmail (the person you're replying to)
+  const origFrom =
+    (first.fromEmail && String(first.fromEmail)) ||
+    (first.from && first.from.email) ||
+    extractEmail(first.from) ||
+    "";
+
+  // Threading headers if available
   const messageId = first.messageId || first["message-id"] || null;
   const references = Array.isArray(first.references)
     ? first.references
     : (first["references"] ? String(first["references"]).split(/\s+/) : []);
 
-  payload.fromEmail  = String(fromEmail).trim();
-  payload.toEmail    = String(toEmail).trim();
-  payload.messageId  = messageId;
-  payload.references = references;
+  // Build the payload the generator reads later
+  const payload = {
+    subject: first.subject || "",
+    body:    bodyText || "",
+    snippet: htmlToPlain(snippetLike) || "",
+    userEmail: ownerEmail,           // also stored for convenience
+    fromEmail: String(origFrom).trim(),
+    toEmail:   String(ownerEmail).trim(),
+    messageId,
+    references
+  };
 
-  // helper
-  function extractEmail(v) {
-    if (!v) return "";
-    if (typeof v === "string") {
-      const m = v.match(/<([^>]+)>/);   // "Name <user@domain>"
-      return (m && m[1]) || v.trim();
-    }
-    if (v && typeof v === "object" && v.email) return v.email;
-    return "";
-  }
-
-  // Preload SMTP settings for the Generator (auto-fill on index.html)
+  // Preload SMTP settings for the Generator (only once)
   (function preloadSmtpForGenerator(){
-    // try both name= and id= selectors to match your current form fields
-    const q = (sel) =>
-      document.querySelector(sel) ||
-      document.getElementById(sel.replace(/^[\[#]/, '').replace(/[\]]$/,''));
+    const q = (sel) => document.querySelector(sel);
+    const host = (q('#host')?.value || '').trim();
+    const port = Number(q('#port')?.value || 465);
+    const tlsRaw = String(q('#tls')?.value || 'on').toLowerCase();
+    const secure = (tlsRaw === 'on' || tlsRaw === 'true' || tlsRaw === 'yes');
+    const authType = q('#authType')?.value || 'password';
+    const emailFrom = ownerEmail;
+    const accessTok = q('#accessToken')?.value || '';
+    const password  = q('#password')?.value || '';
 
-    const host       = (q('input[name="host"]')?.value || q('#host')?.value || '').trim();
-    const portVal    = (q('input[name="port"]')?.value || q('#port')?.value || '').trim();
-    const tlsVal     = (q('select[name="tls"]')?.value || q('#tls')?.value || 'on').toString().toLowerCase();
-    const authVal    = (q('select[name="auth"]')?.value || q('#auth')?.value || 'password').toString().toLowerCase();
-    const emailFrom  = (q('#email')?.value || '').trim();
-    const password   = (q('input[name="password"]')?.value || q('#password')?.value || '');
-    const accessTok  = (q('#accessToken')?.value || '');
-
-    const preload = {
-      host: host || 'smtp.gmail.com',
-      port: Number(portVal || 465),
-      secure: tlsVal !== 'off' && tlsVal !== 'false',
-      authType: authVal || 'password',
-      email: emailFrom,
-      password,
-      accessToken: accessTok
-    };
-
-    try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); }
-    catch (e) { /* ignore storage errors */ }
+    const preload = { host: host || 'smtp.gmail.com', port, secure, authType, email: emailFrom, password, accessToken: accessTok };
+    try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); } catch {}
   })();
 
   try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch {}
   try { if (typeof saveImapState === "function") saveImapState(); } catch {}
 
-  // 4) Navigate to the Generator
+  // Go to generator
   setTimeout(() => { window.location.href = "index.html#generator"; }, 15);
 }
+</script>
 // ---- Overrides helpers (persist locally / optionally to server) ----
 async function sendImportanceFeedback({ ownerEmail, licenseKey, fromEmail, fromDomain, label }) {
   try {
