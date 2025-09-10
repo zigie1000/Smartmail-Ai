@@ -893,5 +893,56 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 });
 </script>
+  <script>
+// --- Reply Confirmation logic ---
+document.addEventListener("DOMContentLoaded", () => {
+  const replyBtn = document.getElementById("replyGeneratedBtn");
+  const modal    = document.getElementById("replyConfirmModal");
+
+  if (replyBtn && modal) {
+    replyBtn.addEventListener("click", () => {
+      // Load from generator payload/sessionStorage
+      let ctx = {};
+      try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload")||"{}"); } catch {}
+
+      document.getElementById("rc_from").value    = localStorage.getItem("userEmail") || ctx.toEmail || "";
+      document.getElementById("rc_to").value      = ctx.fromEmail || "";
+      document.getElementById("rc_subject").value = ctx.subject || "";
+      document.getElementById("rc_body").value    = document.getElementById("result")?.textContent || "";
+
+      modal.style.display = "flex";
+    });
+  }
+
+  // Cancel
+  document.getElementById("rc_cancel").onclick = () => { modal.style.display="none"; };
+
+  // Send
+  document.getElementById("rc_send").onclick = async () => {
+    const from = document.getElementById("rc_from").value.trim();
+    const to   = document.getElementById("rc_to").value.trim();
+    const subj = document.getElementById("rc_subject").value.trim();
+    const body = document.getElementById("rc_body").value.trim();
+    const status = document.getElementById("rc_status");
+
+    if (!from || !to || !body) { status.textContent="❌ Missing From/To/Body"; return; }
+
+    status.textContent = "📡 Sending...";
+    try {
+      const r = await fetch("/api/imap/send", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ from, to, subject:subj, text:body })
+      });
+      const j = await r.json();
+      if (!r.ok || j.ok===false) throw new Error(j.error||"Send failed");
+      status.textContent = "✅ Reply sent!";
+      modal.style.display="none";
+    } catch(e) {
+      status.textContent = "❌ Error: " + (e?.message||e);
+    }
+  };
+});
+</script>
 </body>
 </html>
