@@ -499,8 +499,37 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!generated) { alert("❌ No generated email to reply with."); return; }
 
     // ==== BEGIN FIX: prefer recipient (toEmail) for reply target ====
-let ctx = {};
-try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
+function parseHashKV() {
+  // supports index.html#generator?fromEmail=a@b.com&toEmail=x@y.com&messageId=<...>
+  const h = String(location.hash || "");
+  const qIndex = h.indexOf("?");
+  if (qIndex < 0) return {};
+  const params = new URLSearchParams(h.slice(qIndex + 1));
+  const out = {};
+  for (const [k, v] of params.entries()) out[k] = v;
+  return out;
+}
+
+function loadGeneratorContext() {
+  let ctx = {};
+  try {
+    ctx =
+      JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null") ||
+      JSON.parse(localStorage.getItem("imap.generatorPayload") || "null") ||
+      JSON.parse(localStorage.getItem("generatorPayload") || "null") || // legacy
+      {};
+  } catch (_) { ctx = {}; }
+
+  // merge any #…?k=v fields (last write wins)
+  const fromHash = parseHashKV();
+  return { ...ctx, ...fromHash };
+}
+
+// later, where you need it:
+let ctx = loadGeneratorContext();
+const fromEmail  = (ctx.fromEmail || ctx.from || "").trim();
+const messageId  = ctx.messageId || null;
+const references = Array.isArray(ctx.references) ? ctx.references : [];
 
 const fromEmail  = (ctx.fromEmail || ctx.from || "").trim();   // original sender
 const toEmail    = (ctx.toEmail   || ctx.to   || "").trim();   // mailbox owner / recipient
