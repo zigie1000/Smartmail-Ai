@@ -498,22 +498,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const generated = (document.getElementById("result")?.textContent || "").trim();
     if (!generated) { alert("❌ No generated email to reply with."); return; }
 
-    let ctx = {};
-    try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
-    const fromEmail   = (ctx.fromEmail || ctx.from || "").trim();
-    const messageId   = ctx.messageId || null;
-    const references  = Array.isArray(ctx.references) ? ctx.references : [];
-    const origSubject = ctx.subject || "";
+    // ==== BEGIN FIX: prefer recipient (toEmail) for reply target ====
+let ctx = {};
+try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
 
-    const uiSubject = (document.getElementById("subject")?.value || "").trim();
-    const subjectBase = uiSubject || origSubject || "";
-    const subject = /^re:\s/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`.trim();
-    // recipient = original sender (fromEmail), fallback to ctx.toEmail/ctx.to
-const to = fromEmail || ctx.toEmail || ctx.to || "";
+const fromEmail  = (ctx.fromEmail || ctx.from || "").trim();   // original sender
+const toEmail    = (ctx.toEmail   || ctx.to   || "").trim();   // mailbox owner / recipient
+const messageId  = ctx.messageId || null;
+const references = Array.isArray(ctx.references) ? ctx.references : [];
+const origSubject = ctx.subject || "";
+
+const uiSubject   = (document.getElementById("subject")?.value || "").trim();
+const subjectBase = uiSubject || origSubject || "";
+const subject     = /^re:\s/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`.trim();
+
+// reply target: prefer the original *recipient* (you), else fall back to sender
+const to = toEmail || fromEmail || "";
 if (!to) {
   alert("❌ Missing original recipient. Open the generator from the IMAP page so threading works.");
   return;
 }
+// ==== END FIX ====
 
     const commonSmtp = {
       host: smtpHost,
