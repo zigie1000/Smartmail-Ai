@@ -877,78 +877,133 @@ document.addEventListener("DOMContentLoaded", () => {
 </script>
 
 <script>
-// --- Reply Confirmation logic (single, definitive block) ---
-document.addEventListener("DOMContentLoaded", () => {
-  const replyBtn = document.getElementById("replyGeneratedBtn");
-  const modal    = document.getElementById("replyConfirmModal");
-  if (!replyBtn || !modal) return;
+/* ============================================================
+   SmartEmail – Prefill + Reply Confirmation (PRO, safe)
+   - Keeps form prefill working from sessionStorage.imap.generatorPayload
+   - Opens a confirmation modal with From/To/Subject/Body ready
+   - Sends to /api/imap/send with inReplyTo + references (threading)
+   - Defensive: no-throws, null-safe, minimal global surface
+   ============================================================ */
 
-  const el = (id) => document.getElementById(id);
+(function () {
+  "use strict";
 
-  // Open + populate modal
-  replyBtn.addEventListener("click", () => {
-    let ctx = {};
-    try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
+  /* ---------- tiny helpers ---------- */
+  const get = (id) => /** @type {HTMLInputElement|HTMLTextAreaElement|null} */(document.getElementById(id));
+  const val = (el) => (el && "value" in el) ? String(el.value || "").trim() : "";
+  const set = (el, v) => { if (el && "value" in el) el.value = v ?? ""; };
 
-    // mailbox owner fallback chain
-    const owner =
-      localStorage.getItem("userEmail") ||
-      localStorage.getItem("imap.email") ||
-      localStorage.getItem("smartemail.imapEmail") ||
-      (el("email") && el("email").value) ||
-      ctx.toEmail || "";
+  /* ---------- 1) Prefill the main generator form ---------- */
+  (function prefillMainFormFromIMAP() {
+    let payload = null;
+    try { payload = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "null"); } catch {}
+    if (!payload) return;
 
-    el("rc_from").value    = owner;                // you
-    el("rc_to").value      = ctx.fromEmail || "";  // original sender
-    el("rc_subject").value = ctx.subject || "";
-    el("rc_body").value    = (document.getElementById("result")?.textContent || "").trim();
+    // subject → #subject
+    if (payload.subject && get("subject")) set(get("subject"), payload.subject);
 
-    // stash threading bits for send
-    modal.dataset.ctx = JSON.stringify({
-      messageId : ctx.messageId || null,
-      references: Array.isArray(ctx.references) ? ctx.references : []
+    // body/snippet → #email_content
+    const bodyText = payload.body || payload.snippet || "";
+    if (bodyText && get("email_content")) set(get("email_content"), bodyText);
+
+    // mailbox owner (the *recipient* of the original message) → #email
+    if (payload.toEmail && get("email")) set(get("email"), payload.toEmail);
+
+    // Optional: you can keep the payload for the modal, but we clear by default
+    try { sessionStorage.removeItem("imap.generatorPayload"); } catch {}
+  })();
+
+  /* ---------- 2) Reply Confirmation Modal wiring ---------- */
+  document.addEventListener("DOMContentLoaded", () => {
+    const replyBtn = get("replyGeneratedBtn");
+    const modal = document.getElementById("replyConfirmModal");
+    if (!replyBtn || !modal) return;
+
+    // Open modal with context
+    replyBtn.addEventListener("click", () => {
+      // Try to reconstruct IMAP payload (either still in sessionStorage, or
+      // build it from the page if it has been cleared).
+      let ctx = {};
+      try { ctx = JSON.parse(sessionStorage.getItem("imap.generatorPayload") || "{}"); } catch {}
+
+      // Determine the mailbox owner (you)
+      const owner =
+        localStorage.getItem("userEmail") ||
+        localStorage.getItem("imap.email") ||
+        localStorage.getItem("smartemail.imapEmail") ||
+        val(get("email")) ||
+        "";
+
+      // Fill fields (FROM = owner, TO = original sender)
+      set(get("rc_from"), owner);                         // readOnly input in your modal
+      set(get("rc_to"),   ctx.fromEmail || "");           // original sender (readOnly)
+      set(get("rc_subject"), ctx.subject || "");          // allow edits
+      set(get("rc_body"),
+          (document.getElementById("result")?.textContent || "").trim()); // the generated email text
+
+      // Keep messageId/references for threading on the modal element dataset
+      try {
+        modal.dataset.ctx = JSON.stringify({
+          messageId : ctx.messageId || null,
+          references: Array.isArray(ctx.references) ? ctx.references : []
+        });
+      } catch {}
+
+      // Show it
+      modal.style.display = "flex"; // your CSS centers it
     });
 
-    modal.style.display = "flex";
+    // Cancel closes modal
+    const cancelBtn = document.getElementById("rc_cancel");
+    if (cancelBtn) cancelBtn.onclick = () => { modal.style.display = "none"; };
+
+    // Send handler
+    const sendBtn = document.getElementById("rc_send");
+    const statusEl = document.getElementById("rc_status");
+
+    if (sendBtn) sendBtn.onclick = async () => {
+      const from = val(get("rc_from"));
+      const to   = val(get("rc_to"));
+      const subj = val(get("rc_subject"));
+      const body = val(get("rc_body"));
+
+      if (statusEl) statusEl.textContent = "";
+
+      if (!from || !to || !body) {
+        if (statusEl) statusEl.textContent = "❌ Missing From/To/Body";
+        return;
+      }
+
+      // Pull threading hints
+      let extra = { messageId: null, references: [] };
+      try { extra = JSON.parse(modal.dataset.ctx || "{}"); } catch {}
+
+      if (statusEl) statusEl.textContent = "📡 Sending…";
+
+      try {
+        const r = await fetch("/api/imap/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from, to, subject: subj, text: body,
+            inReplyTo: extra.messageId || null,
+            references: extra.references || []
+          })
+        });
+
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.ok === false) {
+          throw new Error(j.error || `Send failed (${r.status})`);
+        }
+
+        if (statusEl) statusEl.textContent = "✅ Reply sent!";
+        modal.style.display = "none";
+      } catch (e) {
+        if (statusEl) statusEl.textContent = "❌ Error: " + (e?.message || e);
+      }
+    };
   });
-
-  // Cancel
-  el("rc_cancel").onclick = () => { modal.style.display = "none"; };
-
-  // Send
-  el("rc_send").onclick = async () => {
-    const from   = el("rc_from").value.trim();
-    const to     = el("rc_to").value.trim();
-    const subject= el("rc_subject").value.trim();
-    const text   = el("rc_body").value.trim();
-    const status = el("rc_status");
-
-    if (!from || !to || !text) { status.textContent = "❌ Missing From/To/Body"; return; }
-
-    // pull threading context
-    let extra = {};
-    try { extra = JSON.parse(modal.dataset.ctx || "{}"); } catch {}
-
-    status.textContent = "📡 Sending...";
-    try {
-      const r = await fetch("/api/imap/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from, to, subject, text,
-          inReplyTo: extra.messageId || null,
-          references: extra.references || []
-        })
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || j.ok === false) throw new Error(j.error || `Send failed (${r.status})`);
-      status.textContent = "✅ Reply sent!";
-      modal.style.display = "none";
-    } catch (e) {
-      status.textContent = "❌ Error: " + (e?.message || e);
-    }
-  };
-});
+})();
 </script>
 
 </body>
