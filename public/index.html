@@ -910,7 +910,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (payload.toEmail && get("email")) set(get("email"), payload.toEmail);
 
     // Optional: clear payload once used
-    try { sessionStorage.removeItem("imap.generatorPayload"); } catch {}
+    
   })();
 
   /* ---------- 2) Reply Confirmation Modal wiring ---------- */
