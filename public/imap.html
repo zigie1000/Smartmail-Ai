@@ -1702,7 +1702,11 @@ async function sendSelected() {
     try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); } catch {}
   })();
 
-  try { sessionStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch {}
+  try {
+  sessionStorage.setItem('imap.generatorPayload', JSON.stringify(payload));
+  // keep a resilient fallback so index.html can still see it if sessionStorage is lost
+  localStorage.setItem('imap.generatorPayload', JSON.stringify(payload));
+} catch {}
 try { localStorage.setItem("imap.generatorPayload", JSON.stringify(payload)); } catch {}
   try { if (typeof saveImapState === "function") saveImapState(); } catch {}
 
