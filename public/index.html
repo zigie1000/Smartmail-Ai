@@ -839,16 +839,27 @@ const smtp = {
       if (statusEl) statusEl.textContent = "📡 Sending…";
 
       try {
-        const r = await fetch("/api/imap/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from, to, subject: subj, text: body,
-            inReplyTo: extra.messageId || null,
-            references: Array.isArray(extra.references) ? extra.references : [],
-            smtp
-          })
-        });
+        body: JSON.stringify({
+  // message fields
+  from,
+  to,
+  subject: subj,
+  text: body,
+
+  // threading info
+  inReplyTo: extra.messageId || null,
+  references: Array.isArray(extra.references) ? extra.references : [],
+
+  // keep nested object
+  smtp,
+
+  // 👇 flat SMTP fields for server compatibility
+  host:        smtp.host,
+  port:        smtp.port,
+  email:       smtp.email,
+  password:    smtp.password || "",
+  accessToken: smtp.accessToken || ""
+})
 
         const j = await r.json().catch(() => ({}));
         if (!r.ok || j.ok === false) {
