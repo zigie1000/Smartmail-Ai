@@ -1686,36 +1686,49 @@ async function sendSelected() {
     references
   };
 
-  // Preload SMTP settings for the Generator (only once)
-  (function preloadSmtpForGenerator(){
-    const q = (sel) => document.querySelector(sel);
-    const host = (q('#host')?.value || '').trim();
-    const port = Number(q('#port')?.value || 465);
-    const tlsRaw = String(q('#tls')?.value || 'on').toLowerCase();
-    const secure = (tlsRaw === 'on' || tlsRaw === 'true' || tlsRaw === 'yes');
-    const authType = q('#authType')?.value || 'password';
-    const emailFrom = ownerEmail;
-    const accessTok = q('#accessToken')?.value || '';
-    const password  = q('#password')?.value || '';
+<!-- ===== SMTP PRELOAD FOR GENERATOR (DROP-IN) ===== -->
+  (function preloadSmtpForGenerator() {
+    // Read the visible SMTP inputs on the IMAP page (fallbacks included)
+    const $ = (id) => document.getElementById(id);
 
-    // SAVE SMTP PRELOAD FOR GENERATOR
-try {
-  // Keep original preload in sessionStorage
-  sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload));
+    const hostRaw   = String(($("#host")?.value || '').trim() || 'smtp.gmail.com');
+    const portRaw   = Number($("#port")?.value || 465);
+    const tlsRaw    = String(($("#tls")?.value || 'on').toLowerCase());          // 'on' | 'true' | 'yes'
+    const secure    = (tlsRaw === 'on' || tlsRaw === 'true' || tlsRaw === 'yes');
 
-  // Prime generator keys so index.html doesn’t complain
-  localStorage.setItem('smtp_host',        (preload.host || 'smtp.gmail.com'));
-  localStorage.setItem('smtp_port',        String(preload.port ?? 465));
-  localStorage.setItem('smtp_secure',      preload.secure ? 'true' : 'false');
-  localStorage.setItem('smtp_authType',    (preload.authType || (preload.accessToken ? 'xoauth2' : 'password')));
+    const authRaw   = String(($("#authType")?.value || 'password').toLowerCase()); // 'password' | 'xoauth2'
+    const emailFrom = String(($("#fromEmail")?.value || '').trim());
+    const passRaw   = ($("#password")?.value || '');
+    const tokenRaw  = ($("#accessToken")?.value || '');
 
-  if (preload.email) localStorage.setItem('smtp_email', preload.email);
+    // Build a compact preload used by the generator page
+    const preload = {
+      host:        hostRaw,
+      port:        portRaw,
+      secure:      secure,
+      authType:    authRaw || (tokenRaw ? 'xoauth2' : 'password'),
+      email:       emailFrom,
+      password:    passRaw,
+      accessToken: tokenRaw
+    };
 
-  // secrets → sessionStorage only
-  if (preload.password)    sessionStorage.setItem('smtp_password', preload.password);
-  if (preload.accessToken) sessionStorage.setItem('smtp_accessToken', preload.accessToken);
-} catch {}
+    // 1) Keep original preload in sessionStorage (index.html will read this)
+    try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); } catch {}
+
+    // 2) Prime minimal keys in localStorage so index.html can render without complaining
+    try {
+      localStorage.setItem('smtp_host',     preload.host || 'smtp.gmail.com');
+      localStorage.setItem('smtp_port',     String(preload.port ?? 465));
+      localStorage.setItem('smtp_secure',   preload.secure ? 'true' : 'false');
+      localStorage.setItem('smtp_authType', preload.authType || (preload.accessToken ? 'xoauth2' : 'password'));
+      if (preload.email) localStorage.setItem('smtp_email', preload.email);
+      // For safety, keep secrets in sessionStorage (not localStorage)
+      if (preload.password)    sessionStorage.setItem('smtp_password', preload.password);
+      if (preload.accessToken) sessionStorage.setItem('smtp_accessToken', preload.accessToken);
+    } catch {}
   })();
+
+<!-- ===== END SMTP PRELOAD FOR GENERATOR ===== -->
 
   try {
   sessionStorage.setItem('imap.generatorPayload', JSON.stringify(payload));
