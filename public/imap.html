@@ -1698,8 +1698,23 @@ async function sendSelected() {
     const accessTok = q('#accessToken')?.value || '';
     const password  = q('#password')?.value || '';
 
-    const preload = { host: host || 'smtp.gmail.com', port, secure, authType, email: emailFrom, password, accessToken: accessTok };
-    try { sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload)); } catch {}
+    // SAVE SMTP PRELOAD FOR GENERATOR
+try {
+  // Keep original preload in sessionStorage
+  sessionStorage.setItem('imap.smtpPreload', JSON.stringify(preload));
+
+  // Prime generator keys so index.html doesn’t complain
+  localStorage.setItem('smtp_host',        (preload.host || 'smtp.gmail.com'));
+  localStorage.setItem('smtp_port',        String(preload.port ?? 465));
+  localStorage.setItem('smtp_secure',      preload.secure ? 'true' : 'false');
+  localStorage.setItem('smtp_authType',    (preload.authType || (preload.accessToken ? 'xoauth2' : 'password')));
+
+  if (preload.email) localStorage.setItem('smtp_email', preload.email);
+
+  // secrets → sessionStorage only
+  if (preload.password)    sessionStorage.setItem('smtp_password', preload.password);
+  if (preload.accessToken) sessionStorage.setItem('smtp_accessToken', preload.accessToken);
+} catch {}
   })();
 
   try {
