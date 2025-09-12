@@ -838,39 +838,51 @@ const smtp = {
 
       if (statusEl) statusEl.textContent = "📡 Sending…";
 
-      try {
-        body: JSON.stringify({
-  // message fields
-  from,
-  to,
-  subject: subj,
-  text: body,
+      let resp, data;
+try {
+  // build payload once
+  const payload = {
+    // message fields
+    from,
+    to,
+    subject: subj,
+    text: body,
 
-  // threading info
-  inReplyTo: extra.messageId || null,
-  references: Array.isArray(extra.references) ? extra.references : [],
+    // threading info
+    inReplyTo: extra.messageId || null,
+    references: Array.isArray(extra.references) ? extra.references : [],
 
-  // keep nested object
-  smtp,
+    // keep nested smtp for newer handler
+    smtp,
 
-  // flat SMTP fields for server compatibility
-  host:        smtp.host,
-  port:        smtp.port,
-  email:       smtp.email,
-  password:    smtp.password || "",
-  accessToken: smtp.accessToken || ""
-})
+    // also provide flat SMTP fields for older server handlers
+    host: smtp.host,
+    port: smtp.port,
+    email: smtp.email,
+    password: smtp.password || "",
+    accessToken: smtp.accessToken || ""
+  };
 
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || j.ok === false) {
-          throw new Error(j.error || `Send failed (${r.status})`);
-        }
+  resp = await fetch("/api/imap/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
-        if (statusEl) statusEl.textContent = "✅ Reply sent!";
-        setTimeout(() => { modal.style.display = "none"; }, 400);
-      } catch (e) {
-        if (statusEl) statusEl.textContent = "❌ Error: " + (e?.message || e);
-      }
+  // parse JSON safely
+  data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok || data.ok === false) {
+    throw new Error(data.error || `Send failed (${resp.status})`);
+  }
+
+  if (statusEl) {
+    statusEl.textContent = "✅ Reply sent!";
+    setTimeout(() => { modal.style.display = "none"; }, 400);
+  }
+} catch (e) {
+  if (statusEl) statusEl.textContent = "❌ Error: " + (e?.message || e);
+}
     };
   });
 })();
