@@ -815,14 +815,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const body  = val(get("rc_body"));
 
-      // SMTP details from form
-      const smtp = {
-        host:        val(get("smtp_host")) || "smtp.gmail.com",
-        port:        Number(val(get("smtp_port")) || "465"),
-        email:       val(get("smtp_email")) || from,
-        password:    val(get("smtp_password")),
-        accessToken: val(get("smtp_accessToken"))
-      };
+   // SMTP details: use modal inputs first, then localStorage fallback
+const smtp = {
+  host:        val(get("smtp_host"))        || localStorage.getItem("smtp_host")        || "smtp.gmail.com",
+  port:        Number(val(get("smtp_port")) || localStorage.getItem("smtp_port")        || "465"),
+  email:       val(get("smtp_email"))       || localStorage.getItem("smtp_email")       || from,
+  password:    val(get("smtp_password"))    || localStorage.getItem("smtp_password")    || "",
+  accessToken: val(get("smtp_accessToken")) || localStorage.getItem("smtp_accessToken") || ""
+};
 
       if (!from || !to || !subj || !body) {
         if (statusEl) statusEl.textContent = "❌ Missing required fields (from, to, subject, body).";
